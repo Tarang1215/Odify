@@ -8,7 +8,7 @@ class OdifyLyricsFallback {
   static const _host = 'lrclib.net';
 
   static String cleanTitle(String title) => title
-      .replaceAll(RegExp(r'\s*[\[(](?:official\s*(?:music\s*)?(?:video|audio)|m/?v|lyrics?|visuali[sz]er|4k)[\])]\s*',
+      .replaceAll(RegExp(r'\s*[\[(](?:official\s*(?:music\s*)?(?:video|audio|m/?v)|m/?v|lyrics?|visuali[sz]er|4k)[\])]\s*',
           caseSensitive: false), ' ')
       .replaceAll(RegExp(r'\s+'), ' ').trim();
 
