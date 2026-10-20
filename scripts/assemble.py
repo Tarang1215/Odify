@@ -9,8 +9,11 @@ import shutil
 import subprocess
 import sys
 
-UPSTREAM = 'https://github.com/mornyeapp/Mornye.git'
-COMMIT = '8e4504e72ddcda6bdf6df5e1275396f46e9dfb9f'  # Mornye 5.2.1 SHA; NEVER branch HEAD
+# Runtime is built exclusively from an Odify-owned frozen source snapshot.
+# Original upstream commit remains documented in config/upstream_lock.json.
+UPSTREAM = 'https://github.com/Tarang1215/Odify.git'
+COMMIT = '191fd35e1d9cf147a54312453c39e717408d0454'  # own immutable vendor commit
+ORIGINAL_UPSTREAM_COMMIT = '8e4504e72ddcda6bdf6df5e1275396f46e9dfb9f'
 ROOT = Path(__file__).resolve().parents[1]
 TARGET = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else ROOT / 'build' / 'Odify'
 
@@ -31,6 +34,11 @@ def assemble():
     TARGET.parent.mkdir(parents=True, exist_ok=True)
     subprocess.run(['git', 'clone', '--filter=blob:none', '--no-checkout', UPSTREAM, str(TARGET)], check=True)
     subprocess.run(['git', '-C', str(TARGET), 'checkout', '--detach', COMMIT], check=True)
+    # A vendor receipt binds the Odify snapshot to the reviewed upstream SHA.
+    # No automatic vendor upgrade can silently change the audio core.
+    vendor_receipt = TARGET / 'ODIFY_VENDOR_BASE.txt'
+    if not vendor_receipt.is_file() or ORIGINAL_UPSTREAM_COMMIT not in vendor_receipt.read_text(encoding='utf-8'):
+        raise RuntimeError('Reviewed vendor source provenance file missing/mismatched')
     # The 5.2.1 Flutter package and Kotlin namespace were renamed. Carry
     # Odify's independent modules across, but preserve the newest upstream
     # framework/initialization implementations and patch them later by anchors.
