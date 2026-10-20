@@ -6,10 +6,25 @@ import 'package:sqflite/sqflite.dart';
 
 import 'sync_merge.dart';
 
+/// Contract shared by durable SQLite storage and zero-network test ledgers.
+abstract class OdifySyncLedger {
+  Future<void> appendLocal(OdifySyncEvent event);
+  Future<void> importRemote(
+    List<OdifySyncEvent> events, {
+    required String nextCursor,
+  });
+  Future<String?> getCursor();
+  Future<List<OdifySyncEvent>> readAll();
+  Future<OdifySyncState> state();
+  Future<OdifyPendingBatch?> pendingBatch({int limit = 50});
+  Future<void> markUploaded(OdifyPendingBatch batch);
+  Future<int> pendingCount();
+}
+
 /// Persistent local-first operation log, isolated from Mornye's media DB.
 /// No sign-in or network required. Do not instantiate this for another Google
 /// account without account-specific storage partitioning.
-class OdifySyncRepository {
+class OdifySyncRepository implements OdifySyncLedger {
   OdifySyncRepository({Future<Database> Function()? open})
       : _openOverride = open;
 
