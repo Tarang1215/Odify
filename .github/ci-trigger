@@ -1,2 +1,1 @@
-Rebuild pinned Mornye 5.2.1 and Odify 0.9.0+170 after fixing vendor-updater unused imports (main_shell analyzer warnings).
-Test date: 2026-10-20. Validate debug and release native compile, signing, package, startup artifact.
+2026-10-20 Odify 0.9.0+170 pinned Mornye 5.2.1 restart after fixing pre-release analyzer unused_field warning in vendor update shim; check startup ELF, own package and updater isolation. Keep existing app data; no silent overwrite.
