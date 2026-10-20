@@ -92,6 +92,9 @@ class OdifySyncEvent {
   final Map<String, Object?> payload;
 
   factory OdifySyncEvent.fromJson(Map<String, Object?> json) {
+    if (json['schemaVersion'] != 1) {
+      throw const FormatException('Unsupported sync event schema');
+    }
     final eventId = json['eventId'];
     final deviceId = json['deviceId'];
     final hlc = json['hlc'];
@@ -107,6 +110,7 @@ class OdifySyncEvent {
         payload is! Map<String, Object?>) {
       throw const FormatException('Invalid Odify sync event');
     }
+    _validatePayload(op, payload);
     return OdifySyncEvent(
       eventId: eventId,
       deviceId: deviceId,
@@ -114,6 +118,53 @@ class OdifySyncEvent {
       op: op,
       payload: Map.unmodifiable(payload),
     );
+  }
+
+  static void _validatePayload(
+    String op,
+    Map<String, Object?> payload,
+  ) {
+    const opFields = <String, Set<String>>{
+      'playlist.create': {'playlistId', 'name'},
+      'playlist.rename': {'playlistId', 'name'},
+      'playlist.delete': {'playlistId'},
+      'playlist.entry.add': {
+        'playlistId', 'entryId', 'positionKey', 'sourceRef',
+      },
+      'playlist.entry.remove': {'playlistId', 'entryId'},
+      'playlist.entry.move': {'playlistId', 'entryId', 'positionKey'},
+      'like.set': {'sourceKey', 'liked'},
+    };
+    final fields = opFields[op];
+    if (fields == null || fields.length != payload.length ||
+        !fields.containsAll(payload.keys)) {
+      throw const FormatException('Unsupported or unsafe sync operation');
+    }
+    for (final field in fields) {
+      final value = payload[field];
+      if (field == 'liked') {
+        if (value is! bool) {
+          throw const FormatException('Invalid liked flag');
+        }
+      } else if (field == 'sourceRef') {
+        if (value is! Map<String, Object?>) {
+          throw const FormatException('Invalid track source reference');
+        }
+        const allowed = {
+          'kind', 'title', 'artist', 'videoId', 'fingerprint', 'durationMs',
+        };
+        if (!allowed.containsAll(value.keys)) {
+          throw const FormatException('Sync cannot upload local file paths');
+        }
+        OdifySourceRef.fromJson(value);
+      } else {
+        final limit = field == 'name' ? 200 : 2048;
+        if (value is! String || value.isEmpty ||
+            value.length > limit || value.contains('\u0000')) {
+          throw const FormatException('Invalid sync field');
+        }
+      }
+    }
   }
 
   Map<String, Object?> toJson() => {
