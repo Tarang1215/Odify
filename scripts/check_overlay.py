@@ -57,7 +57,8 @@ assert 'OdifyDeviceLibraryCard' in files['lib/widgets/odify_quick_access.dart'].
 assert '0.16.0' in app and 'jniLibs.useLegacyPackaging = true' in app
 assert 'android:extractNativeLibs' not in app
 assert 'YoutubeDL.getInstance().getInfo(request)' in files['android/app/src/main/kotlin/com/zarz/spotiflac/OdifyYtDlpPlugin.kt'].read_text()
-assert "playSingle(media)" in files['lib/widgets/odify_youtube_explore.dart'].read_text()
+assert "playAll(" in files['lib/widgets/odify_youtube_explore.dart'].read_text()
+assert "initialIndex: index" in files['lib/widgets/odify_youtube_explore.dart'].read_text()
 
 # v0.5: safe queue identities and no stale extracted URLs in session state.
 source = files['lib/services/odify_youtube.dart'].read_text()
@@ -67,7 +68,11 @@ assert 'return uri.pathSegments.single;' in source
 assert 'source: url,' not in source
 assert 'OdifyYouTube.resolveAudioSource(media.source)' in app
 assert "'odify-youtube'" in app
-assert 'OdifyYouTube.playable(video)' in files['lib/widgets/odify_youtube_explore.dart'].read_text()
+assert 'OdifyYouTube.playable(item)' in files['lib/widgets/odify_youtube_explore.dart'].read_text()
+phone_browser = files['lib/widgets/odify_device_music_browser.dart'].read_text()
+assert '.playAll(' in phone_browser
+assert 'initialIndex: initialIndex' in phone_browser
+assert 'playSingle(track.toPlayable())' not in phone_browser
 
 # v0.6 personalized Discover: bounded search, source-level dedup, likes feedback.
 assert {
@@ -100,3 +105,33 @@ assert 'lib/services/odify_sync/sync_merge.dart' in files
 assert 'test/odify_sync_merge_test.dart' in files
 assert 'class OdifySyncState' in files['lib/services/odify_sync/sync_merge.dart'].read_text()
 print('Odify v0.8 library visibility + shared sync-merge static assertions passed')
+
+
+# No-APK v0.9 implementation checks: portable sync ledger and Drive adapter.
+sync_required = {
+    'lib/services/odify_sync/sync_clock.dart',
+    'lib/services/odify_sync/sync_repository.dart',
+    'lib/services/odify_sync/sync_coordinator.dart',
+    'lib/services/odify_sync/drive_sync_transport.dart',
+    'test/odify_sync_coordinator_test.dart',
+    'test/odify_drive_transport_test.dart',
+}
+assert sync_required <= files.keys(), sorted(sync_required - files.keys())
+repository = files['lib/services/odify_sync/sync_repository.dart'].read_text()
+coordinator = files['lib/services/odify_sync/sync_coordinator.dart'].read_text()
+drive = files['lib/services/odify_sync/drive_sync_transport.dart'].read_text()
+model = files['lib/services/odify_sync/sync_merge.dart'].read_text()
+assert 'Future<OdifySyncEvent> recordLocalChange' in repository
+assert 'CREATE TABLE sync_events' in repository
+assert 'Future<void> importRemote(' in repository
+assert 'local_pending' in repository and 'batch_id' in repository
+assert 'Future<OdifyPendingBatch?> pendingBatch' in repository
+assert 'transport.putIfAbsent(batch)' in coordinator
+assert 'await ledger.markUploaded(batch)' in coordinator
+assert 'appDataFolder' in drive
+assert 'multipart/related' in drive
+assert "'spaces': 'appDataFolder'" in drive
+assert "changes/startPageToken" in drive
+assert 'OdifySyncEvent.fromJson(event.toJson())' in drive
+assert "Unsupported or unsafe sync operation" in model
+print('Odify v0.9 player queue + offline sync persistence + Drive adapter static assertions passed')
