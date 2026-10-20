@@ -210,8 +210,19 @@ def patch_art(root: Path) -> None:
 
 def patch_updater(root: Path) -> None:
     info = root / "lib/constants/app_info.dart"
-    # app_info.dart is owned by Odify's overlay, not by the upstream base.
-    # Never rewrite its identity from Mornye after overlay application.
+    # Main assembly deliberately keeps v5.2.1 AppInfo intact and changes
+    # identity only here, at one reviewed seam. Do not copy stale 5.2.0 Dart.
+    for old, new in (
+        ("static const String version = '5.2.1';",
+         "static const String version = '0.9.0';"),
+        ("static const String buildNumber = '163';",
+         "static const String buildNumber = '170';"),
+        ("static const String appName = 'Mornye';",
+         "static const String appName = 'Odify';"),
+        ("static const String githubRepo = 'spotiflacapp/SpotiFLAC-Mobile';",
+         "static const String githubRepo = 'Tarang1215/Odify';"),
+    ):
+        one(info, old, new)
     identity = info.read_text(encoding="utf-8")
     for own_constant in (
         "static const String version = '0.9.0';",
