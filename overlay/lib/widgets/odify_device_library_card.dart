@@ -12,6 +12,7 @@ import 'package:spotiflac_android/services/odify_device_catalog.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:spotiflac_android/widgets/odify_glass.dart';
 
 /// Device MediaStore is browseable regardless of existing SpotiFLAC library sources.
 class OdifyDeviceLibraryCard extends ConsumerStatefulWidget {
@@ -118,13 +119,26 @@ class _OdifyDeviceLibraryCardState extends ConsumerState<OdifyDeviceLibraryCard>
       loading: s.isLoading,
       noSources: s.sources.isEmpty,
     )));
-    return Card.filled(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 8),
+    return OdifyGlassSurface(
+      radius: 23,
+      padding: const EdgeInsets.symmetric(vertical: 8),
         child: Column(children: [
           ListTile(
-            leading: const Icon(Icons.library_music_outlined),
-            title: const Text('내 휴대폰 음악'),
+            leading: Container(
+              height: 47,
+              width: 47,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(15),
+              ),
+              child: Icon(
+                Icons.library_music_outlined,
+                color: Theme.of(context).colorScheme.primary,
+              ),
+            ),
+            title: const Text('내 휴대폰 음악',
+              style: TextStyle(fontWeight: FontWeight.w800)),
             subtitle: const Text('Samsung Music에서 보이는 로컬 음악을 Odify에서도 재생하고 취향에 반영합니다.'),
             trailing: const Icon(Icons.chevron_right),
             onTap: () => showModalBottomSheet<void>(
@@ -172,7 +186,6 @@ class _OdifyDeviceLibraryCardState extends ConsumerState<OdifyDeviceLibraryCard>
               ),
             ),
         ]),
-      ),
     );
   }
 
