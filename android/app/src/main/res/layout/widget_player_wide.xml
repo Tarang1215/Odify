@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 4x2: large rounded cover, emphasized title and the transport row. -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/player_widget_root" android:layout_width="match_parent" android:layout_height="match_parent">
+    <ImageView android:id="@+id/player_widget_background" android:layout_width="match_parent" android:layout_height="match_parent"
+        android:scaleType="fitXY" android:src="@drawable/widget_shape_container" android:tint="@color/widgetBackground" android:importantForAccessibility="no" />
+    <LinearLayout android:layout_width="match_parent" android:layout_height="match_parent"
+        android:gravity="center_vertical" android:orientation="horizontal" android:padding="12dp">
+        <ImageView android:id="@+id/player_widget_art" android:layout_width="wrap_content" android:layout_height="match_parent"
+            android:adjustViewBounds="true" android:maxWidth="136dp" android:scaleType="fitCenter" android:src="@drawable/widget_art_placeholder" android:importantForAccessibility="no" />
+        <LinearLayout android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1"
+            android:layout_marginStart="16dp" android:gravity="center_vertical" android:orientation="vertical">
+            <TextView android:id="@+id/player_widget_title" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:ellipsize="end" android:fontFamily="sans-serif" android:includeFontPadding="false" android:letterSpacing="-0.01"
+                android:singleLine="true" android:text="@string/player_widget_name" android:textColor="@color/widgetTextPrimary"
+                android:textSize="18sp" android:textStyle="bold" />
+            <TextView android:id="@+id/player_widget_artist" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_marginTop="2dp" android:ellipsize="end" android:fontFamily="sans-serif-medium" android:singleLine="true"
+                android:text="@string/player_widget_empty" android:textColor="@color/widgetTextSecondary" android:textSize="14sp" />
+            <include layout="@layout/widget_player_controls" android:layout_width="match_parent" android:layout_height="48dp"
+                android:layout_marginTop="10dp" />
+        </LinearLayout>
+    </LinearLayout>
+</FrameLayout>

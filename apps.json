@@ -1,0 +1,18 @@
+{
+  "name": "Mornye Source",
+  "identifier": "com.zarz.mornye.source",
+  "subtitle": "FLAC Downloader for iOS",
+  "apps": [
+    {
+      "name": "Mornye",
+      "bundleIdentifier": "com.zarz.spotiflac",
+      "developerName": "zarzet",
+      "version": "5.2.0",
+      "versionDate": "2026-10-19",
+      "downloadURL": "https://github.com/spotiflacapp/SpotiFLAC-Mobile/releases/download/v5.2.0/SpotiFLAC-v5.2.0-ios-unsigned.ipa",
+      "localizedDescription": "Mornye is written in Flutter and uses installable extensions for metadata and audio downloads.",
+      "iconURL": "https://raw.githubusercontent.com/spotiflacapp/SpotiFLAC-Mobile/main/assets/images/logo.png",
+      "size": 34659653
+    }
+  ]
+}

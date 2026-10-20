@@ -1,0 +1,5 @@
+Upstream: mornyeapp/Mornye
+Version: v5.2.1
+Immutable upstream commit: 8e4504e72ddcda6bdf6df5e1275396f46e9dfb9f
+This branch is a frozen source snapshot, not an automatic update feed.
+Original license/attribution files remain in the snapshot.

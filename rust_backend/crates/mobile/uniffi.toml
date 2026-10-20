@@ -1,0 +1,7 @@
+[bindings.kotlin]
+package_name = "com.mornye.backend"
+cdylib_name = "mornye_mobile"
+
+[bindings.swift]
+module_name = "MornyeBackend"
+ffi_module_name = "MornyeBackendFFI"
