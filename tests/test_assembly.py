@@ -62,6 +62,14 @@ class OdifyAssemblyTests(unittest.TestCase):
             def fake_git(argv, check=False):
                 calls.append(argv)
                 if 'clone' in argv:
+                    # The canonical assembler now clones our *own* frozen
+                    # source snapshot, not a live upstream checkout.
+                    receipt = target / 'ODIFY_VENDOR_BASE.txt'
+                    receipt.parent.mkdir(parents=True, exist_ok=True)
+                    receipt.write_text(
+                        'Immutable upstream commit: '
+                        '8e4504e72ddcda6bdf6df5e1275396f46e9dfb9f\\n'
+                    )
                     for relative, text in FIXTURES.items():
                         file = target / relative
                         file.parent.mkdir(parents=True, exist_ok=True)
