@@ -299,6 +299,18 @@ def port(root: Path) -> None:
     replace_category_grid(root / "lib/screens/mornye_library_screen.dart")
     patch_updater(root)
     patch_startup_prompts(root)
+    # The upstream MainShell compiles these imports into the same library as
+    # main_shell_startup_prompts.dart. They become unused once the vendor
+    # update and rebrand dialogs are removed, so delete only reviewed imports.
+    shell = root / "lib/screens/main_shell.dart"
+    for import_line in (
+        "import 'package:shared_preferences/shared_preferences.dart';",
+        "import 'package:mornye/screens/upgrade_intro_screen.dart';",
+        "import 'package:mornye/services/upgrade_intro_service.dart';",
+        "import 'package:mornye/services/update_checker.dart';",
+        "import 'package:mornye/widgets/update_dialog.dart';",
+    ):
+        one(shell, import_line + "\n", "")
     print("Applied reviewed Odify native-screen integration and isolated update policy.")
 
 
