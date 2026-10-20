@@ -121,7 +121,7 @@ class OdifyAudioProxy {
       }
       upstream.headers.set(HttpHeaders.acceptEncodingHeader, 'identity');
       final range = request.headers.value(HttpHeaders.rangeHeader);
-      if (range != null && RegExp(r'^bytes=[0-9]+(-[0-9]*)??
+      if (range != null && RegExp(r'^bytes=[0-9]+(-[0-9]*)?$').hasMatch(range)) {
         upstream.headers.set(HttpHeaders.rangeHeader, range);
       }
       final ifRange = request.headers.value(HttpHeaders.ifRangeHeader);
