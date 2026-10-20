@@ -130,6 +130,17 @@ class _OdifyDeviceLibraryCardState extends ConsumerState<OdifyDeviceLibraryCard>
               ),
             ),
           ),
+          if (library.totalCount > 0 && !library.isLoading)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  '라이브러리 인덱스: ${library.totalCount}곡 · 아래 라이브러리 탭에서 확인',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ),
+            ),
           if (library.sources.isEmpty && !library.isLoading)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12),
