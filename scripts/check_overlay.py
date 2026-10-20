@@ -17,6 +17,7 @@ required = {
     'lib/services/odify_device_catalog.dart',
     'lib/widgets/odify_device_library_card.dart',
     'lib/widgets/odify_device_music_browser.dart',
+    'lib/widgets/odify_quick_access.dart',
     'android/app/src/main/kotlin/com/zarz/spotiflac/OdifyMediaStorePlugin.kt',
 }
 assert required <= files.keys(), sorted(required - files.keys())
@@ -47,7 +48,12 @@ assert {
     'android/app/src/main/kotlin/com/zarz/spotiflac/OdifyYtDlpPlugin.kt',
 } <= files.keys()
 assert 'OdifyYtDlpPlugin' in app
-assert 'OdifyYouTubeExploreCard' in app
+assert 'OdifyQuickAccess(showDeviceLibrary: _showsHome)' in app
+assert 'SliverToBoxAdapter(' in app
+assert 'home_tab_intro.dart' not in app  # Not hidden in extension-dependent section
+assert 'odify_quick_access.dart' in app
+assert 'OdifyYouTubeExploreCard' in files['lib/widgets/odify_quick_access.dart'].read_text()
+assert 'OdifyDeviceLibraryCard' in files['lib/widgets/odify_quick_access.dart'].read_text()
 assert '0.16.0' in app and 'jniLibs.useLegacyPackaging = true' in app
 assert 'android:extractNativeLibs' not in app
 assert 'YoutubeDL.getInstance().getInfo(request)' in files['android/app/src/main/kotlin/com/zarz/spotiflac/OdifyYtDlpPlugin.kt'].read_text()
