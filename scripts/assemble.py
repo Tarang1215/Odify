@@ -42,13 +42,6 @@ def assemble():
                 '  shared_preferences: ^2.5.6',
                 '  shared_preferences: ^2.5.6\n'
                 '  google_sign_in: ^7.2.0')
-    # Flutter's integration_test is a dev-only native Android plugin. The
-    # upstream registrant includes it even when building release directly via
-    # Gradle, but it is not present on the release classpath. Odify ships no
-    # integration_test runtime; keep flutter_test for Dart/widget checks.
-    replace_one(TARGET / 'pubspec.yaml',
-                'dev_dependencies:\n  integration_test:\n    sdk: flutter\n',
-                'dev_dependencies:\n')
     replace_one(TARGET / 'android/app/build.gradle.kts',
                 'applicationId = "com.zarz.spotiflac"', 'applicationId = "com.odify.music"')
     replace_one(TARGET / 'android/app/src/main/AndroidManifest.xml',
