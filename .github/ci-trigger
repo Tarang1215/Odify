@@ -1,1 +1,1 @@
-Pinned Odify-owned source build verification: vendor/mornye-v5.2.1 commit 191fd35e1d9cf147a54312453c39e717408d0454, preserves upstream provenance 8e4504e72ddcda6bdf6df5e1275396f46e9dfb9f; startup analyzer fixed, no vendor update prompts. 2026-10-20.
+2026-10-20 pinned Odify vendor v5.2.1 owned snapshot SHA 191fd35e1d9cf147a54312453c39e717408d0454; repair startup updater Dart newline, validate with regression test and signed ARM64 release/debug build. No auto-upstream updates.
