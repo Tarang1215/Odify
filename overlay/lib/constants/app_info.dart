@@ -22,7 +22,7 @@ class AppInfo {
   static const String originalGithubUrl =
       'https://github.com/afkarxyz/SpotiFLAC';
   static const String remoteConfigApiUrl =
-      'https://api.github.com/repos/Tarang1215/Odify/releases';
+      'https://raw.githubusercontent.com/Tarang1215/Odify/main/config/odify_remote.json';
 
   /// Upstream is for license/credits only, never for runtime updates.
   static const String upstreamGithubUrl =
