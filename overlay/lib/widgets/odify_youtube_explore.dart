@@ -122,8 +122,15 @@ class _OdifyYouTubeExplorerState extends ConsumerState<OdifyYouTubeExplorer> {
     if (_busyVideo != null) return;
     setState(() => _busyVideo = video.id);
     try {
-      final media = OdifyYouTube.playable(video);
-      await ref.read(musicPlayerControllerProvider).playSingle(media);
+      // A single-item queue disables Next/Previous. Keep the current
+      // Discover/search result ordering as the session queue instead.
+      // Each stream URL is resolved just-in-time from its stable video ID.
+      final index = _results.indexWhere((item) => item.id == video.id);
+      if (index < 0) return;
+      await ref.read(musicPlayerControllerProvider).playAll(
+        [for (final item in _results) OdifyYouTube.playable(item)],
+        initialIndex: index,
+      );
     } catch (error) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('재생에 실패했습니다: $error')));
