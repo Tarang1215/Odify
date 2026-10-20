@@ -1,2 +1,1 @@
-Dart-only sync check rerun after resolving invalid const StateError and mock JSON inference.
-2026-10-20
+2026-10-20: Home music preview + deferred MediaStore regression, Dart-only CI rerun after fixing const test fixtures. No APK build.
