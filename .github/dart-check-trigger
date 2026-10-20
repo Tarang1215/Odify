@@ -1,1 +1,1 @@
-2026-10-20 v1.1 final audit: artwork native worker separation, source mtime cache invalidation, settings donor removal, profile Drive entry. Dart-only CI; no APK.
+2026-10-20 Odify v1.2 actual Flutter redesign: dark frosted default (preserve prefs), album-art personal cards, KR/JP/Global discovery, glass library grid, mini-player optical rim, no scrolling BackdropFilter. Dart-only CI; DO NOT build APK.
