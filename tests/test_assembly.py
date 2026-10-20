@@ -37,7 +37,11 @@ FIXTURES = {
     'android/app/src/main/kotlin/com/zarz/spotiflac/MainActivity.kt': (
         "            flutterEngine.plugins.add(MusicHapticsPlugin())\n        }\n"
     ),
-    'lib/screens/home_tab.dart': "import 'package:spotiflac_android/widgets/app_snack_bar.dart';\n",
+    'lib/screens/home_tab.dart': (
+        "import 'package:spotiflac_android/widgets/app_snack_bar.dart';\n"
+        "slivers: [\n"
+        "              _buildHeaderSliver(greeting: greeting),\n"
+    ),
     'lib/screens/home_tab_intro.dart': '    final sections = <Widget>[\n',
 }
 
@@ -64,6 +68,15 @@ class OdifyAssemblyTests(unittest.TestCase):
             self.assertIn('jniLibs.useLegacyPackaging = true', gradle)
             self.assertNotIn('android:extractNativeLibs', manifest)
             self.assertTrue((target / 'lib/services/odify_youtube.dart').is_file())
+            home = (target / 'lib/screens/home_tab.dart').read_text()
+            self.assertIn('OdifyQuickAccess(showDeviceLibrary: _showsHome)', home)
+            self.assertIn('SliverToBoxAdapter(', home)
+            self.assertLess(
+                home.index('OdifyQuickAccess(showDeviceLibrary: _showsHome)'),
+                home.index('_buildHomeIntroSliver') if '_buildHomeIntroSliver' in home else len(home),
+            )
+            self.assertNotIn('OdifyYouTubeExploreCard', (target / 'lib/screens/home_tab_intro.dart').read_text())
+            self.assertTrue((target / 'lib/widgets/odify_quick_access.dart').is_file())
 
     def test_no_signed_audio_url_persisted_in_queue(self):
         source = (ROOT / 'overlay/lib/services/odify_youtube.dart').read_text()
