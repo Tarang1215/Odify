@@ -1,38 +1,43 @@
 import 'dart:io';
+
 import 'package:permission_handler/permission_handler.dart';
 import 'package:spotiflac_android/providers/local_library_provider.dart';
 
-/// Connect common folders that Samsung Music scans, without copying files.
-/// Samsung Music's private playlists/history require an explicit export.
+/// First-time import of common folders visible to Samsung Music. Both apps
+/// reference the existing files; no copies are created.
+///
+/// Samsung Music's private playlists/favourites are NOT accessible this way.
+/// Export an M3U/M3U8 playlist from Samsung Music and use SpotiFLAC's existing
+/// playlist import flow for those collections.
 class OdifyDeviceMusicImport {
-  static const folders = <String, String>{
-    '/storage/emulated/0/Music': 'Music',
-    '/storage/emulated/0/Download': 'Downloads',
+  static const defaultFolders = <String, String>{
+    '/storage/emulated/0/Music': 'Device Music',
+    '/storage/emulated/0/Download': 'Downloaded Music',
     '/storage/emulated/0/Podcasts': 'Podcasts',
   };
 
   static Future<List<String>> connect(LocalLibraryNotifier notifier) async {
     if (!Platform.isAndroid) return const [];
-    final permission = await Permission.audio.request();
-    if (!permission.isGranted) {
-      throw StateError('Music access permission was denied.');
+    final result = await Permission.audio.request();
+    if (!result.isGranted) {
+      throw StateError('Music permission is required to scan device audio.');
     }
     final connected = <String>[];
-    for (final folder in folders.entries) {
-      if (!await Directory(folder.key).exists()) continue;
+    for (final entry in defaultFolders.entries) {
+      if (!await Directory(entry.key).exists()) continue;
       try {
         final source = await notifier.addSource(
-          path: folder.key,
-          displayName: folder.value,
+          path: entry.key,
+          displayName: entry.value,
         );
         await notifier.startSourceScan(source.id);
-        connected.add(folder.value);
+        connected.add(entry.value);
       } catch (_) {
-        // Other folders must still be importable if one is inaccessible.
+        // One inaccessible folder must not hide successful imports from others.
       }
     }
     if (connected.isEmpty) {
-      throw StateError('No accessible shared audio folder found.');
+      throw StateError('No accessible shared music folders were found.');
     }
     return connected;
   }
