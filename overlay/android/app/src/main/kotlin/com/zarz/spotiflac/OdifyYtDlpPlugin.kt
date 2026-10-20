@@ -46,7 +46,10 @@ class OdifyYtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         scope.launch {
             try {
                 val value: Any = when (call.method) {
-                    "search" -> search(arguments["query"] as? String ?: "")
+                    "search" -> search(
+                        arguments["query"] as? String ?: "",
+                        (arguments["limit"] as? Number)?.toInt()?.coerceIn(1, 30) ?: 30
+                    )
                     "playlist" -> playlist(arguments["url"] as? String ?: "")
                     "resolve" -> resolve(arguments["videoId"] as? String ?: "")
                     "downloadMp3" -> downloadMp3(arguments["videoId"] as? String ?: "")
@@ -76,11 +79,11 @@ class OdifyYtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         return "https://www.youtube.com/watch?v=$id"
     }
 
-    private fun search(query: String): List<Map<String, Any>> {
+    private fun search(query: String, limit: Int): List<Map<String, Any>> {
         val trimmed = query.trim()
         require(trimmed.length in 1..160 && !trimmed.contains('\n')) { "Enter a valid search query" }
         setup()
-        return flatItems("ytsearch30:$trimmed")
+        return flatItems("ytsearch$limit:$trimmed")
     }
 
     private fun playlist(url: String): List<Map<String, Any>> {

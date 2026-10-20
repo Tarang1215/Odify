@@ -52,12 +52,30 @@ assert '0.16.0' in app and 'android:extractNativeLibs' in app
 assert 'YoutubeDL.getInstance().getInfo(request)' in files['android/app/src/main/kotlin/com/zarz/spotiflac/OdifyYtDlpPlugin.kt'].read_text()
 assert "playSingle(media)" in files['lib/widgets/odify_youtube_explore.dart'].read_text()
 
-# v0.5: queue sources stay stable, and extraction occurs at playback.
+# v0.5: safe queue identities and no stale extracted URLs in session state.
 source = files['lib/services/odify_youtube.dart'].read_text()
 assert 'source: sourceForId(video.id)' in source
-assert "return '$sourceScheme://video/$id';" in source
+assert "return '$sourceScheme://video/$videoId';" in source
 assert 'return uri.pathSegments.single;' in source
 assert 'source: url,' not in source
 assert 'OdifyYouTube.resolveAudioSource(media.source)' in app
 assert "'odify-youtube'" in app
 assert 'OdifyYouTube.playable(video)' in files['lib/widgets/odify_youtube_explore.dart'].read_text()
+
+# v0.6 personalized Discover: bounded search, source-level dedup, likes feedback.
+assert {
+    'lib/services/odify_discovery.dart',
+    'test/odify_discovery_test.dart',
+} <= files.keys()
+discover = files['lib/services/odify_discovery.dart'].read_text(encoding='utf-8')
+assert 'OdifyTasteProfile.fromLocalHistory()' in discover
+assert 'OdifyDiscoveryRanker.rank' in discover
+assert 'knownSongs' in discover and 'byChannel' in discover
+assert 'OdifyYouTube.search(query.term, limit: 12)' in discover
+ui = files['lib/widgets/odify_youtube_explore.dart'].read_text(encoding='utf-8')
+assert 'OdifyDiscover.recommendations' in ui and 'OdifyLikeStore.setLiked' in ui
+assert "'For You'" in ui and '추천 새로고침' in ui
+kt = files['android/app/src/main/kotlin/com/zarz/spotiflac/OdifyYtDlpPlugin.kt'].read_text(encoding='utf-8')
+assert 'ytsearch$limit:' in kt and 'coerceIn(1, 30)' in kt
+assert 'int limit = 30' in files['lib/services/odify_youtube.dart'].read_text(encoding='utf-8')
+print('Odify v0.6 personalized Discover static assertions passed')
