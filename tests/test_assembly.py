@@ -63,7 +63,7 @@ class OdifyAssemblyTests(unittest.TestCase):
 
     def test_no_signed_audio_url_persisted_in_queue(self):
         source = (ROOT / 'overlay/lib/services/odify_youtube.dart').read_text()
-        self.assertIn("return '$sourceScheme://video/$id';", source)
+        self.assertIn("return '$sourceScheme://video/$videoId';", source)
         self.assertIn('return uri.pathSegments.single;', source)
         self.assertIn('source: sourceForId(video.id)', source)
         self.assertNotIn('source: url,', source)
