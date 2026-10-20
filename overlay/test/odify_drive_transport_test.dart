@@ -53,7 +53,7 @@ void main() {
       if (request.url.path.endsWith('/changes')) {
         expect(request.url.queryParameters['pageToken'], '5');
         return http.Response(jsonEncode({
-          'changes': [],
+          'changes': <Map<String, Object?>>[],
           'newStartPageToken': '6',
         }), 200);
       }
