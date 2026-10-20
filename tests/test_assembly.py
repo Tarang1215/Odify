@@ -15,7 +15,7 @@ def script():
     return result
 
 FIXTURES = {
-    'pubspec.yaml': 'name: mornye\n  shared_preferences: ^2.5.6\n',
+    'pubspec.yaml': 'name: mornye\nversion: 5.2.1+163\n  shared_preferences: ^2.5.6\n',
     'android/app/build.gradle.kts': 'applicationId = "com.zarz.mornye"\n        if (discordSdkEnabled) jniLibs.pickFirsts += "**/libdiscord_partner_sdk.so"\ndependencies {\n}\n',
     'android/app/src/main/AndroidManifest.xml': '<application android:name=".SpotiFlacApplication" android:label="Mornye" />\n',
     'lib/services/music_player_service.dart': (
