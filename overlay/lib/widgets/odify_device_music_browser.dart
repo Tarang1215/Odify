@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:spotiflac_android/providers/music_player_provider.dart';
 import 'package:spotiflac_android/services/odify_device_catalog.dart';
+import 'package:spotiflac_android/widgets/odify_device_artwork_tile.dart';
 import 'package:spotiflac_android/services/odify_likes.dart';
 
 /// Browse Android's actual shared audio catalogue and play inside Odify.
@@ -171,7 +172,10 @@ class _OdifyDeviceMusicBrowserState
               final liked = _likes.contains(
                 OdifyLikeStore.trackKey(track.artist, track.title));
               return ListTile(
-                leading: const Icon(Icons.music_note_outlined),
+                leading: OdifyDeviceArtworkTile(
+                  key: ValueKey('odify-cover:${track.id}'),
+                  track: track,
+                ),
                 title: Text(track.title, maxLines: 1, overflow: TextOverflow.ellipsis),
                 subtitle: Text(track.artist, maxLines: 1, overflow: TextOverflow.ellipsis),
                 onTap: () => _playFromVisible(filtered, track),
