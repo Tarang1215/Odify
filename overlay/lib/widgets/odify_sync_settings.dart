@@ -7,6 +7,7 @@ import 'package:spotiflac_android/services/odify_sync/sync_coordinator.dart';
 import 'package:spotiflac_android/services/odify_sync/sync_clock.dart';
 import 'package:spotiflac_android/services/odify_sync/sync_merge.dart';
 import 'package:spotiflac_android/services/odify_sync/sync_repository.dart';
+import 'package:spotiflac_android/widgets/odify_glass.dart';
 
 /// Opt-in cloud sync settings. Does not access Drive in Home/player startup.
 class OdifySyncSettingsScreen extends StatefulWidget {
@@ -55,6 +56,7 @@ class _OdifySyncSettingsScreenState extends State<OdifySyncSettingsScreen> {
     }
     await _perform(() async {
       final account = await _auth.restore();
+      if (!mounted) return;
       if (account == null) {
         _status = '연결된 계정이 없습니다. 동기화는 선택 사항입니다.';
         return;
@@ -65,17 +67,23 @@ class _OdifySyncSettingsScreenState extends State<OdifySyncSettingsScreen> {
   }
 
   Future<void> _perform(Future<void> Function() action) async {
-    if (_busy) return;
+    if (!mounted || _busy) return;
     setState(() => _busy = true);
     try {
       await action();
     } catch (error) {
       // No raw HTTP response body or OAuth token should be included in UI.
       final message = error is OdifyDriveSyncError
-          ? 'Drive 동기화 오류 (HTTP ${error.statusCode}). 권한·연결을 확인하세요.'
-          : error is StateError
-              ? error.message.toString()
-              : '연결 또는 동기화에 실패했습니다. Google 계정 설정을 확인하세요.';
+          ? error.shouldReauthorize
+              ? 'Drive 인증이 필요합니다 (HTTP ${error.statusCode}). 권한을 다시 승인하세요.'
+              : error.shouldRetry
+                  ? 'Drive가 일시적으로 응답하지 않습니다 (HTTP ${error.statusCode}). 나중에 다시 시도하세요.'
+                  : 'Drive 요청을 처리하지 못했습니다 (HTTP ${error.statusCode}).'
+          : error is TimeoutException
+              ? '연결 시간이 초과됐습니다. 네트워크를 확인한 뒤 다시 시도하세요.'
+              : error is StateError
+                  ? error.message.toString()
+                  : '연결 또는 동기화에 실패했습니다. Google 계정 설정을 확인하세요.';
       _status = message;
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -87,6 +95,7 @@ class _OdifySyncSettingsScreenState extends State<OdifySyncSettingsScreen> {
       final old = _repository;
       if (old != null) await old.close();
       _drive?.close();
+      if (!mounted) return;
       // Independent DB/Drive cursor for each Google account. No silent merge.
       _repository = OdifySyncRepository(accountId: account.id);
       _drive = OdifyDriveSyncTransport(accessToken: _auth.accessToken);
@@ -271,7 +280,9 @@ class _OdifySyncSettingsScreenState extends State<OdifySyncSettingsScreen> {
       body: ListView(
         padding: const EdgeInsets.all(18),
         children: [
-          const ListTile(
+          OdifyGlassSurface(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            child: const ListTile(
             contentPadding: EdgeInsets.zero,
             leading: Icon(Icons.cloud_outlined),
             title: Text('Google Drive 개인 동기화'),
@@ -279,11 +290,12 @@ class _OdifySyncSettingsScreenState extends State<OdifySyncSettingsScreen> {
               'Trove/Supabase와 독립적으로 재생목록 변경 기록만 '
               'Google Drive 앱 전용 공간에 저장합니다.',
             ),
+            ),
           ),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
+          const SizedBox(height: 12),
+          OdifyGlassSurface(
+            padding: const EdgeInsets.all(18),
+            child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Text(
@@ -294,7 +306,12 @@ class _OdifySyncSettingsScreenState extends State<OdifySyncSettingsScreen> {
                   Text(_status, style: TextStyle(color: colors.onSurfaceVariant)),
                   if (_lastSync != null) ...[
                     const SizedBox(height: 8),
-                    Text('마지막 동기화: ${_lastSync!.hour.toString().padLeft(2, '0')}:${_lastSync!.minute.toString().padLeft(2, '0')}'),
+                    Text('이번 화면에서 마지막 동기화: '
+                      '${_lastSync!.year}-'
+                      '${_lastSync!.month.toString().padLeft(2, '0')}-'
+                      '${_lastSync!.day.toString().padLeft(2, '0')} '
+                      '${_lastSync!.hour.toString().padLeft(2, '0')}:'
+                      '${_lastSync!.minute.toString().padLeft(2, '0')}'),
                   ],
                   const SizedBox(height: 12),
                   if (_busy) const LinearProgressIndicator(),
@@ -322,9 +339,8 @@ class _OdifySyncSettingsScreenState extends State<OdifySyncSettingsScreen> {
                   ],
                 ],
               ),
-            ),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 18),
           Row(
             children: [
               const Expanded(child: Text(
