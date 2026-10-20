@@ -42,6 +42,10 @@ FIXTURES = {
         "slivers: [\n"
         "              _buildHeaderSliver(greeting: greeting),\n"
     ),
+    'lib/providers/local_library_provider_sources.dart': (
+        "  Future<bool?> _probePathAvailability(String path, {String? bookmark}) async {\n"
+        "  Future<LocalLibrarySource?> _sourceForScan(String sourceId) async {\n"
+    ),
     'lib/screens/home_tab_intro.dart': '    final sections = <Widget>[\n',
 }
 
@@ -77,6 +81,14 @@ class OdifyAssemblyTests(unittest.TestCase):
             )
             self.assertNotIn('OdifyYouTubeExploreCard', (target / 'lib/screens/home_tab_intro.dart').read_text())
             self.assertTrue((target / 'lib/widgets/odify_quick_access.dart').is_file())
+            sources = (target / 'lib/providers/local_library_provider_sources.dart').read_text()
+            self.assertIn("if (path == 'legacy://local-library') return true;", sources)
+            self.assertIn('sourceId == LocalLibraryItem.legacySourceId', sources)
+            self.assertIn('item.path == \'legacy://local-library\'', sources)
+            library_card = (target / 'lib/widgets/odify_device_library_card.dart').read_text()
+            self.assertIn('setLocalLibraryEnabled(true)', library_card)
+            self.assertIn('ref.invalidate(libraryBrowseProvider)', library_card)
+            self.assertIn('reloadFromStorage()', library_card)
 
     def test_no_signed_audio_url_persisted_in_queue(self):
         source = (ROOT / 'overlay/lib/services/odify_youtube.dart').read_text()
