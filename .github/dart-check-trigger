@@ -1,1 +1,1 @@
-2026-10-20: Home music preview + deferred MediaStore regression, Dart-only CI rerun after fixing const test fixtures. No APK build.
+2026-10-20: home quick-heart feedback, 3s debounced personalization, async results version guard. Revalidate Flutter only; no APK.
