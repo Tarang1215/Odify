@@ -253,6 +253,42 @@ def patch_updater(root: Path) -> None:
         "        defaultValue: false)) return null;\n")
 
 
+def patch_startup_prompts(root: Path) -> None:
+    """Remove vendor upgrade tours and forced updater from the Odify shell."""
+    path = root / "lib/screens/main_shell_startup_prompts.dart"
+    source = path.read_text(encoding="utf-8")
+    before = "  Future<void> _checkUpgradeIntro() async {"
+    between = "  Future<bool> _checkForUpdates() async {"
+    after = "  Future<void> _checkAppAnnouncement() async {"
+    if any(source.count(x) != 1 for x in (before, between, after)):
+        raise RuntimeError("Mornye startup update/intro API changed")
+    if "UpdateChecker().checkForUpdate(" not in source:
+        raise RuntimeError("Expected inherited updater not present")
+    start = source.index(before)
+    end = source.index(after)
+    source = (
+        source[:start]
+        + "  Future<void> _checkUpgradeIntro() async {\\n"
+          "    // Odify has its own onboarding, not the Mornye 5.2 release tour.\\n"
+          "  }\\n\\n"
+          "  Future<bool> _checkForUpdates() async {\\n"
+          "    _hasCheckedUpdate = true;\\n"
+          "    return false; // Never force installation of a vendor APK.\\n"
+          "  }\\n\\n"
+        + source[end:]
+    )
+    # Convert intended escaped newlines to actual newlines when inserted.
+    source = source.replace("  Future<void> _checkUpgradeIntro() async {\\n", "  Future<void> _checkUpgradeIntro() async {\n")
+    source = source.replace("    // Odify has its own onboarding, not the Mornye 5.2 release tour.\\n", "    // Odify has its own onboarding, not the Mornye 5.2 release tour.\n")
+    source = source.replace("  }\\n\\n  Future<bool> _checkForUpdates() async {\\n", "  }\n\n  Future<bool> _checkForUpdates() async {\n")
+    source = source.replace("    _hasCheckedUpdate = true;\\n", "    _hasCheckedUpdate = true;\n")
+    source = source.replace("    return false; // Never force installation of a vendor APK.\\n", "    return false; // Never force installation of a vendor APK.\n")
+    source = source.replace("  }\\n\\n  Future<void> _checkAppAnnouncement()", "  }\n\n  Future<void> _checkAppAnnouncement()")
+    if "UpdateChecker().checkForUpdate(" in source or "showUpdateDialog(" in source:
+        raise RuntimeError("Inherited vendor upgrade flow remains")
+    path.write_text(source, encoding="utf-8")
+
+
 def port(root: Path) -> None:
     if not (root / "pubspec.yaml").is_file():
         raise FileNotFoundError("Missing pinned Mornye 5.2.1 workspace")
@@ -262,6 +298,7 @@ def port(root: Path) -> None:
     patch_settings(root / "lib/screens/settings/settings_tab.dart")
     replace_category_grid(root / "lib/screens/mornye_library_screen.dart")
     patch_updater(root)
+    patch_startup_prompts(root)
     print("Applied reviewed Odify native-screen integration and isolated update policy.")
 
 
