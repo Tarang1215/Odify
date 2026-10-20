@@ -160,3 +160,28 @@ assert "op: 'playlist.delete'" in screen
 assert 'OdifySyncSettingsScreen' in quick
 assert "storageNameFor(String accountId)" in repository
 print('Odify v1.0 opt-in Drive auth, per-account partition and playlist UI static assertions passed')
+
+
+# v1.0 Home feed UX/performance: separate hot Home UI from heavy yt-dlp work.
+home_service = files['lib/services/odify_home_feed.dart'].read_text()
+home_ui = files['lib/widgets/odify_home_feed.dart'].read_text()
+quick = files['lib/widgets/odify_quick_access.dart'].read_text()
+explore = files['lib/widgets/odify_youtube_explore.dart'].read_text()
+media_card = files['lib/widgets/odify_device_library_card.dart'].read_text()
+assert 'const OdifyHomeFeed()' in quick
+assert 'if (showDeviceLibrary)' in quick
+assert 'Timer(const Duration(milliseconds: 900)' in home_ui
+assert 'OdifyHomeFeedService.shared' in home_ui
+assert 'cacheWidth: 120' in home_ui
+assert '오늘의 음악 탐색' in home_ui
+assert '나를 위한 추천' in home_ui
+assert '공식 차트 순위 아님' in home_service
+assert '_queuedSearch' in home_service and 'queries.first' in home_service
+assert 'initialQuery' in explore and 'initialCategory' in explore
+assert '_usingStarter' in explore
+assert 's.totalCount' in media_card and 's.isLoading' in media_card
+assert 'Duration(seconds: 12)' in media_card
+assert 'Duration(hours: 24)' in media_card
+assert 'test/odify_home_feed_test.dart' in files
+assert 'test/odify_home_widget_test.dart' in files
+print('Odify v1.0 Home feed and deferred-indexing static assertions passed')
