@@ -17,30 +17,31 @@ concurrency:
 
 jobs:
   android:
-    name: Pinned Mornye 5.2.1 and Odify arm64 APKs
+    name: Flutter and Rust Android ARM64 debug/release
     runs-on: ubuntu-latest
     timeout-minutes: 110
     env:
       MORNYE_DISCORD_SDK: "0"
       MORNYE_RUST_ANDROID_ABIS: "arm64-v8a"
+      SPOTIFLAC_DISCORD_SDK: "0"
+      SPOTIFLAC_RUST_ANDROID_ABIS: "arm64-v8a"
     steps:
-      - name: Checkout Odify
+      - name: Checkout immutable Odify overlay
         uses: actions/checkout@v4
-      - name: Check assembly contracts and Python tests
+      - name: Check Python fixtures and source lock
         run: |
           python3 scripts/check_overlay.py
           python3 -m unittest discover -s tests -v
-      - name: Assemble pinned upstream 5.2.1 and Odify changes
-        run: python3 scripts/assemble.py
-      - name: Verify independent identity and startup safety
+      - name: Assemble pinned Mornye v5.2.1 into Odify
+        run: python3 scripts/assemble_v521.py
+      - name: Verify no upstream forced updater and safe Activity startup
         working-directory: build/Odify
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "8e4504e72ddcda6bdf6df5e1275396f46e9dfb9f"
-          grep -Fq "static const String appName = 'Odify';" lib/constants/app_info.dart
-          grep -Fq "static const String version = '0.9.0';" lib/constants/app_info.dart
-          grep -Fq 'waitForActivityAttachment(binding)' lib/main.dart
-          grep -Fq 'ODIFY_ENABLE_UPDATER' lib/services/update_checker.dart
+          grep -q "static const String appName = 'Odify';" lib/constants/app_info.dart
+          grep -q "return false; // Never force installation of a vendor APK." lib/screens/main_shell_startup_prompts.dart
+          grep -q "waitForActivityAttachment(binding)" lib/main.dart
           test -f android/app/src/main/kotlin/com/zarz/mornye/OdifyMediaStorePlugin.kt
           test -f android/app/src/main/kotlin/com/zarz/mornye/OdifyYtDlpPlugin.kt
       - name: Setup Java 25
@@ -48,19 +49,19 @@ jobs:
         with:
           distribution: temurin
           java-version: "25"
-      - name: Setup Flutter pinned by upstream
+      - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: stable
           flutter-version-file: build/Odify/.fvmrc
           cache: true
-      - name: Fetch Flutter dependencies
+      - name: Fetch Dart dependencies
         working-directory: build/Odify
         run: flutter pub get
-      - name: Dart analyzer
+      - name: Analyze all Dart source
         working-directory: build/Odify
         run: flutter analyze --no-fatal-infos
-      - name: Odify regression tests
+      - name: Test music library, Drive sync, MediaStore art and glass UI
         working-directory: build/Odify
         run: |
           flutter test test/odify_discovery_test.dart test/odify_metadata_test.dart test/odify_quick_access_test.dart test/odify_sync_merge_test.dart test/odify_sync_coordinator_test.dart test/odify_drive_transport_test.dart test/odify_sync_settings_test.dart test/odify_home_feed_test.dart test/odify_home_widget_test.dart test/odify_device_artwork_test.dart test/odify_glass_design_test.dart
@@ -73,7 +74,7 @@ jobs:
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses || true
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;30.0.16248370" "platforms;android-37.0" "build-tools;37.0.0" "cmake;4.1.2"
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/30.0.16248370" >> "$GITHUB_ENV"
-      - name: Cache Rust build inputs
+      - name: Cache Rust
         uses: actions/cache@v4
         with:
           path: |
@@ -81,33 +82,35 @@ jobs:
             ~/.cargo/registry/cache
             ~/.cargo/git/db
             build/Odify/rust_backend/target
-          key: odify-cargo-${{ runner.os }}-arm64-${{ hashFiles('build/Odify/rust_backend/rust-toolchain.toml', 'build/Odify/rust_backend/Cargo.lock') }}
+          key: odify-mornye521-${{ runner.os }}-arm64-${{ hashFiles('build/Odify/rust_backend/rust-toolchain.toml', 'build/Odify/rust_backend/Cargo.lock') }}
           restore-keys: |
-            odify-cargo-${{ runner.os }}-arm64-
-      - name: Prepare native prerequisites
+            odify-mornye521-${{ runner.os }}-arm64-
+      - name: Prepare native compiler
         run: |
           cd build/Odify/rust_backend
           rustup show
           sudo apt-get update -qq
           sudo apt-get install -y libclang-dev ffmpeg
           printf 'flutter.sdk=%s\nflutter.versionName=0.9.0\nflutter.versionCode=170\n' "$FLUTTER_ROOT" > ../android/local.properties
-      - name: Compile Android arm64 Debug APK
+      - name: Compile Android debug APK
         working-directory: build/Odify
         run: gradle -p android :app:assembleDebug --stacktrace
-      - name: Upload Debug APK for device crash diagnosis
+      - name: Upload debug APK, independent of release result
         uses: actions/upload-artifact@v4
         if: success()
         with:
-          name: odify-v521-debug-arm64
+          name: odify-521-debug-arm64
           if-no-files-found: error
           retention-days: 14
-          path: build/Odify/build/app/outputs/apk/debug/*.apk
-      - name: Remove dev-only Flutter integration_test registrar
-        run: python3 scripts/strip_release_test_plugin.py build/Odify/android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java
-      - name: Compile arm64 Release APK with CI test signing
+          path: |
+            build/Odify/build/app/outputs/apk/debug/*arm64-v8a*.apk
+      - name: Remove dev-only integration test plugin from release registrant
+        run: |
+          python3 scripts/strip_release_test_plugin.py build/Odify/android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java
+      - name: Compile Android release APK
         working-directory: build/Odify
         run: gradle -p android :app:assembleRelease --stacktrace
-      - name: Validate APK names versions and signatures
+      - name: Verify APK signatures, own package/version, and native startup ELF
         working-directory: build/Odify
         run: |
           set -euo pipefail
@@ -118,14 +121,17 @@ jobs:
           test -n "$RELEASE" && test -n "$DEBUG"
           "$SIGNER" verify --verbose "$RELEASE"
           "$SIGNER" verify --verbose "$DEBUG"
-          "$AAPT" dump badging "$RELEASE" | grep -F "package: name='com.odify.music' versionCode='170' versionName='0.9.0'"
-          "$AAPT" dump badging "$DEBUG" | grep -F "package: name='com.odify.music.debug'"
+          "$AAPT" dump badging "$RELEASE" | grep -E "package: name='com.odify.music' versionCode='170' versionName='0.9.0'"
+          "$AAPT" dump badging "$DEBUG" | grep -E "package: name='com.odify.music.debug' versionCode='170'"
+          python3 ../../scripts/verify_android_apk.py "$RELEASE"
+          python3 ../../scripts/verify_android_apk.py "$DEBUG"
           du -h "$RELEASE" "$DEBUG"
-      - name: Upload Release APK with CI test signature
+      - name: Upload signed Release test APK
         uses: actions/upload-artifact@v4
         if: success()
         with:
-          name: odify-v521-release-arm64-ci-test
+          name: odify-521-release-arm64-test-key
           if-no-files-found: error
           retention-days: 14
-          path: build/Odify/build/app/outputs/apk/release/*arm64-v8a*.apk
+          path: |
+            build/Odify/build/app/outputs/apk/release/*arm64-v8a*.apk
