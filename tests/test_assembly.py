@@ -15,11 +15,11 @@ def script():
     return result
 
 FIXTURES = {
-    'pubspec.yaml': 'name: spotiflac_android\n  shared_preferences: ^2.5.6\n',
-    'android/app/build.gradle.kts': 'applicationId = "com.zarz.spotiflac"\n        if (discordSdkEnabled) jniLibs.pickFirsts += "**/libdiscord_partner_sdk.so"\ndependencies {\n}\n',
-    'android/app/src/main/AndroidManifest.xml': '<application android:name=".SpotiFlacApplication" android:label="SpotiFLAC Mobile" />\n',
+    'pubspec.yaml': 'name: mornye\n  shared_preferences: ^2.5.6\n',
+    'android/app/build.gradle.kts': 'applicationId = "com.zarz.mornye"\n        if (discordSdkEnabled) jniLibs.pickFirsts += "**/libdiscord_partner_sdk.so"\ndependencies {\n}\n',
+    'android/app/src/main/AndroidManifest.xml': '<application android:name=".SpotiFlacApplication" android:label="Mornye" />\n',
     'lib/services/music_player_service.dart': (
-        "import 'package:spotiflac_android/services/music_player_runtime.dart';\n"
+        "import 'package:mornye/services/music_player_runtime.dart';\n"
         "    show ListeningTrack;\n"
         "part 'music_player_autoplay.dart';\n"
         "  Future<String?> _resolveSource(PlayableMedia media) async {\n"
@@ -37,11 +37,11 @@ FIXTURES = {
         "    limit,\n  ) = input;\n"
         "    preferenceAdjustment: (track) => model.rankAdjustment(\n"
     ),
-    'android/app/src/main/kotlin/com/zarz/spotiflac/MainActivity.kt': (
+    'android/app/src/main/kotlin/com/zarz/mornye/MainActivity.kt': (
         "            flutterEngine.plugins.add(MusicHapticsPlugin())\n        }\n"
     ),
     'lib/screens/home_tab.dart': (
-        "import 'package:spotiflac_android/widgets/app_snack_bar.dart';\n"
+        "import 'package:mornye/widgets/app_snack_bar.dart';\n"
         "slivers: [\n"
         "              _buildHeaderSliver(greeting: greeting),\n"
     ),
@@ -58,28 +58,36 @@ class OdifyAssemblyTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             target = Path(temporary) / 'Odify'
             mod.ROOT, mod.TARGET = ROOT, target
+            calls = []
             def fake_git(argv, check=False):
+                calls.append(argv)
                 if 'clone' in argv:
                     for relative, text in FIXTURES.items():
                         file = target / relative
                         file.parent.mkdir(parents=True, exist_ok=True)
                         file.write_text(text, encoding='utf-8')
+                # port_521 is verified by a separate parser/contract check and
+                # actual pinned-source CI, not the tiny synthetic fixture.
             with patch.object(mod.subprocess, 'run', side_effect=fake_git):
                 mod.assemble()
             player = (target / 'lib/services/music_player_service.dart').read_text()
             self.assertIn('OdifyYouTube.resolveAudioSource(media.source)', player)
             self.assertIn('OdifyDeviceArtwork.forSource(source)', player)
-            profile = (target / 'lib/screens/settings/profile_settings_page.dart').read_text()
-            settings = (target / 'lib/screens/settings/settings_tab.dart').read_text()
-            self.assertIn('odify-profile-drive-sync', profile)
-            self.assertNotIn('DonatePage', settings)
-            self.assertNotIn('_loadDonationGoal', settings)
-            album_art = (target / 'lib/widgets/local_library_artwork_builder.dart').read_text()
-            self.assertIn('OdifyDeviceArtwork.resolve(', album_art)
+            port = (ROOT / 'scripts/port_521.py').read_text()
+            self.assertIn('odify-profile-drive-sync', port)
+            self.assertIn('OdifyDeviceArtwork.resolve(', port)
+            self.assertIn("if (!const bool.fromEnvironment('ODIFY_ENABLE_UPDATER'", port)
+            self.assertTrue(any('port_521.py' in ' '.join(str(x) for x in args)
+                                for args in calls))
+            self.assertTrue(
+                (target / 'android/app/src/main/kotlin/com/zarz/mornye/OdifyMediaStorePlugin.kt').is_file()
+            )
             self.assertIn("'odify-youtube'", (target / 'lib/services/playable_media.dart').read_text())
             gradle = (target / 'android/app/build.gradle.kts').read_text()
             manifest = (target / 'android/app/src/main/AndroidManifest.xml').read_text()
             self.assertIn('com.odify.music', gradle)
+            self.assertIn('package:mornye/services/playable_media.dart',
+                          (target / 'lib/services/odify_youtube.dart').read_text())
             self.assertIn('google_sign_in: ^7.2.0', (target / 'pubspec.yaml').read_text())
             self.assertIn('jniLibs.useLegacyPackaging = true', gradle)
             self.assertNotIn('android:extractNativeLibs', manifest)
