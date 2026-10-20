@@ -18,11 +18,11 @@ Updated: 2026-10-20. **Code in GitHub overlay, NOT shipped to the currently inst
 
 ## Source changes implemented
 
-- `lib/widgets/odify_home_feed.dart`: Home now has **오늘의 음악 탐색** (KR/JP/Global selector) and **나를 위한 추천**, displays up to four tracks in each preview and plays from the corresponding queue. Loaded content shows image thumbnails with `cacheWidth=120`. Initial fetch is deferred until after first paint (900ms).
+- `lib/widgets/odify_home_feed.dart`: Home now has **오늘의 음악 탐색** (KR/JP/Global selector) and **나를 위한 추천**, displays up to four tracks in each preview and plays from the corresponding queue. Loaded content shows image thumbnails with `cacheWidth=120`. Initial fetch is deferred until after first paint (900ms). In-list hearts save directly into Odify's existing local likes, and a 3-second debounce refreshes taste recommendations without launching a new search on every tap.
 - `lib/services/odify_home_feed.dart`: deduplicated, sequential native video searches; search cache for 30 minutes; bounded first Home load (one region query + at most one personalized query). No profile/network work in `build()`. No taste yet => fall back to discoverable tracks with clear labeling.
 - `lib/widgets/odify_youtube_explore.dart`: explicit instructions, launch with initial category/query from Home, automatic nonpersonalized fallback when no history.
 - `lib/widgets/odify_device_library_card.dart`: delay auto MediaStore indexing for 12 seconds, auto-index no more frequently than every 24h, rebuild card only on summary changes. Explicit manual sync remains available.
-- `test/odify_home_feed_test.dart`, `test/odify_home_widget_test.dart`: check bounded search, cached cold-start fallback, dedup/serialization, first paint without a native query.
+- `test/odify_home_feed_test.dart`, `test/odify_home_widget_test.dart`: check bounded search, cached cold-start fallback, dedup/serialization, first paint without a native query, and user-like persistence.
 
 ## Accuracy/limits
 
