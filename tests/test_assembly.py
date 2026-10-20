@@ -15,7 +15,7 @@ def script():
     return result
 
 FIXTURES = {
-    'pubspec.yaml': 'name: spotiflac_android\\n  shared_preferences: ^2.5.6\\n',
+    'pubspec.yaml': 'name: spotiflac_android\n  shared_preferences: ^2.5.6\n',
     'android/app/build.gradle.kts': 'applicationId = "com.zarz.spotiflac"\n        if (discordSdkEnabled) jniLibs.pickFirsts += "**/libdiscord_partner_sdk.so"\ndependencies {\n}\n',
     'android/app/src/main/AndroidManifest.xml': '<application android:name=".SpotiFlacApplication" android:label="SpotiFLAC Mobile" />\n',
     'lib/services/music_player_service.dart': (
