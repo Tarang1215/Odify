@@ -316,7 +316,7 @@ class _OdifyHomeFeedState extends ConsumerState<OdifyHomeFeed> {
           _featuredMix(tracks),
           const SizedBox(height: 14),
           SizedBox(
-            height: 216,
+            height: 244,
             child: ListView.separated(
               scrollDirection: Axis.horizontal,
               padding: const EdgeInsets.only(bottom: 4),
