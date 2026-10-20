@@ -173,6 +173,8 @@ assert 'if (showDeviceLibrary)' in quick
 assert 'Timer(const Duration(milliseconds: 900)' in home_ui
 assert 'OdifyHomeFeedService.shared' in home_ui
 assert 'cacheWidth: 120' in home_ui
+assert 'OdifyLikeStore.setLiked' in home_ui
+assert 'Duration(seconds: 3)' in home_ui
 assert '오늘의 음악 탐색' in home_ui
 assert '나를 위한 추천' in home_ui
 assert '공식 차트 순위 아님' in home_service
