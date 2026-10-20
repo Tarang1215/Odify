@@ -40,6 +40,9 @@ FIXTURES = {
     'android/app/src/main/kotlin/com/zarz/mornye/MainActivity.kt': (
         "            flutterEngine.plugins.add(MusicHapticsPlugin())\n        }\n"
     ),
+    'lib/screens/track_metadata_screen.dart': (
+        "import 'package:mornye/services/platform_bridge.dart';\\n"
+    ),
     'lib/screens/home_tab.dart': (
         "import 'package:mornye/widgets/app_snack_bar.dart';\n"
         "slivers: [\n"
@@ -97,6 +100,8 @@ class OdifyAssemblyTests(unittest.TestCase):
             self.assertIn('package:mornye/services/playable_media.dart',
                           (target / 'lib/services/odify_youtube.dart').read_text())
             self.assertIn('google_sign_in: ^7.2.0', (target / 'pubspec.yaml').read_text())
+            self.assertIn('odify_lyrics_fallback.dart',
+                          (target / 'lib/screens/track_metadata_screen.dart').read_text())
             self.assertIn('jniLibs.useLegacyPackaging = true', gradle)
             self.assertNotIn('android:extractNativeLibs', manifest)
             self.assertTrue((target / 'lib/services/odify_youtube.dart').is_file())
