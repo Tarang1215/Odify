@@ -4,6 +4,10 @@ import android.Manifest
 import android.content.ContentUris
 import android.content.Context
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.media.MediaMetadataRetriever
+import android.net.Uri
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -13,6 +17,8 @@ import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import java.util.concurrent.Executors
+import java.io.File
+import java.io.FileOutputStream
 
 /** Read shared audio indexed by Android; never access Samsung Music private data. */
 class OdifyMediaStorePlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
@@ -35,7 +41,7 @@ class OdifyMediaStorePlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     }
 
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
-        if (call.method != "listMusic") {
+        if (call.method != "listMusic" && call.method != "getArtwork") {
             result.notImplemented()
             return
         }
@@ -52,6 +58,25 @@ class OdifyMediaStorePlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
             result.error("permission_denied", "Grant music access to browse device audio", null)
             return
         }
+        if (call.method == "getArtwork") {
+            // Only numeric MediaStore IDs are accepted. Never read caller paths,
+            // issue network requests, or expose full embedded image bytes to Dart.
+            val mediaId = call.argument<String>("id")?.toLongOrNull()
+            if (mediaId == null || mediaId <= 0L) {
+                result.error("bad_media_id", "Invalid MediaStore audio ID", null)
+                return
+            }
+            worker.execute {
+                try {
+                    val path = extractCachedCover(context, mediaId)
+                    mainThread.post { result.success(path) }
+                } catch (_: Exception) {
+                    // Missing/corrupt embedded pictures are an expected fallback.
+                    mainThread.post { result.success(null) }
+                }
+            }
+            return
+        }
         val offset = (call.argument<Int>("offset") ?: 0).coerceIn(0, 20000)
         val limit = (call.argument<Int>("limit") ?: 150).coerceIn(1, 300)
         worker.execute {
@@ -62,6 +87,102 @@ class OdifyMediaStorePlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                 mainThread.post { result.error("media_query_failed", error.message, null) }
             }
         }
+    }
+
+    // Source-versioned cover cache, stored only in Odify's private directory.
+    // Exports scaled JPEG thumbnails rather than copying users' MP3 files.
+    private fun coverDirectory(context: Context) =
+        File(context.filesDir, "odify_media_artwork").apply { mkdirs() }
+
+    private fun coverFile(context: Context, id: Long, modifiedSeconds: Long) =
+        File(coverDirectory(context), "${id}_${modifiedSeconds}.jpg")
+
+    private fun cachedCoverPath(context: Context, id: Long, modifiedSeconds: Long): String? {
+        val file = coverFile(context, id, modifiedSeconds)
+        return file.absolutePath.takeIf { file.isFile && file.length() > 0L }
+    }
+
+    private fun lookupModifiedSeconds(context: Context, id: Long): Long? {
+        val uri = ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, id)
+        context.contentResolver.query(
+            uri, arrayOf(MediaStore.Audio.Media.DATE_MODIFIED), null, null, null
+        )?.use { cursor ->
+            if (cursor.moveToFirst()) return cursor.getLong(0)
+        }
+        return null
+    }
+
+    private fun extractCachedCover(context: Context, id: Long): String? {
+        val modified = lookupModifiedSeconds(context, id) ?: return null
+        val file = coverFile(context, id, modified)
+        if (file.isFile && file.length() > 0L) {
+            file.setLastModified(System.currentTimeMillis())
+            return file.absolutePath
+        }
+        val mediaUri = ContentUris.withAppendedId(
+            MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, id
+        )
+        val retriever = MediaMetadataRetriever()
+        val embedded: ByteArray
+        try {
+            retriever.setDataSource(context, mediaUri)
+            embedded = retriever.embeddedPicture ?: return null
+        } finally {
+            try { retriever.release() } catch (_: Exception) {}
+        }
+        // Bound pathological embedded art before bitmap decoding.
+        if (embedded.size > 12 * 1024 * 1024) return null
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(embedded, 0, embedded.size, bounds)
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+        var sample = 1
+        while (bounds.outWidth / sample > 768 || bounds.outHeight / sample > 768) {
+            sample *= 2
+        }
+        val bitmap = BitmapFactory.decodeByteArray(
+            embedded, 0, embedded.size,
+            BitmapFactory.Options().apply {
+                inSampleSize = sample
+                inPreferredConfig = Bitmap.Config.RGB_565
+            }
+        ) ?: return null
+        val thumb = try {
+            val ratio = minOf(1.0, 512.0 / maxOf(bitmap.width, bitmap.height))
+            val width = maxOf(1, (bitmap.width * ratio).toInt())
+            val height = maxOf(1, (bitmap.height * ratio).toInt())
+            if (width == bitmap.width && height == bitmap.height) bitmap
+            else Bitmap.createScaledBitmap(bitmap, width, height, true)
+        } catch (_: Exception) {
+            bitmap.recycle()
+            return null
+        }
+        val temp = File(file.parentFile, "${file.name}.tmp")
+        try {
+            val success = FileOutputStream(temp).use { output ->
+                thumb.compress(Bitmap.CompressFormat.JPEG, 82, output)
+            }
+            if (!success) return null
+            if (!temp.renameTo(file)) return null
+            // Periodic cap prevents thousands of stale covers growing forever.
+            // A scrolled-off entry simply regenerates if LRU eviction occurs.
+            cacheWrites++
+            if (cacheWrites % 32 == 0) pruneArtworkCache(context)
+            return file.absolutePath
+        } finally {
+            if (thumb !== bitmap) thumb.recycle()
+            bitmap.recycle()
+            if (temp.exists()) temp.delete()
+        }
+    }
+
+    private var cacheWrites = 0
+
+    private fun pruneArtworkCache(context: Context) {
+        val files = coverDirectory(context).listFiles()
+            ?.filter { it.isFile && it.name.endsWith(".jpg") }
+            ?.sortedBy { it.lastModified() } ?: return
+        if (files.size <= 600) return
+        for (stale in files.take(files.size - 480)) stale.delete()
     }
 
     private fun queryMusic(context: Context, offset: Int, limit: Int): List<Map<String, Any?>> {
@@ -96,6 +217,9 @@ class OdifyMediaStorePlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                         "durationMs" to cursor.getLong(durationIndex),
                         "modifiedSeconds" to cursor.getLong(modifiedIndex),
                         "albumId" to cursor.getLong(albumIdIndex),
+                        "cachedCoverPath" to cachedCoverPath(
+                            context, id, cursor.getLong(modifiedIndex)
+                        ),
                     ))
                 } while (tracks.size < limit && cursor.moveToNext())
             }
