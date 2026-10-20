@@ -56,7 +56,17 @@ assert 'OdifyYouTubeExploreCard' in files['lib/widgets/odify_quick_access.dart']
 assert 'OdifyDeviceLibraryCard' in files['lib/widgets/odify_quick_access.dart'].read_text()
 assert '0.18.1' in app and 'jniLibs.useLegacyPackaging = true' in app
 assert 'android:extractNativeLibs' not in app
-assert 'YoutubeDL.getInstance().getInfo(request)' in files['android/app/src/main/kotlin/com/zarz/spotiflac/OdifyYtDlpPlugin.kt'].read_text()
+native_stream = files['android/app/src/main/kotlin/com/zarz/spotiflac/OdifyYtDlpPlugin.kt'].read_text()
+assert 'validateAudioRange(url, headers)' in native_stream
+assert 'request.addOption("--dump-single-json")' in native_stream
+assert 'info.optJSONObject("http_headers")' in native_stream
+assert 'lib/services/odify_audio_proxy.dart' in files
+assert 'test/odify_audio_proxy_test.dart' in files
+relay = files['lib/services/odify_audio_proxy.dart'].read_text()
+assert 'InternetAddress.loopbackIPv4' in relay
+assert 'HttpHeaders.rangeHeader' in relay
+assert 'HttpHeaders.contentRangeHeader' in relay
+assert 'OdifyAudioProxy.shared.open(url, headers: headers)' in files['lib/services/odify_youtube.dart'].read_text()
 assert "playAll(" in files['lib/widgets/odify_youtube_explore.dart'].read_text()
 assert "initialIndex: index" in files['lib/widgets/odify_youtube_explore.dart'].read_text()
 
