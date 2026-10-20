@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/services.dart';
+import 'package:spotiflac_android/services/odify_audio_proxy.dart';
 import 'package:spotiflac_android/services/playable_media.dart';
 import 'package:spotiflac_android/services/library_database.dart';
 
@@ -174,12 +175,19 @@ class OdifyYouTube {
     );
     final url = data?['url']?.toString() ?? '';
     final parsed = Uri.tryParse(url);
-    if (parsed == null ||
-        (parsed.scheme != 'https' && parsed.scheme != 'http') ||
-        parsed.host.isEmpty) {
+    if (parsed == null || parsed.scheme != 'https' || parsed.host.isEmpty) {
       throw StateError('오디오 주소를 확인하지 못했습니다.');
     }
-    return url;
+    // The Android UrlSource cannot carry the request headers included in
+    // yt-dlp's resolved format. Serve a seekable, ranged HTTP stream through
+    // a loopback-only relay so Googlevideo sees those exact headers.
+    final rawHeaders = data?['headers'];
+    final headers = <String, String>{
+      if (rawHeaders is Map)
+        for (final entry in rawHeaders.entries)
+          entry.key.toString(): entry.value.toString(),
+    };
+    return OdifyAudioProxy.shared.open(url, headers: headers);
   }
 
   /// Downloads only to Odify's app-owned directory. No Samsung files change.
