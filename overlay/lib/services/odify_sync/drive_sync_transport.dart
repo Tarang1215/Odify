@@ -44,7 +44,7 @@ class OdifyDriveSyncTransport implements OdifySyncTransport {
   }) async {
     final token = await accessToken();
     if (token.isEmpty) {
-      throw const StateError('Odify Drive authorization is required');
+      throw StateError('Odify Drive authorization is required');
     }
     final request = http.Request(method, uri)
       ..headers['Authorization'] = 'Bearer $token'
