@@ -282,6 +282,7 @@ def patch_startup_prompts(root: Path) -> None:
     source = source.replace("  Future<void> _checkUpgradeIntro() async {\\n", "  Future<void> _checkUpgradeIntro() async {\n")
     source = source.replace("    // Odify has its own onboarding, not the Mornye 5.2 release tour.\\n", "    // Odify has its own onboarding, not the Mornye 5.2 release tour.\n")
     source = source.replace("  }\\n\\n  Future<bool> _checkForUpdates() async {\\n", "  }\n\n  Future<bool> _checkForUpdates() async {\n")
+    source = source.replace("    if (_hasCheckedUpdate) return false;\\n", "    if (_hasCheckedUpdate) return false;\n")
     source = source.replace("    _hasCheckedUpdate = true;\\n", "    _hasCheckedUpdate = true;\n")
     source = source.replace("    return false; // Never force installation of a vendor APK.\\n", "    return false; // Never force installation of a vendor APK.\n")
     source = source.replace("  }\\n\\n  Future<void> _checkAppAnnouncement()", "  }\n\n  Future<void> _checkAppAnnouncement()")
