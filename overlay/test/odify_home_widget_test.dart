@@ -3,10 +3,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:spotiflac_android/services/odify_discovery.dart';
 import 'package:spotiflac_android/services/odify_home_feed.dart';
+import 'package:spotiflac_android/services/odify_likes.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:spotiflac_android/services/odify_youtube.dart';
 import 'package:spotiflac_android/widgets/odify_home_feed.dart';
 
 void main() {
+  setUp(() => SharedPreferences.setMockInitialValues({}));
+
   testWidgets('Home explains preview and loads results after first frame',
       (tester) async {
     var calls = 0;
@@ -50,4 +54,47 @@ void main() {
     expect(find.textContaining('취향 학습 전'), findsOneWidget);
     expect(calls, 1, reason: 'Empty taste reuses cached discovery results');
   });
+
+  testWidgets('Home heart records a like and gives visible feedback',
+      (tester) async {
+    final service = OdifyHomeFeedService(
+      search: (query, limit) async => const [
+        OdifyVideo(
+          id: 'abcdefghijk',
+          title: 'Favorite Song',
+          artist: 'Musician',
+          thumbnail: '',
+          isCover: false,
+          duration: 200,
+        ),
+      ],
+      taste: () async =>
+          const OdifyDiscoveryPlan(queries: [], knownSongs: {}),
+    );
+    await tester.pumpWidget(
+      ProviderScope(
+        child: MaterialApp(
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: OdifyHomeFeed(service: service),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 950));
+    await tester.pump();
+    await tester.pump();
+    expect(find.byTooltip('좋아요'), findsWidgets);
+    await tester.tap(find.byTooltip('좋아요').first);
+    await tester.pump();
+    expect(
+      (await OdifyLikeStore.read()).contains(
+        OdifyLikeStore.trackKey('Musician', 'Favorite Song'),
+      ),
+      true,
+    );
+    expect(find.byTooltip('좋아요 취소'), findsWidgets);
+  });
+
 }
