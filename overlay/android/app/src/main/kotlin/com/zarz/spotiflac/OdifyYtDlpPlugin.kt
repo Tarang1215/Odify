@@ -29,6 +29,7 @@ class OdifyYtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     @Volatile private var initialized = false
     private val initLock = Any()
+    private val updateLock = Any()
 
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         context = binding.applicationContext
@@ -130,15 +131,65 @@ class OdifyYtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         return results
     }
 
-    private fun resolve(id: String): Map<String, Any> {
-        setup()
+    /**
+     * yt-dlp's 0.16.0 embedded extractor predates modern YouTube player
+     * responses. Do not prompt for a vendor APK; refresh only the extractor,
+     * rate limited to once per 24 hours. Network/updates are optional and
+     * never block the initial Home screen or local playback.
+     */
+    private fun refreshExtractorOnce(): Boolean = synchronized(updateLock) {
+        val prefs = context.getSharedPreferences("odify_extractor", Context.MODE_PRIVATE)
+        val now = System.currentTimeMillis()
+        val last = prefs.getLong("last_attempt_ms", 0)
+        if (last > 0 && now - last in 0 until 86_400_000L) return@synchronized false
+        prefs.edit().putLong("last_attempt_ms", now).apply()
+        try {
+            YoutubeDL.getInstance().updateYoutubeDL(context, YoutubeDL.UpdateChannel.NIGHTLY)
+            true
+        } catch (error: Exception) {
+            android.util.Log.w("OdifyExtractor", "yt-dlp update unavailable: ${error.javaClass.simpleName}")
+            false
+        }
+    }
+
+    private fun extractAudio(id: String, client: String): String {
         val request = YoutubeDLRequest(videoUrl(id))
         request.addOption("--no-playlist")
-        request.addOption("-f", "bestaudio[ext=m4a]/bestaudio")
+        request.addOption("--no-warnings")
+        // Avoid the inherited SDK-less Android client that returns HTTP 400
+        // on newer YouTube player responses. This is not a DRM/PO-token bypass:
+        // inaccessible/restricted videos must still fail normally.
+        request.addOption("--extractor-args", "youtube:player_client=$client")
+        request.addOption("-f", "bestaudio[ext=m4a]/bestaudio/best")
         val info = YoutubeDL.getInstance().getInfo(request)
         val url = info.url ?: throw IllegalStateException("No playable audio URL")
-        require(url.startsWith("https://") || url.startsWith("http://")) { "Unexpected stream URL" }
-        return mapOf("url" to url, "id" to id)
+        require(url.startsWith("https://") || url.startsWith("http://")) {
+            "Unexpected stream URL"
+        }
+        return url
+    }
+
+    private fun resolve(id: String): Map<String, Any> {
+        setup()
+        var failure: Exception? = null
+        // Try an uncredentialed client first. A second client covers videos
+        // that opt into embeds; never store extracted expiring URLs.
+        for (client in listOf("android_vr", "web_embedded")) {
+            try { return mapOf("url" to extractAudio(id, client), "id" to id) }
+            catch (error: Exception) { failure = error }
+        }
+        // On first failure refresh the aging Python extractor, then retry.
+        if (refreshExtractorOnce()) {
+            for (client in listOf("android_vr", "web_embedded")) {
+                try { return mapOf("url" to extractAudio(id, client), "id" to id) }
+                catch (error: Exception) { failure = error }
+            }
+        }
+        android.util.Log.w("OdifyExtractor",
+            "YouTube audio unavailable for video $id: ${failure?.javaClass?.simpleName}")
+        throw IllegalStateException(
+            "YouTube 오디오를 가져오지 못했습니다. 영상 제한 또는 추출기 업데이트 문제일 수 있습니다. 네트워크를 확인한 뒤 다시 시도하세요."
+        )
     }
 
     private fun downloadMp3(id: String): Map<String, Any> {
