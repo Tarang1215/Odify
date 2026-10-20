@@ -127,8 +127,16 @@ jobs:
           test -n "$RELEASE" && test -n "$DEBUG"
           "$SIGNER" verify --verbose "$RELEASE"
           "$SIGNER" verify --verbose "$DEBUG"
-          "$AAPT" dump badging "$RELEASE" | grep -E "package: name='com.odify.music' versionCode='170' versionName='0.9.0'"
-          "$AAPT" dump badging "$DEBUG" | grep -E "package: name='com.odify.music.debug' versionCode='170'"
+          # Log only the package/version lines, never user data or credentials.
+          RELEASE_PACKAGE="$("$AAPT" dump badging "$RELEASE" | grep '^package:')"
+          DEBUG_PACKAGE="$("$AAPT" dump badging "$DEBUG" | grep '^package:')"
+          printf 'Release manifest: %s\\n' "$RELEASE_PACKAGE"
+          printf 'Debug manifest: %s\\n' "$DEBUG_PACKAGE"
+          [[ "$RELEASE_PACKAGE" == *"name='com.odify.music' "* ]]
+          [[ "$RELEASE_PACKAGE" == *"versionCode='170' "* ]]
+          [[ "$RELEASE_PACKAGE" == *"versionName='0.9.0'"* ]]
+          [[ "$DEBUG_PACKAGE" == *"name='com.odify.music.debug' "* ]]
+          [[ "$DEBUG_PACKAGE" == *"versionCode='170' "* ]]
           python3 ../../scripts/verify_android_apk.py "$RELEASE" --mode release
           python3 ../../scripts/verify_android_apk.py "$DEBUG" --mode debug
           du -h "$RELEASE" "$DEBUG"
