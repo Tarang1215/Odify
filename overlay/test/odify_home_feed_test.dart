@@ -116,7 +116,7 @@ void main() {
 
   test('Invalid videos, repeated IDs and very long mixes are filtered', () async {
     final service = OdifyHomeFeedService(
-      search: (query, limit) async => const [
+      search: (query, limit) async => [
         songs[0],
         songs[0],
         OdifyVideo(
