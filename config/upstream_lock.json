@@ -1,0 +1,18 @@
+{
+  "schema": 1,
+  "product": "Odify",
+  "base": {
+    "repository": "mornyeapp/Mornye",
+    "version": "5.2.1",
+    "commit": "8e4504e72ddcda6bdf6df5e1275396f46e9dfb9f",
+    "updatePolicy": "manual-review-only",
+    "allowMovingTags": false
+  },
+  "app": {
+    "id": "com.odify.music",
+    "debugId": "com.odify.music.debug",
+    "displayName": "Odify",
+    "ownVersion": "0.9.0+170",
+    "updateRepo": "Tarang1215/Odify"
+  }
+}
