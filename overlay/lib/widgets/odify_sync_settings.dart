@@ -287,8 +287,8 @@ class _OdifySyncSettingsScreenState extends State<OdifySyncSettingsScreen> {
             leading: Icon(Icons.cloud_outlined),
             title: Text('Google Drive 개인 동기화'),
             subtitle: Text(
-              'Trove/Supabase와 독립적으로 재생목록 변경 기록만 '
-              'Google Drive 앱 전용 공간에 저장합니다.',
+              '재생목록 변경사항을 내 Google Drive의 앱 전용 공간에 '
+              '안전하게 보관합니다. 음악 파일은 업로드하지 않습니다.',
             ),
             ),
           ),
