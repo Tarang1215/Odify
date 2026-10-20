@@ -160,29 +160,27 @@ def patch_theme(root: Path) -> None:
          "prefs.getDouble(kMornyeGlassClarityKey) ?? 0.82"),
     ):
         one(p, before, after)
-    # Stored 5.2.1 defaults were neon green. Flip that legacy default to
-    # Odify blue exactly once, preserving future manual color selections.
+    # Migrate inherited green preference once, preserving explicit changes.
     one(p, "mornyeAccentFromString(prefs.getString(kMornyeAccentKey) ?? 'blue')",
-        "mornyeAccentFromString(\\n"
-        "      (prefs.getBool('odify_blue_theme_migrated_v1') ?? false)\\n"
-        "          ? prefs.getString(kMornyeAccentKey) ?? 'blue'\\n"
-        "          : ((prefs.getString(kMornyeAccentKey) ?? 'green') == 'green'\\n"
-        "              ? 'blue' : prefs.getString(kMornyeAccentKey)),\\n"
-        "    )".replace('\\\\n', '\\n'))
+        """mornyeAccentFromString(
+      (prefs.getBool('odify_blue_theme_migrated_v1') ?? false)
+          ? prefs.getString(kMornyeAccentKey) ?? 'blue'
+          : ((prefs.getString(kMornyeAccentKey) ?? 'green') == 'green'
+              ? 'blue' : prefs.getString(kMornyeAccentKey)),
+    )""")
     one(p, "      var loaded = loadBootstrapThemeSettings(prefs);",
-        "      var loaded = loadBootstrapThemeSettings(prefs);\\n"
-        "      if (!(prefs.getBool('odify_blue_theme_migrated_v1') ?? false)) {\\n"
-        "        if ((prefs.getString(kMornyeAccentKey) ?? 'green') == 'green') {\\n"
-        "          await prefs.setString(kMornyeAccentKey, 'blue');\\n"
-        "        }\\n"
-        "        await prefs.setBool('odify_blue_theme_migrated_v1', true);\\n"
-        "      }".replace('\\\\n', '\\n'))
-    # A Samsung-inspired calm blue rather than inherited bright green.
+        """      var loaded = loadBootstrapThemeSettings(prefs);
+      if (!(prefs.getBool('odify_blue_theme_migrated_v1') ?? false)) {
+        if ((prefs.getString(kMornyeAccentKey) ?? 'green') == 'green') {
+          await prefs.setString(kMornyeAccentKey, 'blue');
+        }
+        await prefs.setBool('odify_blue_theme_migrated_v1', true);
+      }""")
     one(root / "lib/theme/mornye_theme.dart",
         "MornyeAccent.blue => CupertinoColors.systemBlue,",
-        "MornyeAccent.blue => const CupertinoDynamicColor.withBrightness(\\n"
-        "          color: Color(0xff2563eb), darkColor: Color(0xff79aaff),\\n"
-        "        ),".replace('\\\\n', '\\n'))
+        """MornyeAccent.blue => const CupertinoDynamicColor.withBrightness(
+          color: Color(0xff2563eb), darkColor: Color(0xff79aaff),
+        ),""")
     r = root / "lib/providers/runtime_profile_provider.dart"
     one(r,
         """  if (!lowEnd && ref.watch(deviceSupportsLiquidGlassProvider)) {
