@@ -5,6 +5,7 @@ import 'package:path/path.dart' as path;
 import 'package:sqflite/sqflite.dart';
 
 import 'sync_merge.dart';
+import 'sync_clock.dart';
 
 /// Contract shared by durable SQLite storage and zero-network test ledgers.
 abstract class OdifySyncLedger {
@@ -62,6 +63,60 @@ class OdifySyncRepository implements OdifySyncLedger {
         ''');
       },
     );
+  }
+
+  /// Record a local playlist/like edit in one durable transaction.
+  /// This is the UI's future entry point, independent of Drive connectivity.
+  Future<OdifySyncEvent> recordLocalChange({
+    required String op,
+    required Map<String, Object?> payload,
+    DateTime? now,
+  }) async {
+    final db = await database;
+    return db.transaction((txn) async {
+      Future<String?> stateValue(String key) async {
+        final rows = await txn.query(
+          'sync_state',
+          columns: ['value'],
+          where: 'key = ?',
+          whereArgs: [key],
+          limit: 1,
+        );
+        return rows.isEmpty ? null : rows.first['value'] as String;
+      }
+
+      Future<void> setStateValue(String key, String value) =>
+          txn.insert(
+            'sync_state',
+            {'key': key, 'value': value},
+            conflictAlgorithm: ConflictAlgorithm.replace,
+          ).then((_) {});
+
+      final deviceId = await stateValue('device_id') ?? OdifySyncClock.newId();
+      final clock = OdifySyncClock.next(
+        await stateValue('last_hlc'),
+        now: now,
+      );
+      final event = OdifySyncEvent(
+        eventId: OdifySyncClock.newId(),
+        deviceId: deviceId,
+        hlc: clock,
+        op: op,
+        payload: Map.unmodifiable(payload),
+      );
+      _validateEvent(event);
+      await txn.insert('sync_events', {
+        'event_id': event.eventId,
+        'device_id': event.deviceId,
+        'hlc': event.hlc,
+        'event_json': jsonEncode(event.toJson()),
+        'local_pending': 1,
+        'batch_id': null,
+      });
+      await setStateValue('device_id', deviceId);
+      await setStateValue('last_hlc', clock);
+      return event;
+    });
   }
 
   Future<void> close() async {
@@ -131,6 +186,24 @@ class OdifySyncRepository implements OdifySyncLedger {
           'local_pending': 0,
           'batch_id': null,
         });
+      }
+      final lastRows = await txn.query(
+        'sync_state',
+        columns: ['value'],
+        where: 'key = ?',
+        whereArgs: ['last_hlc'],
+        limit: 1,
+      );
+      var lastClock = lastRows.isEmpty ? '' : lastRows.first['value']! as String;
+      for (final event in events) {
+        if (event.hlc.compareTo(lastClock) > 0) lastClock = event.hlc;
+      }
+      if (lastClock.isNotEmpty) {
+        await txn.insert(
+          'sync_state',
+          {'key': 'last_hlc', 'value': lastClock},
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
       }
       await txn.insert(
         'sync_state',
