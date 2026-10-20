@@ -121,7 +121,139 @@ class OdifyAudioProxy {
       }
       upstream.headers.set(HttpHeaders.acceptEncodingHeader, 'identity');
       final range = request.headers.value(HttpHeaders.rangeHeader);
-      if (range != null && RegExp(r'^bytes=\\d+(-\\d*)?$').hasMatch(range)) {
+      if (range != null && RegExp(r'^bytes=[0-9]+(-[0-9]*)??
+        upstream.headers.set(HttpHeaders.rangeHeader, range);
+      }
+      final ifRange = request.headers.value(HttpHeaders.ifRangeHeader);
+      if (ifRange != null && !ifRange.contains('\r') && !ifRange.contains('\n')) {
+        upstream.headers.set(HttpHeaders.ifRangeHeader, ifRange);
+      }
+      final result = await upstream.close().timeout(
+        const Duration(seconds: 18),
+      );
+      final outgoing = request.response;
+      outgoing.statusCode = result.statusCode;
+      // MediaPlayer must see exactly the CDN's response boundaries for seek.
+      for (final header in const [
+        HttpHeaders.contentTypeHeader,
+        HttpHeaders.contentRangeHeader,
+        HttpHeaders.acceptRangesHeader,
+        HttpHeaders.etagHeader,
+        HttpHeaders.lastModifiedHeader,
+        HttpHeaders.cacheControlHeader,
+      ]) {
+        final value = result.headers.value(header);
+        if (value != null) outgoing.headers.set(header, value);
+      }
+      if (result.contentLength >= 0) {
+        outgoing.contentLength = result.contentLength;
+      }
+      if (request.method != 'HEAD') {
+        bodyStarted = true;
+        await outgoing.addStream(result);
+      } else {
+        await result.drain<void>();
+      }
+    } catch (_) {
+      // A client can disconnect while seeking; do not tear down playback.
+      try {
+        if (!bodyStarted) {
+          request.response.statusCode = HttpStatus.badGateway;
+          request.response.headers.contentType =
+              ContentType('text', 'plain', charset: 'utf-8');
+          request.response.write('Audio stream is temporarily unavailable');
+        }
+      } catch (_) {}
+    } finally {
+      try {
+        await request.response.close();
+      } catch (_) {}
+    }
+  }
+
+  /// Kept separate for tests and deterministic teardown, not called by the
+  /// playback UI: audio_service may keep this process playing in background.
+  Future<void> dispose() async {
+    final server = _server;
+    _server = null;
+    _sessions.clear();
+    await server?.close(force: true);
+    _client.close(force: true);
+  }
+}
+
+class _AudioSession {
+  const _AudioSession(this.uri, this.headers);
+  final Uri uri;
+  final Map<String, String> headers;
+}
+).hasMatch(range)) {)?
+        upstream.headers.set(HttpHeaders.rangeHeader, range);
+      }
+      final ifRange = request.headers.value(HttpHeaders.ifRangeHeader);
+      if (ifRange != null && !ifRange.contains('\r') && !ifRange.contains('\n')) {
+        upstream.headers.set(HttpHeaders.ifRangeHeader, ifRange);
+      }
+      final result = await upstream.close().timeout(
+        const Duration(seconds: 18),
+      );
+      final outgoing = request.response;
+      outgoing.statusCode = result.statusCode;
+      // MediaPlayer must see exactly the CDN's response boundaries for seek.
+      for (final header in const [
+        HttpHeaders.contentTypeHeader,
+        HttpHeaders.contentRangeHeader,
+        HttpHeaders.acceptRangesHeader,
+        HttpHeaders.etagHeader,
+        HttpHeaders.lastModifiedHeader,
+        HttpHeaders.cacheControlHeader,
+      ]) {
+        final value = result.headers.value(header);
+        if (value != null) outgoing.headers.set(header, value);
+      }
+      if (result.contentLength >= 0) {
+        outgoing.contentLength = result.contentLength;
+      }
+      if (request.method != 'HEAD') {
+        bodyStarted = true;
+        await outgoing.addStream(result);
+      } else {
+        await result.drain<void>();
+      }
+    } catch (_) {
+      // A client can disconnect while seeking; do not tear down playback.
+      try {
+        if (!bodyStarted) {
+          request.response.statusCode = HttpStatus.badGateway;
+          request.response.headers.contentType =
+              ContentType('text', 'plain', charset: 'utf-8');
+          request.response.write('Audio stream is temporarily unavailable');
+        }
+      } catch (_) {}
+    } finally {
+      try {
+        await request.response.close();
+      } catch (_) {}
+    }
+  }
+
+  /// Kept separate for tests and deterministic teardown, not called by the
+  /// playback UI: audio_service may keep this process playing in background.
+  Future<void> dispose() async {
+    final server = _server;
+    _server = null;
+    _sessions.clear();
+    await server?.close(force: true);
+    _client.close(force: true);
+  }
+}
+
+class _AudioSession {
+  const _AudioSession(this.uri, this.headers);
+  final Uri uri;
+  final Map<String, String> headers;
+}
+).hasMatch(range)) {
         upstream.headers.set(HttpHeaders.rangeHeader, range);
       }
       final ifRange = request.headers.value(HttpHeaders.ifRangeHeader);
