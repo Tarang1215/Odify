@@ -12,20 +12,106 @@ class OdifyVideo {
     required this.thumbnail,
     required this.isCover,
     this.duration = 0,
+    this.uploader = '',
+    this.originalTitle = '',
   });
 
   final String id, title, artist, thumbnail;
   final bool isCover;
   final int duration;
+  /// The channel that published this recording (not necessarily the artist).
+  final String uploader;
+  /// Preserve the original video title for attribution and troubleshooting.
+  final String originalTitle;
 
-  factory OdifyVideo.fromMap(Map<dynamic, dynamic> json) => OdifyVideo(
-        id: json['id']?.toString() ?? '',
-        title: json['title']?.toString() ?? '',
-        artist: json['artist']?.toString() ?? '',
-        thumbnail: json['thumbnail']?.toString() ?? '',
-        isCover: json['isCover'] == true,
-        duration: (json['duration'] as num?)?.toInt() ?? 0,
+  factory OdifyVideo.fromMap(Map<dynamic, dynamic> json) {
+    final rawTitle = json['title']?.toString() ?? '';
+    final reportedArtist = json['musicArtist']?.toString() ?? '';
+    final uploader = json['channel']?.toString() ??
+        json['artist']?.toString() ?? '';
+    final isCover = json['isCover'] == true;
+    final label = OdifyTrackMetadata.parse(
+      title: rawTitle,
+      uploader: uploader,
+      reportedArtist: reportedArtist,
+      isCover: isCover,
+    );
+    return OdifyVideo(
+      id: json['id']?.toString() ?? '',
+      title: label.title,
+      artist: label.artist,
+      thumbnail: json['thumbnail']?.toString() ?? '',
+      isCover: isCover,
+      duration: (json['duration'] as num?)?.toInt() ?? 0,
+      uploader: uploader,
+      originalTitle: rawTitle,
+    );
+  }
+}
+
+/// Channel attribution and musical performer are different, especially for
+/// covers and fan uploads. Never infer an original artist from an arbitrary
+/// uploader's "Artist - Title" video unless ownership can be corroborated.
+class OdifyTrackMetadata {
+  const OdifyTrackMetadata({required this.artist, required this.title});
+  final String artist, title;
+
+  static String _clean(String value) => value.trim();
+  static String _compact(String value) => value.toLowerCase()
+      .replaceAll(RegExp(r'[^\p{L}\p{N}]', unicode: true), '');
+
+  static bool _isOfficialChannel(String channel, String artist) {
+    final c = _compact(channel);
+    final a = _compact(artist);
+    if (c.isEmpty || a.isEmpty) return false;
+    return c == a || c == '${a}topic' || c == '${a}vevo' ||
+        c == '${a}official' || c == '${a}officialyoutubechannel';
+  }
+
+  static final _artistTitle = RegExp(r'^(.{1,90}?)\s+[-–—]\s+(.{1,180})$');
+  static final _officialSuffix = RegExp(
+    r'\s*[\[(](?:official\s+(?:music\s+)?(?:video|audio)|music\s+video|mv|m/v)[\])]\s*$',
+    caseSensitive: false,
+  );
+
+  static OdifyTrackMetadata parse({
+    required String title,
+    required String uploader,
+    String reportedArtist = '',
+    bool isCover = false,
+  }) {
+    final raw = _clean(title);
+    final channel = _clean(uploader);
+    final knownArtist = _clean(reportedArtist);
+    // For covers, the uploader/performer must not be replaced by the original
+    // songwriter/artist appearing in a YouTube video title.
+    if (isCover) {
+      return OdifyTrackMetadata(
+        artist: channel.isNotEmpty ? channel : knownArtist,
+        title: raw,
       );
+    }
+    final match = _artistTitle.firstMatch(raw);
+    if (match != null) {
+      final prefix = _clean(match.group(1)!);
+      final trustworthy = (knownArtist.isNotEmpty &&
+              _compact(prefix) == _compact(knownArtist)) ||
+          _isOfficialChannel(channel, prefix);
+      if (trustworthy) {
+        final songTitle = _clean(match.group(2)!).replaceFirst(_officialSuffix, '').trim();
+        if (songTitle.isNotEmpty) {
+          return OdifyTrackMetadata(
+            artist: knownArtist.isEmpty ? prefix : knownArtist,
+            title: songTitle,
+          );
+        }
+      }
+    }
+    return OdifyTrackMetadata(
+      artist: knownArtist.isNotEmpty ? knownArtist : channel,
+      title: raw,
+    );
+  }
 }
 
 /// Persist only a stable YouTube video identity in the player's queue.

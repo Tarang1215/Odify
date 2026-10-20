@@ -112,13 +112,16 @@ class OdifyYtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
             val id = item.optString("id")
             if (!Regex("[A-Za-z0-9_-]{11}").matches(id)) continue
             val title = item.optString("title").ifBlank { "Unknown track" }
-            val artist = item.optString("artist").ifBlank {
-                item.optString("channel").ifBlank { item.optString("uploader") }
-            }
+            val channel = item.optString("channel").takeUnless { it.isBlank() || it == "null" }
+                ?: item.optString("uploader").takeUnless { it.isBlank() || it == "null" } ?: ""
+            val musicArtist = item.optString("artist").takeUnless { it.isBlank() || it == "null" }
+                ?: item.optString("creator").takeUnless { it.isBlank() || it == "null" } ?: ""
             results.add(mapOf(
                 "id" to id,
                 "title" to title,
-                "artist" to artist,
+                "artist" to musicArtist.ifBlank { channel },
+                "musicArtist" to musicArtist,
+                "channel" to channel,
                 "thumbnail" to "https://i.ytimg.com/vi/$id/hqdefault.jpg",
                 "duration" to item.optInt("duration", 0),
                 "isCover" to Regex("(?i)cover|歌ってみた|커버|弾いてみた|acoustic cover").containsMatchIn(title)
