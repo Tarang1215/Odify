@@ -39,6 +39,10 @@ class OdifySyncRepository implements OdifySyncLedger {
     return sha256.convert(utf8.encode(accountId)).toString().substring(0, 24);
   }
 
+  /// Account IDs are never embedded verbatim in filesystem paths.
+  static String storageNameFor(String accountId) =>
+      'odify_sync_v1_${_partitionKey(accountId)}.db';
+
   final String _accountKey;
   final Future<Database> Function()? _openOverride;
   Database? _db;
