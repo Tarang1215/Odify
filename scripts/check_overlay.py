@@ -135,3 +135,28 @@ assert "changes/startPageToken" in drive
 assert 'OdifySyncEvent.fromJson(event.toJson())' in drive
 assert "Unsupported or unsafe sync operation" in model
 print('Odify v0.9 player queue + offline sync persistence + Drive adapter static assertions passed')
+
+
+# v1.0: Android-only user-initiated Google OAuth + per-account sync settings.
+oauth_required = {
+    'lib/services/odify_sync/google_drive_auth.dart',
+    'lib/widgets/odify_sync_settings.dart',
+    'test/odify_sync_settings_test.dart',
+}
+assert oauth_required <= files.keys(), sorted(oauth_required - files.keys())
+auth = files['lib/services/odify_sync/google_drive_auth.dart'].read_text()
+screen = files['lib/widgets/odify_sync_settings.dart'].read_text()
+quick = files['lib/widgets/odify_quick_access.dart'].read_text()
+assert 'google_sign_in: ^7.2.0' in app
+assert 'ODIFY_GOOGLE_SERVER_CLIENT_ID' in auth
+assert 'authorizationClient.authorizeScopes(_scopes)' in auth
+assert 'authorizationForScopes(_scopes)' in auth
+assert 'OdifyDriveSyncTransport.scope' in auth
+assert 'OdifySyncRepository(accountId: account.id)' in screen
+assert 'OdifySyncCoordinator(ledger: repository, transport: drive)' in screen
+assert "op: 'playlist.create'" in screen
+assert "op: 'playlist.rename'" in screen
+assert "op: 'playlist.delete'" in screen
+assert 'OdifySyncSettingsScreen' in quick
+assert "storageNameFor(String accountId)" in repository
+print('Odify v1.0 opt-in Drive auth, per-account partition and playlist UI static assertions passed')
