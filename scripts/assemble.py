@@ -105,6 +105,12 @@ def assemble():
                 dependency_anchor +
                 '    implementation("io.github.junkfood02.youtubedl-android:library:0.16.0")\n'
                 '    implementation("io.github.junkfood02.youtubedl-android:ffmpeg:0.16.0")\n')
+    # yt-dlp bundles ZIP archives as pseudo .so assets. They are not ELF
+    # binaries and must be excluded from native llvm-strip processing.
+    replace_one(gradle,
+                '        if (discordSdkEnabled) jniLibs.pickFirsts += "**/libdiscord_partner_sdk.so"',
+                '        if (discordSdkEnabled) jniLibs.pickFirsts += "**/libdiscord_partner_sdk.so"\n'
+                '        jniLibs.keepDebugSymbols += setOf("**/libffmpeg.zip.so", "**/libpython.zip.so")')
     replace_one(TARGET / 'android/app/src/main/AndroidManifest.xml',
                 'android:name=".SpotiFlacApplication"',
                 'android:name=".SpotiFlacApplication" android:extractNativeLibs="true"')

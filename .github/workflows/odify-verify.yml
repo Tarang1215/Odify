@@ -51,7 +51,7 @@ jobs:
         run: flutter analyze --no-fatal-infos
       - name: Odify recommendation regression tests
         working-directory: build/Odify
-        run: flutter test test/odify_discovery_test.dart
+        run: flutter test test/odify_discovery_test.dart test/odify_metadata_test.dart
       - name: Setup Gradle 9.8.1
         uses: gradle/actions/setup-gradle@v4
         with:
@@ -61,6 +61,17 @@ jobs:
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses || true
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;30.0.16248370" "platforms;android-37.0" "build-tools;37.0.0" "cmake;4.1.2"
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/30.0.16248370" >> "$GITHUB_ENV"
+      - name: Cache Rust crates and build output
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            build/Odify/rust_backend/target
+          key: odify-cargo-${{ runner.os }}-arm64-${{ hashFiles('build/Odify/rust_backend/rust-toolchain.toml', 'build/Odify/rust_backend/Cargo.lock') }}
+          restore-keys: |
+            odify-cargo-${{ runner.os }}-arm64-
       - name: Prepare Rust, Gradle, native prerequisites
         run: |
           cd build/Odify/rust_backend

@@ -15,7 +15,7 @@ def script():
     return result
 
 FIXTURES = {
-    'android/app/build.gradle.kts': 'applicationId = "com.zarz.spotiflac"\ndependencies {\n}\n',
+    'android/app/build.gradle.kts': 'applicationId = "com.zarz.spotiflac"\n        if (discordSdkEnabled) jniLibs.pickFirsts += "**/libdiscord_partner_sdk.so"\ndependencies {\n}\n',
     'android/app/src/main/AndroidManifest.xml': '<application android:name=".SpotiFlacApplication" android:label="SpotiFLAC Mobile" />\n',
     'lib/services/music_player_service.dart': (
         "import 'package:spotiflac_android/services/music_player_runtime.dart';\n"
