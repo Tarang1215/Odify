@@ -1,1 +1,1 @@
-2026-10-20 v5.2.1 source-locked Mornye runtime + Odify 0.9.0+170 own version; guarded UI port; Flutter analyzer and tests; verify no updater.
+2026-10-20: immutable v5.2.1 compatibility on canonical Odify assembler; align app identity lock to 0.9.0+170 and patch independent app-info after clone.
