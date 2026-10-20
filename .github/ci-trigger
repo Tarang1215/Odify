@@ -1,1 +1,2 @@
-2026-10-20 Mornye 5.2.1 pinned Odify 0.9.0+170 Android startup fixes, independent updater, validated Dart/UI; release+debug native compile and launch contract.
+Rebuild pinned Mornye 5.2.1 and Odify 0.9.0+170 after fixing vendor-updater unused imports (main_shell analyzer warnings).
+Test date: 2026-10-20. Validate debug and release native compile, signing, package, startup artifact.
