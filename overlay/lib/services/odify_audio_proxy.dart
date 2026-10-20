@@ -66,7 +66,8 @@ class OdifyAudioProxy {
     }
     safeHeaders.putIfAbsent('user-agent', () => 'Mozilla/5.0');
     final server = await _getServer();
-    final bytes = List<int>.generate(24, (_) => Random.secure().nextInt(256));
+    final random = Random.secure();
+    final bytes = List<int>.generate(24, (_) => random.nextInt(256));
     final token = base64UrlEncode(bytes).replaceAll('=', '');
     _sessions[token] = _AudioSession(remote, safeHeaders);
     // Drop old identities rather than letting stale player queues accumulate.
@@ -111,6 +112,7 @@ class OdifyAudioProxy {
       return;
     }
 
+    var bodyStarted = false;
     try {
       final upstream = await _client.openUrl(request.method, session.uri);
       upstream.followRedirects = true;
@@ -147,6 +149,7 @@ class OdifyAudioProxy {
         outgoing.contentLength = result.contentLength;
       }
       if (request.method != 'HEAD') {
+        bodyStarted = true;
         await outgoing.addStream(result);
       } else {
         await result.drain<void>();
@@ -154,7 +157,7 @@ class OdifyAudioProxy {
     } catch (_) {
       // A client can disconnect while seeking; do not tear down playback.
       try {
-        if (!request.response.headersSent) {
+        if (!bodyStarted) {
           request.response.statusCode = HttpStatus.badGateway;
           request.response.headers.contentType =
               ContentType('text', 'plain', charset: 'utf-8');
