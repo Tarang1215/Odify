@@ -197,6 +197,8 @@ Keep most sync logic pure Dart, reusable by Flutter Android, iOS, Windows, macOS
 
 **PWA caveat:** no IPA-signing maintenance, but browser source integrations, iPadOS background playback, native local-file support, service worker caching, and Apple platform policies require separate device tests. Use a compliant source resolver instead of embedding Android yt-dlp into web. No 24/7 self-hosted backend; static hosting is acceptable, but appDataFolder OAuth and encrypted data should be reviewed for secure browser token handling.
 
+**App Store/legal gate:** Apple's App Review Guidelines §5.2.3 prohibit app functionality to save/convert/download third-party sources including YouTube without explicit authorization from the source, and streaming can also violate service terms. The iPad PWA must not be treated as a workaround for those rights. Do not promise the Android yt-dlp downloader can be shipped on iOS or the App Store. Review https://developer.apple.com/app-store/review/guidelines/#intellectual-property prior to release.
+
 **Shared app interfaces:** `OdifySyncStore` (local events/outbox), `OdifyRemoteStore` (Drive appDataFolder; replaceable mock), `OdifyPlaybackResolver` (Android, Windows, web, macOS platform implementation), `OdifyLocalFileMatcher` (device-specific local files). Every `playlist_entry` contains a portable source ref, never a local OS path.
 
 ## 12. Galaxy MediaStore library visibility bug & mitigation
