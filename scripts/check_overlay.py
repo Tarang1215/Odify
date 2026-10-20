@@ -86,3 +86,17 @@ kt = files['android/app/src/main/kotlin/com/zarz/spotiflac/OdifyYtDlpPlugin.kt']
 assert 'ytsearch$limit:' in kt and 'coerceIn(1, 30)' in kt
 assert 'int limit = 30' in files['lib/services/odify_youtube.dart'].read_text(encoding='utf-8')
 print('Odify v0.6 personalized Discover static assertions passed')
+
+
+# v0.8 library visibility and portable multi-device event domain.
+library_card = files['lib/widgets/odify_device_library_card.dart'].read_text()
+assert 'setLocalLibraryEnabled(true)' in library_card
+assert 'reloadFromStorage()' in library_card
+assert 'ref.invalidate(libraryBrowseProvider)' in library_card
+assert "odify_media_sync_last_success_v1" in library_card
+assert "legacy://local-library" in app
+assert "local_library_provider_sources.dart" in app
+assert 'lib/services/odify_sync/sync_merge.dart' in files
+assert 'test/odify_sync_merge_test.dart' in files
+assert 'class OdifySyncState' in files['lib/services/odify_sync/sync_merge.dart'].read_text()
+print('Odify v0.8 library visibility + shared sync-merge static assertions passed')
