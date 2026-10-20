@@ -174,6 +174,7 @@ def patch_theme(root: Path) -> None:
         if ((prefs.getString(kMornyeAccentKey) ?? 'green') == 'green') {
           await prefs.setString(kMornyeAccentKey, 'blue');
         }
+        await prefs.setString(kThemeModeKey, 'light');
         await prefs.setBool('odify_blue_theme_migrated_v1', true);
       }""")
     one(root / "lib/theme/mornye_theme.dart",
