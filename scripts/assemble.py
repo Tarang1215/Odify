@@ -35,6 +35,11 @@ def assemble():
     # Odify's independent modules across, but preserve the newest upstream
     # framework/initialization implementations and patch them later by anchors.
     framework_sources = {
+        # Never replace freshly pinned v5.2.1 core identity or lifecycle files
+        # with an older 5.2.0 overlay; reviewed port_521 adjusts their seams.
+        'lib/constants/app_info.dart',
+        'android/app/src/main/kotlin/com/zarz/spotiflac/SpotiFlacApplication.kt',
+        'android/app/src/main/kotlin/com/zarz/spotiflac/ImpellerCompatibility.kt',
         'lib/providers/theme_provider.dart',
         'lib/providers/runtime_profile_provider.dart',
         'lib/screens/mornye_library_screen.dart',
