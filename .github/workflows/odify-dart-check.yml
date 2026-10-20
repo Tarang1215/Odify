@@ -46,4 +46,4 @@ jobs:
       - name: Offline player/discovery/sync tests
         working-directory: build/Odify
         run: |
-          flutter test test/odify_discovery_test.dart test/odify_metadata_test.dart test/odify_quick_access_test.dart test/odify_sync_merge_test.dart test/odify_sync_coordinator_test.dart test/odify_drive_transport_test.dart test/odify_playlist_track_link_test.dart test/odify_lyrics_fallback_test.dart test/odify_sync_settings_test.dart test/odify_home_feed_test.dart test/odify_home_widget_test.dart test/odify_device_artwork_test.dart test/odify_glass_design_test.dart
+          flutter test test/odify_discovery_test.dart test/odify_metadata_test.dart test/odify_quick_access_test.dart test/odify_sync_merge_test.dart test/odify_sync_coordinator_test.dart test/odify_drive_transport_test.dart test/odify_playlist_track_link_test.dart test/odify_lyrics_fallback_test.dart test/odify_sync_settings_test.dart test/odify_home_feed_test.dart test/odify_home_widget_test.dart test/odify_audio_proxy_test.dart test/odify_device_artwork_test.dart test/odify_glass_design_test.dart
