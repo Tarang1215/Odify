@@ -83,6 +83,19 @@ jobs:
       - name: Compile arm64 Android debug APK
         working-directory: build/Odify
         run: gradle -p android :app:assembleDebug --stacktrace
+      - name: Upload Odify debug APK
+        uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: odify-debug-arm64
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            build/Odify/build/app/outputs/apk/debug/*.apk
+            build/Odify/build/app/outputs/flutter-apk/*.apk
+      - name: Remove debug-only Flutter integration_test registrar for release
+        run: |
+          python3 scripts/strip_release_test_plugin.py build/Odify/android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java
       - name: Compile arm64 Android release APK (CI debug-key test signing)
         working-directory: build/Odify
         run: gradle -p android :app:assembleRelease --stacktrace
@@ -110,13 +123,3 @@ jobs:
           retention-days: 14
           path: |
             build/Odify/build/app/outputs/apk/release/*arm64-v8a*.apk
-      - name: Upload Odify debug APK
-        uses: actions/upload-artifact@v4
-        if: success()
-        with:
-          name: odify-debug-arm64
-          if-no-files-found: error
-          retention-days: 14
-          path: |
-            build/Odify/build/app/outputs/apk/debug/*.apk
-            build/Odify/build/app/outputs/flutter-apk/*.apk
