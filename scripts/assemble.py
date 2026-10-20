@@ -47,6 +47,7 @@ def assemble():
         'lib/screens/settings/settings_tab.dart',
         'lib/widgets/local_library_artwork_builder.dart',
         'lib/widgets/mini_player.dart',
+        'lib/constants/app_info.dart',  # Apply Odify branding against 5.2.1 source.
     }
     for source in (ROOT / 'overlay').rglob('*'):
         if not source.is_file():
