@@ -25,8 +25,8 @@ class OdifyHomeFeed extends ConsumerStatefulWidget {
 class _OdifyHomeFeedState extends ConsumerState<OdifyHomeFeed> {
   late final OdifyHomeFeedService _feed =
       widget.service ?? OdifyHomeFeedService.shared;
-  Timer? _initialLoad;
   Timer? _personalRefresh;
+  bool _previewRequested = false;
   Set<String> _liked = <String>{};
   String _market = 'KR';
   OdifyHomeFeedResult? _trending;
@@ -43,20 +43,23 @@ class _OdifyHomeFeedState extends ConsumerState<OdifyHomeFeed> {
   void initState() {
     super.initState();
     unawaited(_readLikes());
-    // Flutter paints home/navigation before decoding thumbnails or using the
-    // native yt-dlp search interpreter. Cancel on unmount (Home <-> Search).
-    _initialLoad = Timer(const Duration(milliseconds: 900), () {
-      if (!mounted) return;
-      unawaited(_loadTrending());
-      unawaited(_loadPersonal());
-    });
+    // Never boot yt-dlp's embedded Python interpreter just by opening Home.
+    // On some Android 16 devices a native extractor crash terminates the
+    // entire app (Dart try/catch cannot intercept a native SIGSEGV/OOM).
+    // Music discovery stays available via explicit user interaction.
   }
 
   @override
   void dispose() {
-    _initialLoad?.cancel();
     _personalRefresh?.cancel();
     super.dispose();
+  }
+
+  void _requestPreviews() {
+    if (_previewRequested) return;
+    setState(() => _previewRequested = true);
+    unawaited(_loadTrending());
+    unawaited(_loadPersonal());
   }
 
   Future<void> _loadTrending({bool refresh = false}) async {
@@ -514,6 +517,46 @@ class _OdifyHomeFeedState extends ConsumerState<OdifyHomeFeed> {
 
   @override
   Widget build(BuildContext context) {
+    if (!_previewRequested) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const OdifySectionTitle(
+            title: '나를 위한 추천',
+            subtitle: '좋아요와 청취 기록 기반의 개인 맞춤 음악',
+          ),
+          const SizedBox(height: 12),
+          OdifyGlassSurface(
+            radius: 24,
+            padding: const EdgeInsets.all(18),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  '홈을 빠르고 안정적으로 열기 위해 음악 추천은 요청할 때 불러옵니다.',
+                ),
+                const SizedBox(height: 12),
+                FilledButton.tonalIcon(
+                  key: const Key('odify-home-load-preview'),
+                  onPressed: _requestPreviews,
+                  icon: const Icon(Icons.playlist_play_rounded),
+                  label: const Text('추천 음악 불러오기'),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 26),
+          OdifySectionTitle(
+            title: '오늘의 음악 탐색',
+            subtitle: '한국 · 일본 · 글로벌 인기 음악을 검색해보세요',
+            onMore: () => _openDiscover(
+              category: 'All',
+              query: OdifyHomeFeedService.trendingQuery(_market),
+            ),
+          ),
+        ],
+      );
+    }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
