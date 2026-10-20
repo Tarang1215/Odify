@@ -1,0 +1,52 @@
+name: Freeze reviewed Mornye 5.2.1 source in Odify
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/vendor-mornye-base.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: odify-frozen-vendor-v521
+  cancel-in-progress: false
+
+jobs:
+  snapshot:
+    name: Create independent pinned source branch
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout Odify repository for repository context
+        uses: actions/checkout@v4
+      - name: Verify reviewed base and make a source-only frozen snapshot
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          SOURCE_SHA=8e4504e72ddcda6bdf6df5e1275396f46e9dfb9f
+          git clone --filter=blob:none --no-checkout https://github.com/mornyeapp/Mornye.git /tmp/odify-reviewed-source
+          git -C /tmp/odify-reviewed-source checkout --detach "$SOURCE_SHA"
+          test "$(git -C /tmp/odify-reviewed-source rev-parse HEAD)" = "$SOURCE_SHA"
+          grep -q '^name: mornye$' /tmp/odify-reviewed-source/pubspec.yaml
+          grep -q '^version: 5.2.1+163$' /tmp/odify-reviewed-source/pubspec.yaml
+          git -C /tmp/odify-reviewed-source ls-files -z > /tmp/odify-vendor-tracked-files.bin
+          rm -rf /tmp/odify-reviewed-source/.git
+          cd /tmp/odify-reviewed-source
+          git init -q
+          git config user.name "Odify source snapshot"
+          git config user.email "odify-build@users.noreply.github.com"
+          git add -f --pathspec-from-file=/tmp/odify-vendor-tracked-files.bin --pathspec-file-nul
+          printf 'Upstream: mornyeapp/Mornye\nVersion: v5.2.1\nImmutable upstream commit: %s\nThis branch is a frozen source snapshot, not an automatic update feed.\nOriginal license/attribution files remain in the snapshot.\n' "$SOURCE_SHA" > ODIFY_VENDOR_BASE.txt
+          git add ODIFY_VENDOR_BASE.txt
+          git commit -qm "vendor: freeze reviewed Mornye v5.2.1 source $SOURCE_SHA"
+          SNAPSHOT_SHA="$(git rev-parse HEAD)"
+          echo "FROZEN_VENDOR_COMMIT=$SNAPSHOT_SHA" >> "$GITHUB_STEP_SUMMARY"
+          git remote add odify "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          # Never force-push. A second run should fail rather than mutate the
+          # immutable reviewed source snapshot.
+          git push odify HEAD:refs/heads/vendor/mornye-v5.2.1
+          echo "Frozen source available at vendor/mornye-v5.2.1"
