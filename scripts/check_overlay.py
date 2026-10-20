@@ -157,7 +157,15 @@ assert 'OdifySyncCoordinator(ledger: repository, transport: drive)' in screen
 assert "op: 'playlist.create'" in screen
 assert "op: 'playlist.rename'" in screen
 assert "op: 'playlist.delete'" in screen
-assert 'OdifySyncSettingsScreen' in quick
+profile = files['lib/screens/settings/profile_settings_page.dart'].read_text()
+settings_tab = files['lib/screens/settings/settings_tab.dart'].read_text()
+assert 'OdifySyncSettingsScreen' in profile
+assert 'odify-profile-drive-sync' in profile
+assert 'OdifySyncSettingsScreen' not in quick
+assert 'DonatePage' not in settings_tab
+assert 'settingsDonate' not in settings_tab
+assert 'fetchConfigSnapshot' not in settings_tab
+assert '_DonationGoalProgress' not in settings_tab
 assert "storageNameFor(String accountId)" in repository
 print('Odify v1.0 opt-in Drive auth, per-account partition and playlist UI static assertions passed')
 
@@ -187,3 +195,25 @@ assert 'Duration(hours: 24)' in media_card
 assert 'test/odify_home_feed_test.dart' in files
 assert 'test/odify_home_widget_test.dart' in files
 print('Odify v1.0 Home feed and deferred-indexing static assertions passed')
+
+
+# v1.1: embedded MediaStore album art, profile OAuth entry, no donation UI.
+artwork = files['lib/services/odify_device_artwork.dart'].read_text()
+catalog = files['lib/services/odify_device_catalog.dart'].read_text()
+browser = files['lib/widgets/odify_device_music_browser.dart'].read_text()
+art_widget = files['lib/widgets/local_library_artwork_builder.dart'].read_text()
+native = files['android/app/src/main/kotlin/com/zarz/spotiflac/OdifyMediaStorePlugin.kt'].read_text()
+assert 'OdifyDeviceArtwork.forSource(source)' in app
+assert 'OdifyDeviceArtwork.resolve(' in art_widget
+assert 'OdifyDeviceArtworkTile' in browser
+assert "'coverPath': OdifyDeviceArtwork.peek(" in catalog
+assert 'artUri: _artworkUri()' in catalog
+assert 'MediaMetadataRetriever()' in native
+assert 'embeddedPicture' in native
+assert 'BitmapFactory.Options()' in native
+assert 'File(context.filesDir, "odify_media_artwork")' in native
+assert 'worker.execute' in native and 'getArtwork' in native
+assert "source URI" not in native or 'getArtwork' in native
+assert 'LocalLibraryArtworkBuilder' in art_widget
+assert 'test/odify_device_artwork_test.dart' in files
+print('Odify v1.1 embedded cover, profile login, donor UI removal assertions passed')
