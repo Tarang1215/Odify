@@ -173,15 +173,17 @@ def patch_theme(root: Path) -> None:
       if (!(prefs.getBool('odify_blue_theme_migrated_v1') ?? false)) {
         if ((prefs.getString(kMornyeAccentKey) ?? 'green') == 'green') {
           await prefs.setString(kMornyeAccentKey, 'blue');
+          if (prefs.getString(kThemeModeKey) == 'dark') {
+            await prefs.setString(kThemeModeKey, 'light');
+            loaded = loaded.copyWith(themeMode: ThemeMode.light);
+          }
         }
-        await prefs.setString(kThemeModeKey, 'light');
-        loaded = loaded.copyWith(themeMode: ThemeMode.light);
         await prefs.setBool('odify_blue_theme_migrated_v1', true);
       }""")
     one(root / "lib/theme/mornye_theme.dart",
         "MornyeAccent.blue => CupertinoColors.systemBlue,",
         """MornyeAccent.blue => const CupertinoDynamicColor.withBrightness(
-          color: Color(0xff2563eb), darkColor: Color(0xff79aaff),
+          color: Color(0xff526f9e), darkColor: Color(0xff9fb8e2),
         ),""")
     r = root / "lib/providers/runtime_profile_provider.dart"
     one(r,
