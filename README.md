@@ -94,3 +94,14 @@ Google/YouTube의 재생 권한·광고·요청 제한이나 MP3 저작권 문�
 **검증:** `tests/test_assembly.py`에 조건부 섹션에서 벗어났는지 검사하는 회귀 테스트를 넣고, `overlay/test/odify_quick_access_test.dart`에 플러그인 없이 Discover 진입 카드가 그려지는지 확인하는 Flutter 위젯 테스트를 넣었다. CI 통과 및 실기기 동작은 별도 확인이 필요하다.
 
 **APK 교체 주의:** GitHub-hosted runner의 debug signing key가 빌드마다 달라질 수 있어 기존 debug APK 위에 설치가 거부될 수 있다. 기존 앱을 지우면 앱 내부 좋아요/기록 등 로컬 데이터도 삭제될 수 있으므로, 지우기 전 필요한 데이터를 보존할 것. 공식 릴리스용 서명/업데이트 설계는 후속 과제다.
+
+
+## v0.8 — Galaxy Library 표시 수정 + Windows 우선 크로스디바이스 기반
+
+사용자 실기기 테스트에서 **휴대폰 음악 브라우저에는 곡이 나타나지만 통합 Library에는 보이지 않는** 문제가 보고됐다. 원본 설정의 `localLibraryEnabled=false` 기본값과 가상 `legacy://local-library` 소스의 가용성 판정을 수정했다. 동기화 후 라이브러리 목록을 갱신하고 인덱스 곡 수를 홈에 표시한다. 홈마다 전체 MediaStore를 재스캔하지 않도록 기본 자동 검사 간격을 6시간으로 제한했다. **새 APK에서 실기기 확인이 필요하다.**
+
+Google Drive 동기화 공통 엔진의 기반을 `lib/services/odify_sync/sync_merge.dart`에 추가했다. 이 단계는 **순수 Dart 오프라인 이벤트 병합**으로 Google 로그인/Drive 파일 동기화가 아직 붙지 않았다. 재생목록 동시 추가·이름/곡 순서 변경·삭제와 좋아요 충돌·반복 업로드 중복 처리에 대한 테스트가 있다.
+
+**플랫폼 구현 순서**: 갤럭시 Android → Windows 11 PC → iPad → Mac. iPad는 IPA를 7일마다 갱신해야 하는 무료 개발자 서명을 피하도록 PWA(홈 화면 설치형 웹앱)를 먼저 검토하되, 백그라운드 재생 및 플랫폼별 스트림·로컬 파일 접근은 보장할 수 없다. 일반 iPadOS에서 임의 IPA를 APK처럼 영구 설치할 수 있는 범용 무료 방법은 없다. Apple App Store에 배포할 경우 제3자 미디어 다운로드 권한과 정책을 별도로 확인해야 한다.
+
+자세한 내용은 [Google Drive 동기화 설계](docs/DRIVE_SYNC_ARCHITECTURE.md)를 참조한다. Trove/Supabase와는 완전히 독립된다.
