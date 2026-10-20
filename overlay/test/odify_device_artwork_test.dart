@@ -53,6 +53,22 @@ void main() {
     );
   });
 
+  test('tag modification does not reuse stale artwork cache version', () {
+    OdifyDeviceArtwork.peek(
+      '4735',
+      modifiedSeconds: 1792150000,
+      nativeCachedCover: '/data/user/0/com.odify.music/files/old.jpg',
+    );
+    expect(
+      OdifyDeviceArtwork.peek('4735', modifiedSeconds: 1792150000),
+      isNotNull,
+    );
+    expect(
+      OdifyDeviceArtwork.peek('4735', modifiedSeconds: 1792153600),
+      null,
+    );
+  });
+
   test('missing cover is not fabricated or fetched from internet', () {
     final track = OdifyDeviceTrack.fromPlatform({
       'id': '42',
