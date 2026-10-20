@@ -24,7 +24,7 @@ Status: **source integrated; real Google account authentication remains unverifi
 - OAuth access tokens are supplied just-in-time by `google_sign_in`. No client secrets, Google passwords or bearer tokens are placed in sync JSON, logs or GitHub.
 - Client-only syncing means no always-on Odify server; the phone performs Drive requests only after explicit authorization and manual foreground sync in this stage.
 - Drive appDataFolder metadata **is not end-to-end encrypted**. Sensitive listening history is not uploaded in this version.
-- Each Google account has a separate local SQLite file keyed by a salted? **No, deterministic SHA-256 hash of Google's stable account ID**. A hash hides the account ID from the filename but does not itself encrypt data. App sandbox security is still required.
+- Each Google account has a separate local SQLite file keyed by a **deterministic SHA-256 hash of Google's stable account ID**. A hash hides the account ID from the filename but does not itself encrypt data. App sandbox security is still required.
 - Existing SpotiFLAC local playlists/likes do **not** yet flow into the new event log. The first visible beta covers creating, renaming, deleting and reading Odify sync playlist **names**, not tracks. Do not advertise full synchronization until those event emitters and consumers are wired.
 
 ### Windows-first next stage
