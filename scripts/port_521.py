@@ -232,11 +232,9 @@ def patch_updater(root: Path) -> None:
     ):
         if own_constant not in identity:
             raise RuntimeError("Odify app identity missing: " + own_constant)
-    one(info,
-        "static const String remoteConfigApiUrl =\n"
-        "      'https://api.zarz.moe/v1/spotiflac-mobile/config';",
-        "static const String remoteConfigApiUrl =\n"
-        "      'https://raw.githubusercontent.com/Tarang1215/Odify/main/config/odify_remote.json';")
+    expected_remote = 'https://raw.githubusercontent.com/Tarang1215/Odify/main/config/odify_remote.json'
+    if expected_remote not in identity:
+        raise RuntimeError('Odify remote config must be separately owned')
     one(root / "lib/services/update_checker.dart",
         "  Future<UpdateInfo?> checkForUpdate({String channel = 'stable'}) async {\n",
         "  Future<UpdateInfo?> checkForUpdate({String channel = 'stable'}) async {\n"
