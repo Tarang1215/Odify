@@ -210,17 +210,17 @@ def patch_art(root: Path) -> None:
 
 def patch_updater(root: Path) -> None:
     info = root / "lib/constants/app_info.dart"
-    for before, after in (
-        ("static const String version = '5.2.1';",
-         "static const String version = '0.2.0';"),
-        ("static const String buildNumber = '163';",
-         "static const String buildNumber = '2';"),
-        ("static const String appName = 'Mornye';",
-         "static const String appName = 'Odify';"),
-        ("static const String githubRepo = 'spotiflacapp/SpotiFLAC-Mobile';",
-         "static const String githubRepo = 'Tarang1215/Odify';"),
+    # app_info.dart is owned by Odify's overlay, not by the upstream base.
+    # Never rewrite its identity from Mornye after overlay application.
+    identity = info.read_text(encoding="utf-8")
+    for own_constant in (
+        "static const String version = '0.2.0';",
+        "static const String buildNumber = '2';",
+        "static const String appName = 'Odify';",
+        "static const String githubRepo = 'Tarang1215/Odify';",
     ):
-        one(info, before, after)
+        if own_constant not in identity:
+            raise RuntimeError("Odify app identity missing: " + own_constant)
     one(root / "lib/services/update_checker.dart",
         "  Future<UpdateInfo?> checkForUpdate({String channel = 'stable'}) async {\n",
         "  Future<UpdateInfo?> checkForUpdate({String channel = 'stable'}) async {\n"
