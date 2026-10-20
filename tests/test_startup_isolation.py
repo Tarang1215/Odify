@@ -49,7 +49,7 @@ class StartupIsolationTests(unittest.TestCase):
                 "    return false; // Never force installation of a vendor APK.\n",
                 result,
             )
-            self.assertNotIn(r";\\n", result)
+            self.assertNotIn(r";\n", result)
             self.assertEqual(result.count("Future<bool> _checkForUpdates"), 1)
             self.assertIn("Future<void> _checkAppAnnouncement()", result)
 
