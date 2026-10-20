@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -24,14 +25,25 @@ class OdifyDeviceLibraryCard extends ConsumerStatefulWidget {
 class _OdifyDeviceLibraryCardState extends ConsumerState<OdifyDeviceLibraryCard> {
   bool _busy = false;
   bool _syncBusy = false;
+  Timer? _idleScan;
   static const _syncFlag = 'odify_media_sync_opted_in_v1';
   static const _lastSyncKey = 'odify_media_sync_last_success_v1';
-  static const _autoSyncInterval = Duration(hours: 6);
+  static const _autoSyncInterval = Duration(hours: 24);
 
   @override
   void initState() {
     super.initState();
-    _autoSync();
+    // MediaStore can contain thousands of files. Do not compete with Home's
+    // initial frame and image decoding; explicit manual sync stays immediate.
+    _idleScan = Timer(const Duration(seconds: 12), () {
+      if (mounted) unawaited(_autoSync());
+    });
+  }
+
+  @override
+  void dispose() {
+    _idleScan?.cancel();
+    super.dispose();
   }
 
   Future<void> _autoSync() async {
@@ -99,7 +111,13 @@ class _OdifyDeviceLibraryCardState extends ConsumerState<OdifyDeviceLibraryCard>
   @override
   Widget build(BuildContext context) {
     if (!Platform.isAndroid) return const SizedBox.shrink();
-    final library = ref.watch(localLibraryProvider);
+    // Scanning publishes frequent progress updates. A full-state watch would
+    // rebuild the entire Home card on each progress tick.
+    final summary = ref.watch(localLibraryProvider.select((s) => (
+      count: s.totalCount,
+      loading: s.isLoading,
+      noSources: s.sources.isEmpty,
+    )));
     return Card.filled(
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 8),
@@ -130,18 +148,18 @@ class _OdifyDeviceLibraryCardState extends ConsumerState<OdifyDeviceLibraryCard>
               ),
             ),
           ),
-          if (library.totalCount > 0 && !library.isLoading)
+          if (summary.count > 0 && !summary.loading)
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
               child: Align(
                 alignment: Alignment.centerLeft,
                 child: Text(
-                  '라이브러리 인덱스: ${library.totalCount}곡 · 아래 라이브러리 탭에서 확인',
+                  '라이브러리 인덱스: ${summary.count}곡 · 아래 라이브러리 탭에서 확인',
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
               ),
             ),
-          if (library.sources.isEmpty && !library.isLoading)
+          if (summary.noSources && !summary.loading)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12),
               child: Align(
