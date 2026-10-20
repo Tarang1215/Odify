@@ -177,10 +177,11 @@ quick = files['lib/widgets/odify_quick_access.dart'].read_text()
 explore = files['lib/widgets/odify_youtube_explore.dart'].read_text()
 media_card = files['lib/widgets/odify_device_library_card.dart'].read_text()
 assert 'const OdifyHomeFeed()' in quick
+assert 'OdifyGlassPill' in quick
 assert 'if (showDeviceLibrary)' in quick
 assert 'Timer(const Duration(milliseconds: 900)' in home_ui
 assert 'OdifyHomeFeedService.shared' in home_ui
-assert 'cacheWidth: 120' in home_ui
+assert 'cacheWidth: (size * MediaQuery.devicePixelRatioOf(context))' in home_ui
 assert 'OdifyLikeStore.setLiked' in home_ui
 assert 'Duration(seconds: 3)' in home_ui
 assert '오늘의 음악 탐색' in home_ui
@@ -217,3 +218,31 @@ assert "source URI" not in native or 'getArtwork' in native
 assert 'LocalLibraryArtworkBuilder' in art_widget
 assert 'test/odify_device_artwork_test.dart' in files
 print('Odify v1.1 embedded cover, profile login, donor UI removal assertions passed')
+
+
+# v1.2 actual Flutter glass redesign: no animated backdrop per scrolling tile.
+glass = files['lib/widgets/odify_glass.dart'].read_text()
+library = files['lib/screens/mornye_library_screen.dart'].read_text()
+shortcuts = files['lib/widgets/odify_library_shortcuts.dart'].read_text()
+theme = files['lib/providers/theme_provider.dart'].read_text()
+runtime = files['lib/providers/runtime_profile_provider.dart'].read_text()
+player = files['lib/widgets/mini_player.dart'].read_text()
+home_ui = files['lib/widgets/odify_home_feed.dart'].read_text()
+quick = files['lib/widgets/odify_quick_access.dart'].read_text()
+assert 'class OdifyGlassSurface' in glass
+assert 'BackdropFilter' not in glass.replace('BackdropFilter or saveLayer', '')
+assert 'ImageFilter.blur' not in glass
+assert 'OdifyLibraryShortcuts(' in library
+assert 'onPlaylists: () => widget.onOpenSection' in library
+assert 'OdifyGlassSurface(' in shortcuts
+assert '_featuredMix(' in home_ui
+assert 'ListView.separated(' in home_ui
+assert 'cacheWidth: (size * MediaQuery.devicePixelRatioOf(context))' in home_ui
+assert 'radius: 24' in player and 'highlightBorder: true' in player
+assert 'MornyeGlassLevel.frosted' in runtime
+assert 'MornyeAccent.green' in theme and "?? 'mornye'" in theme
+assert "?? 'dark'" in theme and 'prefs.getString(kThemeModeKey)' in theme
+assert 'OdifyGlassSurface(' in files['lib/widgets/odify_device_library_card.dart'].read_text()
+assert 'OdifyGlassSurface(' in files['lib/widgets/odify_youtube_explore.dart'].read_text()
+assert "test/odify_glass_design_test.dart" in files
+print('Odify v1.2 native Flutter glass + performance regression assertions passed')
