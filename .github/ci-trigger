@@ -1,1 +1,1 @@
-2026-10-20 Odify 0.9.0+170 pinned Mornye 5.2.1 restart after fixing pre-release analyzer unused_field warning in vendor update shim; check startup ELF, own package and updater isolation. Keep existing app data; no silent overwrite.
+Pinned Odify-owned source build verification: vendor/mornye-v5.2.1 commit 191fd35e1d9cf147a54312453c39e717408d0454, preserves upstream provenance 8e4504e72ddcda6bdf6df5e1275396f46e9dfb9f; startup analyzer fixed, no vendor update prompts. 2026-10-20.
