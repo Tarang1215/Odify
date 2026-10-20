@@ -48,7 +48,8 @@ assert {
 } <= files.keys()
 assert 'OdifyYtDlpPlugin' in app
 assert 'OdifyYouTubeExploreCard' in app
-assert '0.16.0' in app and 'android:extractNativeLibs' in app
+assert '0.16.0' in app and 'jniLibs.useLegacyPackaging = true' in app
+assert 'android:extractNativeLibs' not in app
 assert 'YoutubeDL.getInstance().getInfo(request)' in files['android/app/src/main/kotlin/com/zarz/spotiflac/OdifyYtDlpPlugin.kt'].read_text()
 assert "playSingle(media)" in files['lib/widgets/odify_youtube_explore.dart'].read_text()
 
