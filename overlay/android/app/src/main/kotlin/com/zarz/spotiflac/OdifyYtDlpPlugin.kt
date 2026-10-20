@@ -17,6 +17,8 @@ import com.yausername.youtubedl_android.YoutubeDL
 import com.yausername.youtubedl_android.YoutubeDLRequest
 import org.json.JSONObject
 import java.io.File
+import java.net.HttpURLConnection
+import java.net.URL
 
 /**
  * yt-dlp adapter for Odify. The UI never accesses expiring extracted URLs
@@ -161,36 +163,95 @@ class OdifyYtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         }
     }
 
-    private fun extractAudio(id: String, client: String): String {
+    // A YouTube format URL alone is not necessarily playable: yt-dlp
+    // supplies user-agent/referer headers that Android MediaPlayer drops.
+    // Verify the first range against the CDN before handing it to Flutter.
+    private fun validateAudioRange(url: String, headers: Map<String, String>) {
+        val connection = URL(url).openConnection() as HttpURLConnection
+        try {
+            connection.connectTimeout = 9000
+            connection.readTimeout = 9000
+            connection.instanceFollowRedirects = true
+            connection.setRequestProperty("Range", "bytes=0-1023")
+            connection.setRequestProperty("Accept-Encoding", "identity")
+            for ((name, value) in headers) {
+                if (name.lowercase() in setOf("user-agent", "referer",
+                        "origin", "accept", "accept-language")) {
+                    connection.setRequestProperty(name, value)
+                }
+            }
+            val status = connection.responseCode
+            if (status != 200 && status != 206) {
+                throw IllegalStateException("CDN audio HTTP $status")
+            }
+            val mime = (connection.contentType ?: "").lowercase()
+            if (mime.startsWith("image/") || mime.startsWith("text/") ||
+                mime.contains("json")) {
+                throw IllegalStateException("CDN returned non-audio content")
+            }
+            connection.inputStream.use {
+                if (it.read() < 0) throw IllegalStateException("Empty audio source")
+            }
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    private fun extractAudio(id: String, client: String): Map<String, Any> {
         val request = YoutubeDLRequest(videoUrl(id))
         request.addOption("--no-playlist")
         request.addOption("--no-warnings")
-        // Avoid the inherited SDK-less Android client that returns HTTP 400
-        // on newer YouTube player responses. This is not a DRM/PO-token bypass:
-        // inaccessible/restricted videos must still fail normally.
+        request.addOption("--skip-download")
+        request.addOption("--dump-single-json")
+        // Prefer AAC/M4A, which Android MediaPlayer plays more reliably
+        // than Opus/WebM. Keep an audio-only fallback when AAC is missing.
         request.addOption("--extractor-args", "youtube:player_client=$client")
-        request.addOption("-f", "bestaudio[ext=m4a]/bestaudio/best")
-        val info = YoutubeDL.getInstance().getInfo(request)
-        val url = info.url ?: throw IllegalStateException("No playable audio URL")
-        require(url.startsWith("https://") || url.startsWith("http://")) {
-            "Unexpected stream URL"
+        request.addOption("-f", "bestaudio[ext=m4a]/bestaudio[acodec^=mp4a]/bestaudio")
+        val response = YoutubeDL.getInstance().execute(request)
+        val info = JSONObject(response.out.trim())
+        val url = info.optString("url")
+        val protocol = info.optString("protocol")
+        val vcodec = info.optString("vcodec")
+        require(url.startsWith("https://") && url.contains("googlevideo.com")) {
+            "No direct playable CDN audio URL"
         }
-        return url
+        require(protocol.isBlank() || protocol == "https") {
+            "Non-progressive audio protocol not supported"
+        }
+        require(vcodec.isBlank() || vcodec == "none") {
+            "Selected format unexpectedly contains video"
+        }
+        val rawHeaders = info.optJSONObject("http_headers")
+        val headers = mutableMapOf<String, String>()
+        if (rawHeaders != null) {
+            for (key in rawHeaders.keys()) {
+                val value = rawHeaders.optString(key)
+                if (value.isNotBlank() && !value.contains('\r') && !value.contains('\n')) {
+                    headers[key] = value
+                }
+            }
+        }
+        validateAudioRange(url, headers)
+        return mapOf("url" to url, "headers" to headers, "id" to id)
     }
 
     private fun resolve(id: String): Map<String, Any> {
         setup()
         var failure: Exception? = null
-        // Try an uncredentialed client first. A second client covers videos
-        // that opt into embeds; never store extracted expiring URLs.
+        // Try uncredentialed, permitted clients and validate that the
+        // returned CDN stream actually serves audio bytes and ranges.
         for (client in listOf("android_vr", "web_embedded")) {
-            try { return mapOf("url" to extractAudio(id, client), "id" to id) }
-            catch (error: Exception) { failure = error }
+            try { return extractAudio(id, client) }
+            catch (error: Exception) {
+                failure = error
+                android.util.Log.w("OdifyExtractor",
+                    "Audio probe failed ($client): ${error.javaClass.simpleName}")
+            }
         }
-        // On first failure refresh the aging Python extractor, then retry.
+        // Refresh the extractor at most once daily, never on Home startup.
         if (refreshExtractorOnce()) {
             for (client in listOf("android_vr", "web_embedded")) {
-                try { return mapOf("url" to extractAudio(id, client), "id" to id) }
+                try { return extractAudio(id, client) }
                 catch (error: Exception) { failure = error }
             }
         }
