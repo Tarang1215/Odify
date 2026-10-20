@@ -290,16 +290,23 @@ extension _TrackMetadataLyricsAndSaving on _TrackMetadataScreenState {
     try {
       final durationMs = (duration ?? 0) * 1000;
 
-      final result = await PlatformBridge.getLyricsLRCWithSource(
-        _spotifyId ?? '',
-        trackName,
-        artistName,
-        filePath: null,
-        durationMs: durationMs,
-      ).timeout(const Duration(seconds: 20));
-
-      var lrcText = result['lyrics']?.toString() ?? '';
-      var source = result['source']?.toString() ?? '';
+      String lrcText = '';
+      String source = '';
+      bool builtInInstrumental = false;
+      try {
+        final result = await PlatformBridge.getLyricsLRCWithSource(
+          _spotifyId ?? '',
+          trackName,
+          artistName,
+          filePath: null,
+          durationMs: durationMs,
+        ).timeout(const Duration(seconds: 9));
+        lrcText = result['lyrics']?.toString() ?? '';
+        source = result['source']?.toString() ?? '';
+        builtInInstrumental = result['instrumental'] as bool? ?? false;
+      } catch (_) {
+        // Optional network provider failed; direct LRCLIB remains available.
+      }
       if (lrcText.trim().isEmpty) {
         lrcText = await OdifyLyricsFallback.search(
           title: trackName, artist: artistName, durationMs: durationMs,
@@ -307,8 +314,7 @@ extension _TrackMetadataLyricsAndSaving on _TrackMetadataScreenState {
         if (lrcText.trim().isNotEmpty) source = 'LRCLIB';
       }
       final instrumental =
-          (result['instrumental'] as bool? ?? false) ||
-          isInstrumentalLyricsMarker(lrcText);
+          builtInInstrumental || isInstrumentalLyricsMarker(lrcText);
       final cleanLyrics = cleanLyricsForDisplay(lrcText);
 
       if (mounted) {
