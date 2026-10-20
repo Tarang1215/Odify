@@ -85,7 +85,7 @@ def assemble():
     replace_one(TARGET / 'android/app/src/main/AndroidManifest.xml',
                 'android:label="Mornye"', 'android:label="Odify"')
     replace_one(TARGET / 'lib/services/music_player_service.dart',
-                "    show ListeningTrack;", "    show ListeningTrack, ListeningStatisticsStore;")
+                "show ListeningTrack;", "show ListeningTrack, ListeningStatisticsStore;")
     replace_one(TARGET / 'lib/services/music_player_service.dart',
                 "import 'package:spotiflac_android/services/music_player_runtime.dart';",
                 "import 'package:spotiflac_android/services/music_player_runtime.dart';\n"
