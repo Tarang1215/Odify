@@ -210,45 +210,47 @@ def patch_art(root: Path) -> None:
 
 def patch_updater(root: Path) -> None:
     info = root / "lib/constants/app_info.dart"
-    # Handle both the audited 5.2.1 source and an already Odify-branded
-    # overlay. Never rewrite a new or unknown upstream identity silently.
-    pairs = (
-        ("static const String version = '5.2.1';",
-         "static const String version = '0.9.0';"),
-        ("static const String buildNumber = '163';",
-         "static const String buildNumber = '170';"),
-        ("static const String appName = 'Mornye';",
-         "static const String appName = 'Odify';"),
-        ("static const String githubRepo = 'spotiflacapp/SpotiFLAC-Mobile';",
-         "static const String githubRepo = 'Tarang1215/Odify';"),
+    identity = info.read_text(encoding="utf-8")
+    if "static const String version = '5.2.1';" in identity:
+        for old, new in (
+            ("static const String version = '5.2.1';",
+             "static const String version = '0.9.0';"),
+            ("static const String buildNumber = '163';",
+             "static const String buildNumber = '170';"),
+            ("static const String appName = 'Mornye';",
+             "static const String appName = 'Odify';"),
+            ("static const String githubRepo = 'spotiflacapp/SpotiFLAC-Mobile';",
+             "static const String githubRepo = 'Tarang1215/Odify';"),
+        ):
+            one(info, old, new)
+    # Also support the Odify-owned app_info.dart overlay. Never rewrite
+    # existing account data or fall back to the upstream release domain.
+    own_identity = info.read_text(encoding="utf-8")
+    for own_constant in (
+        "static const String version = '0.9.0';",
+        "static const String buildNumber = '170';",
+        "static const String appName = 'Odify';",
+        "static const String githubRepo = 'Tarang1215/Odify';",
+    ):
+        if own_constant not in own_identity:
+            raise RuntimeError("Odify app identity missing: " + own_constant)
+    expected_remote = (
+        "https://raw.githubusercontent.com/Tarang1215/Odify/"
+        "main/config/odify_remote.json"
     )
-    for upstream, own in pairs:
-        content = info.read_text(encoding="utf-8")
-        if content.count(upstream) == 1:
-            one(info, upstream, own)
-        elif content.count(own) != 1:
-            raise RuntimeError("Unexpected app identity: " + upstream)
-
-    old_remote = (
-        "static const String remoteConfigApiUrl =\\n"
-        "      'https://api.zarz.moe/v1/spotiflac-mobile/config';"
-    )
-    own_remote = (
-        "static const String remoteConfigApiUrl =\\n"
-        "      'https://raw.githubusercontent.com/Tarang1215/Odify/main/config/odify_remote.json';"
-    )
-    if old_remote in info.read_text(encoding="utf-8"):
-        one(info, old_remote, own_remote)
-    elif own_remote not in info.read_text(encoding="utf-8"):
-        raise RuntimeError("Unreviewed vendor remote config dependency")
-
+    if expected_remote not in own_identity:
+        one(info,
+            "static const String remoteConfigApiUrl =\n"
+            "      'https://api.zarz.moe/v1/spotiflac-mobile/config';",
+            "static const String remoteConfigApiUrl =\n"
+            f"      '{expected_remote}';")
     one(root / "lib/services/update_checker.dart",
-        "  Future<UpdateInfo?> checkForUpdate({String channel = 'stable'}) async {\\n",
-        "  Future<UpdateInfo?> checkForUpdate({String channel = 'stable'}) async {\\n"
-        "    // Odify owns its release cadence; never follow Mornye upstream.\\n"
-        "    // The opt-in updater is disabled until we have a stable signed APK.\\n"
-        "    if (!const bool.fromEnvironment('ODIFY_ENABLE_UPDATER',\\n"
-        "        defaultValue: false)) return null;\\n")
+        "  Future<UpdateInfo?> checkForUpdate({String channel = 'stable'}) async {\n",
+        "  Future<UpdateInfo?> checkForUpdate({String channel = 'stable'}) async {\n"
+        "    // Odify controls its releases; never compare with Mornye versions.\n"
+        "    // Disabled until Odify can ship signed release updates safely.\n"
+        "    if (!const bool.fromEnvironment('ODIFY_ENABLE_UPDATER',\n"
+        "        defaultValue: false)) return null;\n")
 
 
 def port(root: Path) -> None:
