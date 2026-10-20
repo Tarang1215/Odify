@@ -50,7 +50,10 @@ class OdifyDeviceArtwork {
       _remember(_key(id, modifiedSeconds), nativeCachedCover);
       return nativeCachedCover;
     }
-    return _completed[_key(id, modifiedSeconds)] ?? _completed[_key(id, null)];
+    // A known MediaStore modification time must not reuse art extracted
+    // from an earlier version of the same MP3's ID3 tags.
+    if (modifiedSeconds != null) return _completed[_key(id, modifiedSeconds)];
+    return _completed[_key(id, null)];
   }
 
   static void _remember(String key, String path) {
