@@ -186,6 +186,78 @@ class _OdifySyncSettingsScreenState extends State<OdifySyncSettingsScreen> {
     });
   }
 
+  Future<void> _renamePlaylist(OdifySyncPlaylist playlist) async {
+    if (_busy || _repository == null) return;
+    final controller = TextEditingController(text: playlist.name);
+    String? name;
+    try {
+      name = await showDialog<String>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('재생목록 이름 변경'),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            maxLength: 200,
+            onSubmitted: (value) => Navigator.of(dialogContext).pop(value),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('취소'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(controller.text),
+              child: const Text('저장'),
+            ),
+          ],
+        ),
+      );
+    } finally {
+      controller.dispose();
+    }
+    final trimmed = name?.trim() ?? '';
+    if (!mounted || trimmed.isEmpty || trimmed == playlist.name) return;
+    await _perform(() async {
+      await _repository!.recordLocalChange(
+        op: 'playlist.rename',
+        payload: {'playlistId': playlist.id, 'name': trimmed},
+      );
+      await _refreshLocal();
+      _status = '이름 변경을 로컬에 저장했습니다. 동기화 시 공유됩니다.';
+    });
+  }
+
+  Future<void> _deletePlaylist(OdifySyncPlaylist playlist) async {
+    if (_busy || _repository == null) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('재생목록 삭제'),
+        content: Text('${playlist.name}을(를) 모든 동기화 기기에서 삭제합니다.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('취소'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('삭제'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    await _perform(() async {
+      await _repository!.recordLocalChange(
+        op: 'playlist.delete',
+        payload: {'playlistId': playlist.id},
+      );
+      await _refreshLocal();
+      _status = '삭제 기록이 기기에 보관됐습니다. 동기화 시 다른 기기도 갱신됩니다.';
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final account = _account;
@@ -238,6 +310,11 @@ class _OdifySyncSettingsScreenState extends State<OdifySyncSettingsScreen> {
                       icon: const Icon(Icons.sync),
                       label: const Text('지금 동기화'),
                     ),
+                    TextButton.icon(
+                      onPressed: _busy ? null : _connect,
+                      icon: const Icon(Icons.verified_user_outlined),
+                      label: const Text('Drive 권한 승인·갱신'),
+                    ),
                     OutlinedButton(
                       onPressed: _busy ? null : _disconnect,
                       child: const Text('계정 연결 해제'),
@@ -270,6 +347,21 @@ class _OdifySyncSettingsScreenState extends State<OdifySyncSettingsScreen> {
               leading: const Icon(Icons.queue_music),
               title: Text(playlist.name),
               subtitle: Text('${playlist.orderedEntries.length}곡'),
+              trailing: PopupMenuButton<String>(
+                tooltip: '재생목록 관리',
+                enabled: !_busy,
+                onSelected: (value) {
+                  if (value == 'rename') {
+                    unawaited(_renamePlaylist(playlist));
+                  } else if (value == 'delete') {
+                    unawaited(_deletePlaylist(playlist));
+                  }
+                },
+                itemBuilder: (_) => const [
+                  PopupMenuItem(value: 'rename', child: Text('이름 변경')),
+                  PopupMenuItem(value: 'delete', child: Text('삭제')),
+                ],
+              ),
             ),
           const SizedBox(height: 12),
           Text(
