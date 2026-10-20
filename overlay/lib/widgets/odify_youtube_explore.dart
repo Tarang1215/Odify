@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:spotiflac_android/providers/music_player_provider.dart';
 import 'package:spotiflac_android/providers/local_library_provider.dart';
 import 'package:spotiflac_android/services/odify_youtube.dart';
 import 'package:spotiflac_android/services/odify_discovery.dart';
+import 'package:spotiflac_android/services/odify_home_feed.dart';
 import 'package:spotiflac_android/services/odify_likes.dart';
 
 /// An Odify entry point in the existing SpotiFLAC Home, rather than a browser.
@@ -14,8 +17,8 @@ class OdifyYouTubeExploreCard extends StatelessWidget {
   Widget build(BuildContext context) => Card.filled(
     child: ListTile(
       leading: const Icon(Icons.headphones_rounded),
-      title: const Text('Discover · For You'),
-      subtitle: const Text('취향 추천 · 음악 검색 · 커버 · 라이브'),
+      title: const Text('음악 찾기 · Discover'),
+      subtitle: const Text('눌러서 곡 검색 · 취향 추천 · 커버 · 라이브 보기'),
       trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 16),
       onTap: () => Navigator.of(context, rootNavigator: true).push(
         MaterialPageRoute<void>(builder: (_) => const OdifyYouTubeExplorer()),
@@ -25,7 +28,14 @@ class OdifyYouTubeExploreCard extends StatelessWidget {
 }
 
 class OdifyYouTubeExplorer extends ConsumerStatefulWidget {
-  const OdifyYouTubeExplorer({super.key});
+  const OdifyYouTubeExplorer({
+    super.key,
+    this.initialCategory = 'For You',
+    this.initialQuery = '',
+  });
+
+  final String initialCategory;
+  final String initialQuery;
 
   @override
   ConsumerState<OdifyYouTubeExplorer> createState() => _OdifyYouTubeExplorerState();
@@ -35,6 +45,7 @@ class _OdifyYouTubeExplorerState extends ConsumerState<OdifyYouTubeExplorer> {
   final _searchController = TextEditingController();
   final _results = <OdifyVideo>[];
   String _category = 'For You';
+  bool _usingStarter = false;
   final _reasons = <String, String>{};
   Set<String> _liked = <String>{};
   String? _busyVideo;
@@ -44,11 +55,18 @@ class _OdifyYouTubeExplorerState extends ConsumerState<OdifyYouTubeExplorer> {
   @override
   void initState() {
     super.initState();
+    _category = widget.initialCategory;
+    _searchController.text = widget.initialQuery;
     OdifyLikeStore.read().then((likes) {
       if (mounted) setState(() => _liked = likes);
     }).catchError((Object _) { /* Music playback must still work. */ });
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _discover();
+      if (!mounted) return;
+      if (_category == 'For You') {
+        unawaited(_discover());
+      } else if (_searchController.text.trim().isNotEmpty) {
+        unawaited(_search());
+      }
     });
   }
 
@@ -57,9 +75,15 @@ class _OdifyYouTubeExplorerState extends ConsumerState<OdifyYouTubeExplorer> {
     setState(() { _loading = true; _error = null; _category = 'For You'; });
     try {
       final recommended = await OdifyDiscover.recommendations(refresh: refresh);
+      final starter = recommended.isEmpty
+          ? await OdifyHomeFeedService.shared.trending()
+          : null;
       if (!mounted) return;
       setState(() {
-        _results..clear()..addAll(recommended.map((item) => item.video));
+        _results..clear()..addAll(
+          starter?.videos ?? recommended.map((item) => item.video),
+        );
+        _usingStarter = starter != null;
         _reasons
           ..clear()
           ..addEntries(recommended.map((item) =>
@@ -94,6 +118,7 @@ class _OdifyYouTubeExplorerState extends ConsumerState<OdifyYouTubeExplorer> {
       if (!mounted) return;
       setState(() {
         _results..clear()..addAll(result);
+        _usingStarter = false;
         _reasons.clear();
       });
     } catch (error) {
@@ -163,6 +188,13 @@ class _OdifyYouTubeExplorerState extends ConsumerState<OdifyYouTubeExplorer> {
     return Scaffold(
       appBar: AppBar(title: const Text('Odify Discover')),
       body: SafeArea(child: Column(children: [
+        const Padding(
+          padding: EdgeInsets.fromLTRB(16, 8, 16, 6),
+          child: Text(
+            '상단에 가수·곡명 입력 → 검색 · Covers는 커버곡 · Live는 라이브 · For You는 취향 추천',
+            style: TextStyle(fontSize: 12),
+          ),
+        ),
         Padding(padding: const EdgeInsets.fromLTRB(16, 10, 16, 2), child: TextField(
           controller: _searchController,
           textInputAction: TextInputAction.search,
@@ -203,6 +235,11 @@ class _OdifyYouTubeExplorerState extends ConsumerState<OdifyYouTubeExplorer> {
             )),
           ],
         )),
+        if (_usingStarter && _category == 'For You')
+          const Padding(
+            padding: EdgeInsets.fromLTRB(16, 0, 16, 8),
+            child: Text('아직 개인 취향 자료가 부족해 음악 검색 결과를 먼저 보여드립니다.'),
+          ),
         if (_category == 'For You') Padding(
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
           child: Row(children: [
@@ -240,7 +277,7 @@ class _OdifyYouTubeExplorerState extends ConsumerState<OdifyYouTubeExplorer> {
               leading: ClipRRect(
                 borderRadius: BorderRadius.circular(8),
                 child: Image.network(song.thumbnail, width: 64, height: 52,
-                  fit: BoxFit.cover,
+                  cacheWidth: 128, fit: BoxFit.cover,
                   errorBuilder: (_, __, ___) => const SizedBox(
                     width: 64, child: Icon(Icons.music_note))),
               ),
