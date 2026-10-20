@@ -158,10 +158,9 @@ class OdifyMediaStorePlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
             bitmap.recycle()
             return null
         }
-        if (file.parentFile?.mkdirs() == false && !file.parentFile.isDirectory) {
-            return null
-        }
-        val temp = File(file.parentFile, "${file.name}.tmp")
+        val directory = file.parentFile ?: return null
+        if (!directory.isDirectory && !directory.mkdirs()) return null
+        val temp = File(directory, "${file.name}.tmp")
         try {
             val success = FileOutputStream(temp).use { output ->
                 thumb.compress(Bitmap.CompressFormat.JPEG, 82, output)
