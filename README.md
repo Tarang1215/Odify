@@ -82,3 +82,15 @@ Google/YouTube의 재생 권한·광고·요청 제한이나 MP3 저작권 문�
 - 5개의 Flutter 메타데이터 회귀 테스트를 추가했습니다.
 - `.github/workflows/odify-verify.yml`: 원본 고정 커밋 조립 → Python 회귀 테스트 → Flutter 분석·추천 테스트 → Java/Rust/Android SDK 기반 debug APK 컴파일. 일반 소스코드 커밋에는 자동 실행되지 않습니다. GitHub Actions 탭에서 `Run workflow`로 수동 실행하거나 `.github/ci-trigger` 변경 시 실행합니다.
 - GitHub Actions 1차에서 **테스트 변수명 불일치**를 확인해 수정했습니다. 2차에서는 Flutter 분석·추천 테스트까지 통과했으며, 네이티브 APK 결과는 별도 확인이 필요합니다.
+
+## 2026-10-20 UI 진입점 수정: Discover 카드가 보이지 않던 문제
+
+첫 설치 APK에서 Odify 카드가 전혀 보이지 않고, 원본 검색 탭에 `검색 제공자가 없음` 메시지가 표시되는 문제가 확인됐다.
+
+**원인:** Odify 카드가 SpotiFLAC의 `_HomeSections` 안에 주입되어 있었고, 해당 섹션은 빈 홈/검색 제공자 등의 화면 상태에 따라 통째로 숨겨질 수 있었다.
+
+**수정:** 검색 제공자와 관계없이 렌더링되는 `HomeTab`의 상위 `CustomScrollView.slivers`에 `OdifyQuickAccess`를 직접 추가했다. 홈에는 Discover + 휴대폰 음악을, 별도 검색 탭에는 Discover를 먼저 표시한다. 기존 SpotiFLAC 검색 제공자 오류는 기존 검색 기능용 안내이며, **Odify Discover는 그 확장 기능 없이 별도 화면으로 실행**한다.
+
+**검증:** `tests/test_assembly.py`에 조건부 섹션에서 벗어났는지 검사하는 회귀 테스트를 넣고, `overlay/test/odify_quick_access_test.dart`에 플러그인 없이 Discover 진입 카드가 그려지는지 확인하는 Flutter 위젯 테스트를 넣었다. CI 통과 및 실기기 동작은 별도 확인이 필요하다.
+
+**APK 교체 주의:** GitHub-hosted runner의 debug signing key가 빌드마다 달라질 수 있어 기존 debug APK 위에 설치가 거부될 수 있다. 기존 앱을 지우면 앱 내부 좋아요/기록 등 로컬 데이터도 삭제될 수 있으므로, 지우기 전 필요한 데이터를 보존할 것. 공식 릴리스용 서명/업데이트 설계는 후속 과제다.
