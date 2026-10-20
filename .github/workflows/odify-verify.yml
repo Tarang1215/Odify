@@ -21,8 +21,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 110
     env:
-      SPOTIFLAC_DISCORD_SDK: "0"
-      SPOTIFLAC_RUST_ANDROID_ABIS: "arm64-v8a"
+      MORNYE_DISCORD_SDK: "0"
+      MORNYE_RUST_ANDROID_ABIS: "arm64-v8a"
       MORNYE_DISCORD_SDK: "0"
       MORNYE_RUST_ANDROID_ABIS: "arm64-v8a"
     steps:
@@ -32,7 +32,7 @@ jobs:
         run: |
           python3 scripts/check_overlay.py
           python3 -m unittest discover -s tests -v
-      - name: Assemble pinned SpotiFLAC with Odify changes
+      - name: Assemble pinned Mornye v5.2.1 with reviewed Odify patches
         run: python3 scripts/assemble.py
       - name: Setup Java 25 (matching upstream)
         uses: actions/setup-java@v4
@@ -101,6 +101,41 @@ jobs:
       - name: Compile arm64 Android release APK (CI debug-key test signing)
         working-directory: build/Odify
         run: gradle -p android :app:assembleRelease --stacktrace
+      - name: Check isolated release identity and startup contract
+        working-directory: build/Odify
+        run: |
+          set -euo pipefail
+          git rev-parse HEAD | grep '^8e4504e72ddcda6bdf6df5e1275396f46e9dfb9f
+        working-directory: build/Odify
+        run: |
+          set -euo pipefail
+          AAPT="$ANDROID_HOME/build-tools/37.0.0/aapt"
+          SIGNER="$ANDROID_HOME/build-tools/37.0.0/apksigner"
+          find build/app/outputs/apk -type f -name '*.apk' -print | sort
+          RELEASE="$(find build/app/outputs/apk/release -maxdepth 1 -name '*arm64-v8a*.apk' | head -1)"
+          DEBUG="$(find build/app/outputs/apk/debug -maxdepth 1 -name '*arm64-v8a*.apk' | head -1)"
+          test -n "$RELEASE" && test -n "$DEBUG"
+          "$SIGNER" verify --verbose "$RELEASE"
+          "$SIGNER" verify --verbose "$DEBUG"
+          "$AAPT" dump badging "$RELEASE" | grep -E "package: name='com.odify.music' versionCode='170' versionName='0.9.0'"
+          "$AAPT" dump badging "$DEBUG" | grep "package: name='com.odify.music.debug'"
+          du -h "$RELEASE" "$DEBUG"
+      - name: Upload Odify release APK (CI test signing, NOT stable update key)
+        uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: odify-release-arm64-ci-test
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            build/Odify/build/app/outputs/apk/release/*arm64-v8a*.apk
+
+          grep -q "static const String appName = 'Odify';" lib/constants/app_info.dart
+          grep -q "return false; // Never force installation of a vendor APK." lib/screens/main_shell_startup_prompts.dart
+          grep -q 'waitForActivityAttachment(binding)' lib/main.dart
+          grep -q 'class MainActivity' android/app/src/main/kotlin/com/zarz/mornye/MainActivity.kt
+          test -f android/app/src/main/kotlin/com/zarz/mornye/OdifyMediaStorePlugin.kt
+          test -f android/app/src/main/kotlin/com/zarz/mornye/OdifyYtDlpPlugin.kt
       - name: Validate generated APK identity, install signing, and sizes
         working-directory: build/Odify
         run: |
