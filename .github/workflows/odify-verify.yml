@@ -51,7 +51,7 @@ jobs:
         run: flutter analyze --no-fatal-infos
       - name: Odify recommendation regression tests
         working-directory: build/Odify
-        run: flutter test test/odify_discovery_test.dart test/odify_metadata_test.dart test/odify_quick_access_test.dart
+        run: flutter test test/odify_discovery_test.dart test/odify_metadata_test.dart test/odify_quick_access_test.dart test/odify_sync_merge_test.dart
       - name: Setup Gradle 9.8.1
         uses: gradle/actions/setup-gradle@v4
         with:
