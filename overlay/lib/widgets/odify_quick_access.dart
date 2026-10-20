@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:spotiflac_android/widgets/odify_device_library_card.dart';
 import 'package:spotiflac_android/widgets/odify_youtube_explore.dart';
+import 'package:spotiflac_android/widgets/odify_home_feed.dart';
 import 'package:spotiflac_android/widgets/odify_sync_settings.dart';
 
 /// Always-visible Odify entry point, independent of SpotiFLAC's optional
@@ -54,6 +55,10 @@ class OdifyQuickAccess extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 12),
+          if (showDeviceLibrary) ...[
+            const OdifyHomeFeed(),
+            const SizedBox(height: 12),
+          ],
           const OdifyYouTubeExploreCard(),
           const SizedBox(height: 10),
           OutlinedButton.icon(
