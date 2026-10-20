@@ -15,16 +15,23 @@ final _log = AppLogger('PlayerMetadata');
 typedef OnlineLyricsFetcher = Future<String> Function(MediaItem item);
 
 Future<String> _fetchOnlineLyrics(MediaItem item) async {
-  final result = await PlatformBridge.getLyricsLRCWithSource(
-    '',
-    item.title,
-    item.artist ?? '',
-    durationMs: item.duration?.inMilliseconds ?? 0,
-  ).timeout(const Duration(seconds: 15));
-  final builtIn = result['lyrics']?.toString() ?? '';
-  if (builtIn.trim().isNotEmpty) return builtIn;
+  // The inherited native provider may return empty or fail entirely on a
+  // blocked regional endpoint. LRCLIB must still be attempted in both cases.
+  try {
+    final result = await PlatformBridge.getLyricsLRCWithSource(
+      '',
+      item.title,
+      item.artist ?? '',
+      durationMs: item.duration?.inMilliseconds ?? 0,
+    ).timeout(const Duration(seconds: 9));
+    final builtIn = result['lyrics']?.toString() ?? '';
+    if (builtIn.trim().isNotEmpty) return builtIn;
+  } catch (error) {
+    _log.w('Native lyric lookup unavailable; trying LRCLIB: $error');
+  }
   return OdifyLyricsFallback.search(
-    title: item.title, artist: item.artist ?? '',
+    title: item.title,
+    artist: item.artist ?? '',
     durationMs: item.duration?.inMilliseconds ?? 0,
   );
 }
