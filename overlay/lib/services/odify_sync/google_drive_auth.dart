@@ -40,7 +40,7 @@ class OdifyGoogleDriveAuth implements OdifyDriveAuth {
   @override
   bool get isConfigured => Platform.isAndroid && _serverClientId.isNotEmpty;
 
-  Future<void> _initialize() {
+  Future<void> _initialize() async {
     if (!isConfigured) {
       throw StateError(
         'Android Google OAuth 설정이 필요합니다. '
