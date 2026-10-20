@@ -45,6 +45,26 @@ def assemble():
                 "import 'package:spotiflac_android/services/music_player_runtime.dart';",
                 "import 'package:spotiflac_android/services/music_player_runtime.dart';\n"
                 "import 'package:spotiflac_android/services/odify_likes.dart';")
+    # Re-resolve YouTube stream URLs when playback starts (IDs survive restarts).
+    replace_one(TARGET / 'lib/services/music_player_service.dart',
+                "import 'package:spotiflac_android/services/music_player_runtime.dart';",
+                "import 'package:spotiflac_android/services/music_player_runtime.dart';\n"
+                "import 'package:spotiflac_android/services/odify_youtube.dart';")
+    replace_one(TARGET / 'lib/services/music_player_service.dart',
+                "  Future<String?> _resolveSource(PlayableMedia media) async {",
+                "  Future<String?> _resolveSource(PlayableMedia media) async {\n"
+                "    if (media.source.startsWith('odify-youtube://')) {\n"
+                "      try {\n"
+                "        return await OdifyYouTube.resolveAudioSource(media.source);\n"
+                "      } catch (error) {\n"
+                "        _log.w('Odify stream resolution failed: $error');\n"
+                "        return null;\n"
+                "      }\n"
+                "    }")
+    replace_one(TARGET / 'lib/services/playable_media.dart',
+                "const {'network', 'http', 'https'}.contains(Uri.tryParse(source)?.scheme);",
+                "const {'network', 'http', 'https', 'odify-youtube'}"
+                ".contains(Uri.tryParse(source)?.scheme);")
     replace_one(TARGET / 'lib/services/music_player_service.dart',
                 "part 'music_player_autoplay.dart';",
                 "part 'music_player_autoplay.dart';\npart 'odify_taste.dart';")

@@ -69,8 +69,7 @@ class _OdifyYouTubeExplorerState extends ConsumerState<OdifyYouTubeExplorer> {
     if (_busyVideo != null) return;
     setState(() => _busyVideo = video.id);
     try {
-      final media = await OdifyYouTube.resolve(video);
-      if (!mounted) return;
+      final media = OdifyYouTube.playable(video);
       await ref.read(musicPlayerControllerProvider).playSingle(media);
     } catch (error) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(
