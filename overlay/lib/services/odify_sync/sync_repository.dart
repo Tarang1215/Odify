@@ -23,12 +23,23 @@ abstract class OdifySyncLedger {
 }
 
 /// Persistent local-first operation log, isolated from Mornye's media DB.
-/// No sign-in or network required. Do not instantiate this for another Google
-/// account without account-specific storage partitioning.
+/// Each Google account has a separate database file; a device installation
+/// may also use its own "local-only" ledger before cloud enrollment.
 class OdifySyncRepository implements OdifySyncLedger {
-  OdifySyncRepository({Future<Database> Function()? open})
-      : _openOverride = open;
+  OdifySyncRepository({
+    required String accountId,
+    Future<Database> Function()? open,
+  }) : _accountKey = _partitionKey(accountId),
+       _openOverride = open;
 
+  static String _partitionKey(String accountId) {
+    if (accountId.trim().isEmpty) {
+      throw ArgumentError.value(accountId, 'accountId', 'Cannot be empty');
+    }
+    return sha256.convert(utf8.encode(accountId)).toString().substring(0, 24);
+  }
+
+  final String _accountKey;
   final Future<Database> Function()? _openOverride;
   Database? _db;
 
@@ -38,7 +49,7 @@ class OdifySyncRepository implements OdifySyncLedger {
     if (override != null) return _db = await override();
     final root = await getDatabasesPath();
     return _db = await openDatabase(
-      path.join(root, 'odify_sync_v1.db'),
+      path.join(root, 'odify_sync_v1_$_accountKey.db'),
       version: 1,
       onCreate: (db, _) async {
         await db.execute('''
