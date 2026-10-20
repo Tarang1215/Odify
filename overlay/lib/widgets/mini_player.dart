@@ -1,0 +1,364 @@
+import 'dart:math' as math;
+
+import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart' show CupertinoIcons;
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:material_3_expressive/material_3_expressive.dart';
+import 'package:spotiflac_android/l10n/l10n.dart';
+import 'package:spotiflac_android/widgets/app_icon.dart';
+import 'package:spotiflac_android/widgets/app_icon_button.dart';
+import 'package:spotiflac_android/widgets/app_loading_indicator.dart';
+import 'package:spotiflac_android/providers/music_player_provider.dart';
+import 'package:spotiflac_android/providers/settings_provider.dart';
+import 'package:spotiflac_android/providers/player_motion_artwork_provider.dart';
+import 'package:spotiflac_android/providers/player_artwork_video_provider.dart';
+import 'package:spotiflac_android/providers/runtime_profile_provider.dart';
+import 'package:spotiflac_android/theme/app_motion.dart';
+import 'package:spotiflac_android/theme/app_tokens.dart';
+import 'package:spotiflac_android/theme/material_expressive.dart';
+import 'package:spotiflac_android/theme/mornye_theme.dart';
+import 'package:spotiflac_android/screens/now_playing_screen.dart';
+import 'package:spotiflac_android/utils/string_utils.dart';
+import 'package:spotiflac_android/widgets/audio_quality_badges.dart';
+import 'package:spotiflac_android/widgets/overflow_marquee.dart';
+import 'package:spotiflac_android/widgets/player_artwork.dart';
+import 'package:spotiflac_android/widgets/settings_group.dart';
+import 'package:spotiflac_android/widgets/mornye_chrome.dart';
+
+class MiniPlayer extends ConsumerStatefulWidget {
+  const MiniPlayer({super.key, this.compact = false, this.bottomPadding = 8});
+
+  final bool compact;
+  final double bottomPadding;
+
+  @override
+  ConsumerState<MiniPlayer> createState() => _MiniPlayerState();
+}
+
+class _MiniPlayerState extends ConsumerState<MiniPlayer> {
+  final _surfaceKey = GlobalKey();
+  final _artworkKey = GlobalKey();
+
+  Rect? _bounds(GlobalKey key) {
+    final box = key.currentContext?.findRenderObject();
+    if (box is! RenderBox || !box.attached || !box.hasSize) return null;
+    final overlay = Navigator.of(
+      context,
+      rootNavigator: true,
+    ).overlay?.context.findRenderObject();
+    return MatrixUtils.transformRect(
+      box.getTransformTo(overlay),
+      Offset.zero & box.size,
+    );
+  }
+
+  // Hides the bar in the frames between a swipe-dismiss and the stopped
+  // service clearing the media item (a dismissed Dismissible must leave the
+  // tree immediately). Playing the same track again shows the bar normally.
+  String? _dismissedItemId;
+
+  @override
+  Widget build(BuildContext context) {
+    final mediaItem = ref.watch(currentMediaItemProvider).value;
+    if (mediaItem == null) return const SizedBox.shrink();
+
+    final isPlaying = ref.watch(playbackPlayingProvider);
+    final isLoading = ref.watch(playbackLoadingProvider);
+    if (mediaItem.id == _dismissedItemId && !isPlaying) {
+      return const SizedBox.shrink();
+    }
+
+    final controller = ref.read(musicPlayerControllerProvider);
+    final colorScheme = Theme.of(context).colorScheme;
+    final mornye = context.isMornye;
+    final expressive = materialExpressiveEnabled(context);
+    final compact = mornye && widget.compact;
+    // Frosted and flat glass levels run on constrained Android hardware. They
+    // skip keeping a paused video decoder for the full player's motion cover,
+    // and stop the title marquee after a few passes: every marquee frame
+    // re-filters the blurred chrome around it.
+    final fullEffects = !mornye || ref.watch(mornyeLiquidGlassProvider);
+    final marqueeCycles = fullEffects ? null : 2;
+    if (mornye &&
+        fullEffects &&
+        ref.watch(settingsProvider.select((s) => s.motionArtworkEnabled)) &&
+        !MediaQuery.disableAnimationsOf(context)) {
+      final artwork = ref
+          .watch(
+            playerMotionArtworkProvider((
+              album: mediaItem.album ?? '',
+              artist: mediaItem.artist ?? '',
+            )),
+          )
+          .value;
+      if (artwork != null) {
+        ref.watch(playerArtworkVideoProvider(artwork.source));
+      }
+    }
+
+    final player = Dismissible(
+      key: ValueKey('mini-player-${mediaItem.id}'),
+      direction: DismissDirection.horizontal,
+      onDismissed: (_) {
+        setState(() => _dismissedItemId = mediaItem.id);
+        controller.stop();
+      },
+      child: DecoratedBox(
+        key: _surfaceKey,
+        position: DecorationPosition.foreground,
+        decoration: BoxDecoration(
+          border: mornye
+              ? null
+              : Border(
+                  top: BorderSide(
+                    color: colorScheme.outlineVariant.withValues(alpha: 0.5),
+                  ),
+                ),
+        ),
+        child: Material(
+          color: mornye
+              ? Colors.transparent
+              : settingsGroupColor(context).withValues(alpha: 0.72),
+          child: InkWell(
+            onTap: () {
+              Navigator.of(context, rootNavigator: true).push(
+                NowPlayingRoute(
+                  child: const NowPlayingScreen(),
+                  miniPlayerGeometry: mornye
+                      ? () {
+                          if (!mounted) return null;
+                          final surface = _bounds(_surfaceKey);
+                          final artwork = _bounds(_artworkKey);
+                          if (surface == null || artwork == null) return null;
+                          return (surface: surface, artwork: artwork);
+                        }
+                      : null,
+                ),
+              );
+            },
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (!mornye)
+                  _MiniPlayerProgress(
+                    duration: mediaItem.duration ?? Duration.zero,
+                    backgroundColor: colorScheme.surfaceContainerHighest,
+                    playing: isPlaying,
+                  ),
+                Padding(
+                  padding: EdgeInsets.symmetric(
+                    horizontal: compact ? 8 : 12,
+                    vertical: mornye ? 0 : 8,
+                  ),
+                  child: Row(
+                    children: [
+                      Hero(
+                        tag: kNowPlayingArtworkHeroTag,
+                        child: ClipRRect(
+                          key: _artworkKey,
+                          borderRadius: BorderRadius.circular(mornye ? 6 : 12),
+                          child: SizedBox(
+                            width: context.tokens.coverMini,
+                            height: context.tokens.coverMini,
+                            child: PlayerArtwork(
+                              artUri: mediaItem.artUri?.toString(),
+                              colorScheme: colorScheme,
+                              cacheWidth: 132,
+                              iconSize: 22,
+                            ),
+                          ),
+                        ),
+                      ),
+                      SizedBox(width: compact ? 8 : 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            OverflowMarquee(
+                              resetKey: (mediaItem.id, mediaItem.title),
+                              maxCycles: marqueeCycles,
+                              child: ExplicitTrackTitle(
+                                title: mediaItem.title,
+                                explicit:
+                                    parseExplicitFlag(
+                                      mediaItem.extras?['explicit'],
+                                    ) ==
+                                    true,
+                                style: Theme.of(context).textTheme.titleSmall
+                                    ?.copyWith(fontWeight: FontWeight.w600),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            OverflowMarquee(
+                              resetKey: (mediaItem.id, mediaItem.artist),
+                              maxCycles: marqueeCycles,
+                              child: Text(
+                                mediaItem.artist ?? '',
+                                style: Theme.of(context).textTheme.bodySmall
+                                    ?.copyWith(
+                                      color: mornye
+                                          ? Color.lerp(
+                                              colorScheme.onSurfaceVariant,
+                                              colorScheme.onSurface,
+                                              colorScheme.brightness ==
+                                                      Brightness.dark
+                                                  ? 0.7
+                                                  : 0.6,
+                                            )
+                                          : colorScheme.onSurfaceVariant,
+                                    ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      if (expressive)
+                        // Round while paused, square while playing, like the
+                        // full player's play-pause.
+                        AppIconButton.filled(
+                          tooltip: isPlaying
+                              ? context.l10n.actionPause
+                              : context.l10n.tooltipPlay,
+                          isSelected: isPlaying,
+                          style: IconButton.styleFrom(
+                            backgroundColor: colorScheme.primary,
+                            foregroundColor: colorScheme.onPrimary,
+                          ),
+                          icon: isLoading
+                              ? AppLoadingIndicator(
+                                  size: 20,
+                                  color: colorScheme.onPrimary,
+                                )
+                              : const AppIcon(Icons.play_arrow),
+                          selectedIcon: isLoading
+                              ? AppLoadingIndicator(
+                                  size: 20,
+                                  color: colorScheme.onPrimary,
+                                )
+                              : const AppIcon(Icons.pause),
+                          onPressed: isLoading
+                              ? null
+                              : () => controller.togglePlayPause(isPlaying),
+                        )
+                      else
+                        AppIconButton(
+                          color: mornye ? colorScheme.onSurface : null,
+                          tooltip: isPlaying
+                              ? context.l10n.actionPause
+                              : context.l10n.tooltipPlay,
+                          icon: isLoading
+                              ? const AppLoadingIndicator(
+                                  size: 20,
+                                  strokeWidth: 2.5,
+                                )
+                              : AppIcon(
+                                  mornye
+                                      ? (isPlaying
+                                            ? CupertinoIcons.pause_fill
+                                            : CupertinoIcons.play_fill)
+                                      : (isPlaying
+                                            ? Icons.pause
+                                            : Icons.play_arrow),
+                                ),
+                          onPressed: isLoading
+                              ? null
+                              : () => controller.togglePlayPause(isPlaying),
+                        ),
+                      if (!compact)
+                        AppIconButton(
+                          color: mornye ? colorScheme.onSurface : null,
+                          tooltip: context.l10n.nowPlayingNextTrack,
+                          icon: AppIcon(
+                            mornye
+                                ? CupertinoIcons.forward_fill
+                                : Icons.skip_next,
+                          ),
+                          onPressed: controller.next,
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    return mornye
+        ? Padding(
+            padding: EdgeInsets.only(bottom: widget.bottomPadding),
+            child: MornyeGlass.navigation(
+              // The shell already batches the bar/player backdrop. Reuse it:
+              // a highlighted rim and rounder capsule give the Odify polish
+              // without stacking another BackdropFilter over playback frames.
+              radius: 24,
+              highlightBorder: true,
+              strongTint: true,
+              tintOpacity: MornyeTheme.chromeOpacity(context),
+              blurEnabled: ref.watch(mornyeBlurEnabledProvider),
+              child: player,
+            ),
+          )
+        : player;
+  }
+}
+
+class _MiniPlayerProgress extends ConsumerWidget {
+  final Duration duration;
+  final Color backgroundColor;
+  final bool playing;
+
+  const _MiniPlayerProgress({
+    required this.duration,
+    required this.backgroundColor,
+    required this.playing,
+  });
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final durationMs = duration.inMilliseconds;
+    final positionMs = ref.watch(playbackPositionProvider).inMilliseconds;
+    final progress = durationMs > 0
+        ? (positionMs / durationMs).clamp(0.0, 1.0)
+        : 0.0;
+    if (!materialExpressiveEnabled(context)) {
+      return LinearProgressIndicator(
+        value: progress,
+        minHeight: 2,
+        backgroundColor: backgroundColor,
+      );
+    }
+    final motion = AppMotion.effects(
+      context,
+      const AppMotionSpec(Duration(milliseconds: 300), Curves.easeOut),
+    );
+    // The wave settles flat while paused; its ticker stops once flat so an
+    // idle mini player does not repaint every frame.
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 4, 12, 0),
+      child: TweenAnimationBuilder<double>(
+        tween: Tween(end: playing ? 1 : 0),
+        duration: motion.duration,
+        curve: motion.curve,
+        builder: (context, amplitude, _) => TickerMode(
+          enabled: amplitude > 0,
+          child: MaterialExpressiveScope(
+            child: M3EProgressIndicator.linearWavy(
+              value: progress,
+              linearSize: M3EProgressIndicatorSize.s,
+              trackColor: backgroundColor,
+              // Taper toward both ends instead of the theme's hard cutoff.
+              amplitudeForProgress: (value) =>
+                  amplitude *
+                  (math.min(value, 1 - value) / 0.05).clamp(0.0, 1.0),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
