@@ -1,1 +1,1 @@
-2026-10-20 Odify v1.2 actual Flutter redesign: dark frosted default (preserve prefs), album-art personal cards, KR/JP/Global discovery, glass library grid, mini-player optical rim, no scrolling BackdropFilter. Dart-only CI; DO NOT build APK.
+2026-10-20: verify migration to immutable Mornye 5.2.1 SHA, Odify-owned updater policy, Dart package and Kotlin namespace bridge, preserve 5.2.1 startup fixes. Dart-only CI first, no APK yet.
