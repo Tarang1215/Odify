@@ -25,7 +25,7 @@ jobs:
           python3 -m unittest discover -s tests -p 'test_upstream_lock.py' -v
           python3 -m unittest discover -s tests -p 'test_release_registrant.py' -v
       - name: Clone audited 5.2.1 revision and assemble Odify
-        run: python3 scripts/assemble_v521.py
+        run: python3 scripts/assemble.py
       - name: Check source pin, no accidental updater or old Android namespaces
         run: |
           set -euo pipefail
