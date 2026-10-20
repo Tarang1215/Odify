@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:spotiflac_android/providers/music_player_provider.dart';
 import 'package:spotiflac_android/services/odify_home_feed.dart';
 import 'package:spotiflac_android/services/odify_youtube.dart';
+import 'package:spotiflac_android/services/odify_likes.dart';
 import 'package:spotiflac_android/widgets/odify_youtube_explore.dart';
 
 /// Small, immediately understandable Odify home sections. The first paint
@@ -24,6 +25,8 @@ class _OdifyHomeFeedState extends ConsumerState<OdifyHomeFeed> {
   late final OdifyHomeFeedService _feed =
       widget.service ?? OdifyHomeFeedService.shared;
   Timer? _initialLoad;
+  Timer? _personalRefresh;
+  Set<String> _liked = <String>{};
   String _market = 'KR';
   OdifyHomeFeedResult? _trending;
   OdifyHomeFeedResult? _personal;
@@ -33,10 +36,12 @@ class _OdifyHomeFeedState extends ConsumerState<OdifyHomeFeed> {
   bool _personalLoading = false;
   bool _playing = false;
   int _trendingVersion = 0;
+  int _personalVersion = 0;
 
   @override
   void initState() {
     super.initState();
+    unawaited(_readLikes());
     // Flutter paints home/navigation before decoding thumbnails or using the
     // native yt-dlp search interpreter. Cancel on unmount (Home <-> Search).
     _initialLoad = Timer(const Duration(milliseconds: 900), () {
@@ -49,6 +54,7 @@ class _OdifyHomeFeedState extends ConsumerState<OdifyHomeFeed> {
   @override
   void dispose() {
     _initialLoad?.cancel();
+    _personalRefresh?.cancel();
     super.dispose();
   }
 
@@ -73,19 +79,55 @@ class _OdifyHomeFeedState extends ConsumerState<OdifyHomeFeed> {
   }
 
   Future<void> _loadPersonal({bool refresh = false}) async {
+    final version = ++_personalVersion;
     setState(() {
       _personalLoading = true;
       _personalError = null;
     });
     try {
       final result = await _feed.forYou(refresh: refresh);
-      if (!mounted) return;
+      if (!mounted || version != _personalVersion) return;
       setState(() => _personal = result);
     } catch (error) {
-      if (!mounted) return;
+      if (!mounted || version != _personalVersion) return;
       setState(() => _personalError = error);
     } finally {
-      if (mounted) setState(() => _personalLoading = false);
+      if (mounted && version == _personalVersion) {
+        setState(() => _personalLoading = false);
+      }
+    }
+  }
+
+  Future<void> _readLikes() async {
+    try {
+      final likes = await OdifyLikeStore.read();
+      if (mounted) setState(() => _liked = likes);
+    } catch (_) {
+      // A missing preferences store should not prevent Home from rendering.
+    }
+  }
+
+  Future<void> _toggleLike(OdifyVideo video) async {
+    final key = OdifyLikeStore.trackKey(video.artist, video.title);
+    try {
+      final likes = await OdifyLikeStore.setLiked(
+        video.artist,
+        video.title,
+        liked: !_liked.contains(key),
+      );
+      if (!mounted) return;
+      setState(() => _liked = likes);
+      // Batch repeated hearts: personalization must not launch yt-dlp after
+      // every rapid user tap, but is refreshed from the saved preferences.
+      _personalRefresh?.cancel();
+      _personalRefresh = Timer(const Duration(seconds: 3), () {
+        if (mounted) unawaited(_loadPersonal(refresh: true));
+      });
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('좋아요 저장에 실패했습니다.')),
+      );
     }
   }
 
@@ -216,7 +258,24 @@ class _OdifyHomeFeedState extends ConsumerState<OdifyHomeFeed> {
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
       ),
-      trailing: const Icon(Icons.play_arrow_rounded),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          IconButton(
+            tooltip: _liked.contains(
+              OdifyLikeStore.trackKey(video.artist, video.title),
+            ) ? '좋아요 취소' : '좋아요',
+            onPressed: () => _toggleLike(video),
+            icon: Icon(
+              _liked.contains(OdifyLikeStore.trackKey(
+                video.artist, video.title,
+              )) ? Icons.favorite_rounded : Icons.favorite_border_rounded,
+              size: 20,
+            ),
+          ),
+          const Icon(Icons.play_arrow_rounded),
+        ],
+      ),
     );
   }
 
