@@ -1,1 +1,1 @@
-2026-10-20: final v1.1 Android MediaStore embedded art + profile-only Drive entry + donor UI removal. Dart/Python tests only; no APK or Rust/Android compile.
+2026-10-20 v1.1 final audit: artwork native worker separation, source mtime cache invalidation, settings donor removal, profile Drive entry. Dart-only CI; no APK.
