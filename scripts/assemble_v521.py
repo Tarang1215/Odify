@@ -32,6 +32,29 @@ def change(path: str, before: str, after: str):
     dest.write_text(content.replace(before, after), encoding="utf-8")
 
 
+def replace_method(path: str, signature: str, replacement: str):
+    """Replace a Dart method body, not rename and retain dead updater logic."""
+    dest = TARGET / path
+    text = dest.read_text(encoding="utf-8")
+    if text.count(signature) != 1:
+        raise RuntimeError("Missing unique method: " + signature)
+    start = text.index(signature)
+    brace = text.index("{", start + len(signature))
+    depth = 0
+    end = -1
+    for at in range(brace, len(text)):
+        if text[at] == "{":
+            depth += 1
+        elif text[at] == "}":
+            depth -= 1
+            if depth == 0:
+                end = at + 1
+                break
+    if end < 0:
+        raise RuntimeError("Unbalanced Dart method: " + signature)
+    dest.write_text(text[:start] + replacement + text[end:], encoding="utf-8")
+
+
 def overlay():
     for source in (ROOT / "overlay").rglob("*"):
         if not source.is_file():
@@ -86,25 +109,23 @@ def apply_patches():
     change("lib/constants/app_info.dart",
         "static const String githubRepo = 'spotiflacapp/SpotiFLAC-Mobile';",
         "static const String githubRepo = '" + APP["updateRepo"] + "';")
-    # Avoid upstream release feeds, force-update dialogs and upstream version
-    # comparisons in Odify. Future Odify releases require a separate updater
-    # design and signed release metadata; never bypass this guard at runtime.
-    change("lib/screens/main_shell_startup_prompts.dart",
-        "  Future<bool> _checkForUpdates() async {",
+    # Completely remove upstream forced-update and old-version tour logic:
+    # Odify owns its own version, source lock and later release policy.
+    replace_method(
+        "lib/screens/main_shell_startup_prompts.dart",
+        "  Future<bool> _checkForUpdates() async ",
         "  Future<bool> _checkForUpdates() async {\n"
-        "    // Odify is an independent app. Disable Mornye's forced updates.\n"
         "    _hasCheckedUpdate = true;\n"
-        "    return false;\n"
-        "  }\n\n"
-        "  Future<bool> _disabledUpstreamUpdateCheck() async {")
-    # Disable the upstream 'new 5.2 release' mandatory product tour. Preserve
-    # ordinary first-install onboarding so permissions still work.
-    change("lib/screens/main_shell_startup_prompts.dart",
-        "  Future<void> _checkUpgradeIntro() async {",
+        "    return false; // Odify never enforces upstream Mornye updates.\n"
+        "  }",
+    )
+    replace_method(
+        "lib/screens/main_shell_startup_prompts.dart",
+        "  Future<void> _checkUpgradeIntro() async ",
         "  Future<void> _checkUpgradeIntro() async {\n"
-        "    return;\n"
-        "  }\n\n"
-        "  Future<void> _disabledUpstreamUpgradeTour() async {")
+        "    // Do not present Mornye's rebranding or upgrade introduction.\n"
+        "  }",
+    )
 
     player = "lib/services/music_player_service.dart"
     change(player, "show ListeningTrack;",
