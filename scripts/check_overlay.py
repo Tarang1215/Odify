@@ -54,7 +54,7 @@ assert 'home_tab_intro.dart' not in app  # Not hidden in extension-dependent sec
 assert 'odify_quick_access.dart' in app
 assert 'OdifyYouTubeExploreCard' in files['lib/widgets/odify_quick_access.dart'].read_text()
 assert 'OdifyDeviceLibraryCard' in files['lib/widgets/odify_quick_access.dart'].read_text()
-assert '0.16.0' in app and 'jniLibs.useLegacyPackaging = true' in app
+assert '0.18.1' in app and 'jniLibs.useLegacyPackaging = true' in app
 assert 'android:extractNativeLibs' not in app
 assert 'YoutubeDL.getInstance().getInfo(request)' in files['android/app/src/main/kotlin/com/zarz/spotiflac/OdifyYtDlpPlugin.kt'].read_text()
 assert "playAll(" in files['lib/widgets/odify_youtube_explore.dart'].read_text()
