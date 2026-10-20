@@ -54,9 +54,16 @@ def main():
     )
     assembly = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(assembly)
-    if (assembly.COMMIT != expected_sha or
-        assembly.UPSTREAM != "https://github.com/mornyeapp/Mornye.git"):
-        raise RuntimeError("Odify default assembler has diverged from source lock")
+    frozen_sha = "191fd35e1d9cf147a54312453c39e717408d0454"
+    if (base.get("frozenSourceRepository") != "Tarang1215/Odify" or
+        base.get("frozenSourceCommit") != frozen_sha or
+        base.get("frozenSourceBranch") != "vendor/mornye-v5.2.1" or
+        base.get("sourceStrategy") != "own-immutable-vendor-snapshot"):
+        raise RuntimeError("Unreviewed Odify-owned vendor snapshot lock")
+    if (assembly.COMMIT != frozen_sha or
+        assembly.ORIGINAL_UPSTREAM_COMMIT != expected_sha or
+        assembly.UPSTREAM != "https://github.com/Tarang1215/Odify.git"):
+        raise RuntimeError("Odify assembler diverged from frozen vendor source lock")
     assembly.TARGET = TARGET
     assembly.assemble()
     identity = (TARGET / "lib/constants/app_info.dart").read_text()
