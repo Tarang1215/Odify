@@ -27,6 +27,8 @@ jobs:
       MORNYE_RUST_ANDROID_ABIS: "arm64-v8a"
       SPOTIFLAC_DISCORD_SDK: "0"
       SPOTIFLAC_RUST_ANDROID_ABIS: "arm64-v8a"
+      # Public OAuth Web client ID; matching Android signing SHA-1 is configured in Google Cloud.
+      ODIFY_GOOGLE_SERVER_CLIENT_ID: ${{ vars.ODIFY_GOOGLE_SERVER_CLIENT_ID }}
     steps:
       - name: Checkout immutable Odify overlay
         uses: actions/checkout@v4
@@ -98,7 +100,7 @@ jobs:
           printf 'flutter.sdk=%s\nflutter.versionName=0.9.0\nflutter.versionCode=170\n' "$FLUTTER_ROOT" > ../android/local.properties
       - name: Compile Android debug APK through Flutter (JIT kernel)
         working-directory: build/Odify
-        run: flutter build apk --debug --target-platform android-arm64 --split-per-abi
+        run: flutter build apk --debug --target-platform android-arm64 --split-per-abi --dart-define=ODIFY_GOOGLE_SERVER_CLIENT_ID="$ODIFY_GOOGLE_SERVER_CLIENT_ID"
       - name: Upload debug APK, independent of release result
         uses: actions/upload-artifact@v4
         if: success()
@@ -113,7 +115,7 @@ jobs:
           python3 scripts/strip_release_test_plugin.py build/Odify/android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java
       - name: Compile Android release APK through Flutter AOT (includes libapp.so)
         working-directory: build/Odify
-        run: flutter build apk --release --target-platform android-arm64 --split-per-abi
+        run: flutter build apk --release --target-platform android-arm64 --split-per-abi --dart-define=ODIFY_GOOGLE_SERVER_CLIENT_ID="$ODIFY_GOOGLE_SERVER_CLIENT_ID"
       - name: Verify APK signatures, own package/version, and native startup ELF
         working-directory: build/Odify
         run: |
