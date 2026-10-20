@@ -85,12 +85,13 @@ class OdifySyncRepository implements OdifySyncLedger {
         return rows.isEmpty ? null : rows.first['value'] as String;
       }
 
-      Future<void> setStateValue(String key, String value) =>
-          txn.insert(
-            'sync_state',
-            {'key': key, 'value': value},
-            conflictAlgorithm: ConflictAlgorithm.replace,
-          ).then((_) {});
+      Future<void> setStateValue(String key, String value) async {
+        await txn.insert(
+          'sync_state',
+          {'key': key, 'value': value},
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+      }
 
       final deviceId = await stateValue('device_id') ?? OdifySyncClock.newId();
       final clock = OdifySyncClock.next(
