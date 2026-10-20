@@ -9,13 +9,15 @@ import shutil
 import subprocess
 import sys
 
-UPSTREAM = 'https://github.com/spotiflacapp/SpotiFLAC-Mobile.git'
-COMMIT = '21ee30c46d405aa72dd650d0cc6e3da0df831c12'  # Oct 19, 2026
+UPSTREAM = 'https://github.com/mornyeapp/Mornye.git'
+COMMIT = '8e4504e72ddcda6bdf6df5e1275396f46e9dfb9f'  # Mornye 5.2.1 SHA; NEVER branch HEAD
 ROOT = Path(__file__).resolve().parents[1]
 TARGET = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else ROOT / 'build' / 'Odify'
 
 
 def replace_one(path, old, new):
+    old = old.replace('package:spotiflac_android/', 'package:mornye/')
+    new = new.replace('package:spotiflac_android/', 'package:mornye/')
     text = path.read_text(encoding='utf-8')
     count = text.count(old)
     if count != 1:
@@ -29,10 +31,41 @@ def assemble():
     TARGET.parent.mkdir(parents=True, exist_ok=True)
     subprocess.run(['git', 'clone', '--filter=blob:none', '--no-checkout', UPSTREAM, str(TARGET)], check=True)
     subprocess.run(['git', '-C', str(TARGET), 'checkout', '--detach', COMMIT], check=True)
+    # The 5.2.1 Flutter package and Kotlin namespace were renamed. Carry
+    # Odify's independent modules across, but preserve the newest upstream
+    # framework/initialization implementations and patch them later by anchors.
+    framework_sources = {
+        'lib/providers/theme_provider.dart',
+        'lib/providers/runtime_profile_provider.dart',
+        'lib/screens/mornye_library_screen.dart',
+        'lib/screens/settings/profile_settings_page.dart',
+        'lib/screens/settings/settings_tab.dart',
+        'lib/widgets/local_library_artwork_builder.dart',
+        'lib/widgets/mini_player.dart',
+    }
     for source in (ROOT / 'overlay').rglob('*'):
-        if source.is_file():
-            destination = TARGET / source.relative_to(ROOT / 'overlay')
-            destination.parent.mkdir(parents=True, exist_ok=True)
+        if not source.is_file():
+            continue
+        relative = source.relative_to(ROOT / 'overlay').as_posix()
+        if relative in framework_sources:
+            continue
+        if relative.startswith('android/app/src/main/kotlin/com/zarz/spotiflac/'):
+            relative = relative.replace('/com/zarz/spotiflac/', '/com/zarz/mornye/')
+        destination = TARGET / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        if source.suffix == '.dart':
+            destination.write_text(
+                source.read_text(encoding='utf-8').replace(
+                    'package:spotiflac_android/', 'package:mornye/'
+                ), encoding='utf-8',
+            )
+        elif source.suffix == '.kt':
+            destination.write_text(
+                source.read_text(encoding='utf-8').replace(
+                    'package com.zarz.spotiflac', 'package com.zarz.mornye'
+                ), encoding='utf-8',
+            )
+        else:
             shutil.copy2(source, destination)
 
     # Google OAuth is an opt-in client-only SDK. No Firebase backend or
@@ -43,9 +76,9 @@ def assemble():
                 '  shared_preferences: ^2.5.6\n'
                 '  google_sign_in: ^7.2.0')
     replace_one(TARGET / 'android/app/build.gradle.kts',
-                'applicationId = "com.zarz.spotiflac"', 'applicationId = "com.odify.music"')
+                'applicationId = "com.zarz.mornye"', 'applicationId = "com.odify.music"')
     replace_one(TARGET / 'android/app/src/main/AndroidManifest.xml',
-                'android:label="SpotiFLAC Mobile"', 'android:label="Odify"')
+                'android:label="Mornye"', 'android:label="Odify"')
     replace_one(TARGET / 'lib/services/music_player_service.dart',
                 "    show ListeningTrack;", "    show ListeningTrack, ListeningStatisticsStore;")
     replace_one(TARGET / 'lib/services/music_player_service.dart',
@@ -109,7 +142,7 @@ def assemble():
     replace_one(autoplay,
                 "    preferenceAdjustment: (track) => model.rankAdjustment(",
                 "    preferenceAdjustment: (track) => taste.bonus(track) + model.rankAdjustment(")
-    replace_one(TARGET / 'android/app/src/main/kotlin/com/zarz/spotiflac/MainActivity.kt',
+    replace_one(TARGET / 'android/app/src/main/kotlin/com/zarz/mornye/MainActivity.kt',
                 "            flutterEngine.plugins.add(MusicHapticsPlugin())\n        }",
                 "            flutterEngine.plugins.add(MusicHapticsPlugin())\n        }\n"
                 "        if (!flutterEngine.plugins.has(OdifyMediaStorePlugin::class.java)) {\n"
@@ -131,7 +164,7 @@ def assemble():
                 '        if (discordSdkEnabled) jniLibs.pickFirsts += "**/libdiscord_partner_sdk.so"\n'
                 '        jniLibs.keepDebugSymbols += setOf("**/libffmpeg.zip.so", "**/libpython.zip.so")\n'
                 '        jniLibs.useLegacyPackaging = true')
-    replace_one(TARGET / 'android/app/src/main/kotlin/com/zarz/spotiflac/MainActivity.kt',
+    replace_one(TARGET / 'android/app/src/main/kotlin/com/zarz/mornye/MainActivity.kt',
                 '            flutterEngine.plugins.add(OdifyMediaStorePlugin())\n        }',
                 '            flutterEngine.plugins.add(OdifyMediaStorePlugin())\n        }\n'
                 '        if (!flutterEngine.plugins.has(OdifyYtDlpPlugin::class.java)) {\n'
@@ -166,6 +199,7 @@ def assemble():
                 '              SliverToBoxAdapter(\n'
                 '                child: OdifyQuickAccess(showDeviceLibrary: _showsHome),\n'
                 '              ),')
+    subprocess.run([sys.executable, str(ROOT / 'scripts/port_521.py'), str(TARGET)], check=True)
     print(f'Odify assembled at {TARGET}')
     print('Next: install the pinned Flutter/Rust/Android toolchain from upstream CI; flutter test.')
 
