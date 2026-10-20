@@ -19,6 +19,16 @@ class UpstreamLockTests(unittest.TestCase):
             "8e4504e72ddcda6bdf6df5e1275396f46e9dfb9f",
         )
         self.assertFalse(lock["base"]["allowMovingTags"])
+        self.assertEqual(
+            lock["base"]["frozenSourceCommit"],
+            "191fd35e1d9cf147a54312453c39e717408d0454",
+        )
+        self.assertEqual(
+            lock["base"]["frozenSourceRepository"], "Tarang1215/Odify",
+        )
+        self.assertEqual(
+            lock["base"]["sourceStrategy"], "own-immutable-vendor-snapshot",
+        )
         self.assertEqual(lock["base"]["updatePolicy"], "manual-review-only")
         self.assertEqual(lock["app"]["id"], "com.odify.music")
         self.assertEqual(lock["app"]["updateRepo"], "Tarang1215/Odify")
