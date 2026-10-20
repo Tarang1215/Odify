@@ -105,3 +105,14 @@ Google Drive 동기화 공통 엔진의 기반을 `lib/services/odify_sync/sync_
 **플랫폼 구현 순서**: 갤럭시 Android → Windows 11 PC → iPad → Mac. iPad는 IPA를 7일마다 갱신해야 하는 무료 개발자 서명을 피하도록 PWA(홈 화면 설치형 웹앱)를 먼저 검토하되, 백그라운드 재생 및 플랫폼별 스트림·로컬 파일 접근은 보장할 수 없다. 일반 iPadOS에서 임의 IPA를 APK처럼 영구 설치할 수 있는 범용 무료 방법은 없다. Apple App Store에 배포할 경우 제3자 미디어 다운로드 권한과 정책을 별도로 확인해야 한다.
 
 자세한 내용은 [Google Drive 동기화 설계](docs/DRIVE_SYNC_ARCHITECTURE.md)를 참조한다. Trove/Supabase와는 완전히 독립된다.
+
+
+## v0.9 — 재생 대기열과 Google Drive 동기화 기반 (APK 미배포)
+
+**플레이어 이전 곡/다음 곡:** 홈 '내 휴대폰 음악'과 Odify Discover에서 `playSingle()`로 노래 하나만 대기열에 넣던 문제를 수정했다. 현재 검색/표시 목록을 `playAll(items, initialIndex: selected)`로 전달하여 플레이어에서 이전/다음 곡으로 이동하도록 구성했다. 휴대폰 브라우저는 현재 불러온 목록에 한해 대기열을 만든다. 실기기 검증은 추후 APK 빌드 때 진행한다.
+
+**오프라인 동기화 엔진:** `lib/services/odify_sync/`에 HLC 변경 시계, 로컬 SQLite 이벤트 로그 및 업로드 대기열, 원격 변경 병합, 업로드 재시도, 메모리 테스트 전송 계층을 추가했다. 순수 Dart 구조로 갤럭시 → Windows → iPad → Mac 개발순서에서 재사용한다.
+
+**Drive API 어댑터:** `drive_sync_transport.dart`는 Google Drive `appDataFolder` 숨김 파일을 변경 토큰으로 불러오며 수정 기록을 불변 배치로 기록한다. `drive.appdata`로 승인받은 짧은 액세스 토큰은 OS별 Google OAuth 계층에서 전달받아야 한다. **실제 OAuth 로그인 UI와 Drive 계정 연결은 아직 구현되지 않았다.** Trove/Supabase와 무관하다.
+
+**배포 방침:** 이번 변경에는 Android APK 빌드나 APK 업로드를 하지 않는다. 경량 Dart 분석 및 모의 Drive 테스트만 수행한다. 이전 APK를 설치한 상태에서는 아직 이전/다음 곡 수정과 Drive 기능이 반영되지 않았다.
