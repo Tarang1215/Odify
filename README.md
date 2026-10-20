@@ -142,3 +142,14 @@ Google Drive 동기화 공통 엔진의 기반을 `lib/services/odify_sync/sync_
 - 소스 및 경량 Flutter 회귀 테스트만 수정했다. **Android APK 전체 빌드/배포는 이번 변경에서 수행하지 않았다.** 현재 설치된 APK에는 포함되지 않는다.
 
 상세 작업 내역: [Home/Discover 성능 설계](docs/HOME_PERFORMANCE_DISCOVERY.md).
+
+
+## v1.1 — 삼성뮤직 MP3 앨범 커버·프로필 로그인·개발자 후원 제거 (소스 단계)
+
+- Android MediaStore에서 조회한 MP3 `content://media/external/audio/media/{id}`의 **내장 앨범 아트**를 `MediaMetadataRetriever`로 읽도록 했다. 오디오 파일이나 삼성뮤직의 비공개 DB는 수정하지 않는다.
+- 내장 이미지 추출은 별도 네이티브 작업 스레드에서 진행하고, 최대 512px JPEG로 앱 전용 폴더에 캐시한다. `내 휴대폰 음악`에서 보이는 곡의 썸네일만 요청한다. 통합 라이브러리와 플레이어에도 이미지 경로를 연결했다.
+- 이제 **설정 → 프로필 → Google 계정 · Drive 동기화**로 진입하며 홈의 Google 동기화 버튼은 제거했다. 실제 계정 연동에는 Odify 전용 Google OAuth 클라이언트 설정이 필요하다.
+- 원본 SpotiFLAC의 **개발자 후원 버튼·월간 모금 현황·후원용 원격 설정 조회**를 설정에서 제거했다. 오픈소스 기여자 크레딧, 저작권 및 라이선스 고지는 유지한다.
+- **APK를 새로 만들거나 배포하지 않았다.** Flutter/Python 검사로 확인했으며, 네이티브 앨범아트 추출은 다음 Android 통합 빌드 및 실기기 검증이 필요하다.
+
+자세한 설명: [Device artwork & profile settings](docs/DEVICE_ARTWORK_PROFILE_SETTINGS.md).
