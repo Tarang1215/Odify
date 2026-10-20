@@ -3,6 +3,8 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:spotiflac_android/providers/local_library_provider.dart';
+import 'package:spotiflac_android/providers/settings_provider.dart';
+import 'package:spotiflac_android/providers/library_browse_provider.dart';
 import 'package:spotiflac_android/services/odify_device_library.dart';
 import 'package:spotiflac_android/widgets/odify_device_music_browser.dart';
 import 'package:spotiflac_android/services/odify_device_catalog.dart';
@@ -23,6 +25,8 @@ class _OdifyDeviceLibraryCardState extends ConsumerState<OdifyDeviceLibraryCard>
   bool _busy = false;
   bool _syncBusy = false;
   static const _syncFlag = 'odify_media_sync_opted_in_v1';
+  static const _lastSyncKey = 'odify_media_sync_last_success_v1';
+  static const _autoSyncInterval = Duration(hours: 6);
 
   @override
   void initState() {
@@ -33,6 +37,20 @@ class _OdifyDeviceLibraryCardState extends ConsumerState<OdifyDeviceLibraryCard>
   Future<void> _autoSync() async {
     final prefs = await SharedPreferences.getInstance();
     if (prefs.getBool(_syncFlag) != true || !mounted) return;
+    final lastMs = prefs.getInt(_lastSyncKey);
+    if (lastMs != null && DateTime.now().difference(
+      DateTime.fromMillisecondsSinceEpoch(lastMs),
+    ) < _autoSyncInterval) {
+      // A previous install may already have catalogued device music while
+      // SpotiFLAC's local-library flag remained disabled. Repair this without
+      // an unnecessary full 20,000-track re-index on every Home mount.
+      if (!ref.read(settingsProvider).localLibraryEnabled) {
+        ref.read(settingsProvider.notifier).setLocalLibraryEnabled(true);
+        await ref.read(localLibraryProvider.notifier).reloadFromStorage();
+        if (mounted) ref.invalidate(libraryBrowseProvider);
+      }
+      return;
+    }
     // Permission may have been revoked in Android settings.
     final android = await DeviceInfoPlugin().androidInfo;
     final permission = android.version.sdkInt >= 33
@@ -53,8 +71,17 @@ class _OdifyDeviceLibraryCardState extends ConsumerState<OdifyDeviceLibraryCard>
       final count = await OdifyDeviceCatalog.syncToLibrary();
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool(_syncFlag, true);
+      await prefs.setInt(_lastSyncKey, DateTime.now().millisecondsSinceEpoch);
+      // SpotiFLAC's default localLibraryEnabled=false silently filters all
+      // MediaStore rows from its unified Library page. Enabling it is part of
+      // the user's explicit Odify library-sync choice.
       if (!mounted) return;
-      ref.invalidate(localLibraryProvider);
+      if (!ref.read(settingsProvider).localLibraryEnabled) {
+        ref.read(settingsProvider.notifier).setLocalLibraryEnabled(true);
+      }
+      await ref.read(localLibraryProvider.notifier).reloadFromStorage();
+      if (!mounted) return;
+      ref.invalidate(libraryBrowseProvider);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Odify 라이브러리에 음악 $count곡 동기화 완료')),
       );
