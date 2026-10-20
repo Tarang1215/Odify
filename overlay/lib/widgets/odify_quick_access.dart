@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:spotiflac_android/widgets/odify_device_library_card.dart';
 import 'package:spotiflac_android/widgets/odify_youtube_explore.dart';
+import 'package:spotiflac_android/widgets/odify_sync_settings.dart';
 
 /// Always-visible Odify entry point, independent of SpotiFLAC's optional
 /// search/home-feed extensions. In the Search tab we omit the device card
@@ -54,6 +55,16 @@ class OdifyQuickAccess extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           const OdifyYouTubeExploreCard(),
+          const SizedBox(height: 10),
+          OutlinedButton.icon(
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => const OdifySyncSettingsScreen(),
+              ),
+            ),
+            icon: const Icon(Icons.cloud_sync_outlined),
+            label: const Text('동기화 및 백업 · Google Drive'),
+          ),
           if (showDeviceLibrary) ...[
             const SizedBox(height: 8),
             const OdifyDeviceLibraryCard(),
