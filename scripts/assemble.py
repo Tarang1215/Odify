@@ -75,14 +75,35 @@ def assemble():
                 "            flutterEngine.plugins.add(MusicHapticsPlugin())\n        }\n"
                 "        if (!flutterEngine.plugins.has(OdifyMediaStorePlugin::class.java)) {\n"
                 "            flutterEngine.plugins.add(OdifyMediaStorePlugin())\n        }")
+    # yt-dlp is an optional GPL-3.0 native dependency; retain attribution.
+    gradle = TARGET / 'android/app/build.gradle.kts'
+    gradle_text = gradle.read_text(encoding='utf-8')
+    dependency_anchor = 'dependencies {\n'
+    if gradle_text.count(dependency_anchor) != 1:
+        raise RuntimeError('Expected exactly one Gradle dependencies block')
+    replace_one(gradle, dependency_anchor,
+                dependency_anchor +
+                '    implementation("io.github.junkfood02.youtubedl-android:library:0.16.0")\n'
+                '    implementation("io.github.junkfood02.youtubedl-android:ffmpeg:0.16.0")\n')
+    replace_one(TARGET / 'android/app/src/main/AndroidManifest.xml',
+                'android:name=".SpotiFlacApplication"',
+                'android:name=".SpotiFlacApplication" android:extractNativeLibs="true"')
+    replace_one(TARGET / 'android/app/src/main/kotlin/com/zarz/spotiflac/MainActivity.kt',
+                '            flutterEngine.plugins.add(OdifyMediaStorePlugin())\n        }',
+                '            flutterEngine.plugins.add(OdifyMediaStorePlugin())\n        }\n'
+                '        if (!flutterEngine.plugins.has(OdifyYtDlpPlugin::class.java)) {\n'
+                '            flutterEngine.plugins.add(OdifyYtDlpPlugin())\n        }')
     home = TARGET / 'lib/screens/home_tab.dart'
     replace_one(home,
                 "import 'package:spotiflac_android/widgets/app_snack_bar.dart';",
                 "import 'package:spotiflac_android/widgets/app_snack_bar.dart';\n"
-                "import 'package:spotiflac_android/widgets/odify_device_library_card.dart';")
+                "import 'package:spotiflac_android/widgets/odify_device_library_card.dart';\n"
+                "import 'package:spotiflac_android/widgets/odify_youtube_explore.dart';")
     replace_one(TARGET / 'lib/screens/home_tab_intro.dart',
                 "    final sections = <Widget>[",
                 "    final sections = <Widget>[\n"
+                "      _HomeSection(title: 'Discover music & covers', inset: inset,\n"
+                "          child: const OdifyYouTubeExploreCard()),\n"
                 "      _HomeSection(title: 'Your phone music', inset: inset,\n"
                 "          child: const OdifyDeviceLibraryCard()),")
     print(f'Odify assembled at {TARGET}')

@@ -39,3 +39,15 @@ assert 'OdifyMediaStorePlugin' in app and 'odify_likes.dart' in app
 assert 'git clone' not in app  # subprocess call uses argv list
 assert 'subprocess.run' in app
 print(f'Odify overlay static checks passed: {len(files)} files')
+
+# v0.4: yt-dlp is a native plug-in, invoked from Flutter and reused by Home.
+assert {
+    'lib/services/odify_youtube.dart',
+    'lib/widgets/odify_youtube_explore.dart',
+    'android/app/src/main/kotlin/com/zarz/spotiflac/OdifyYtDlpPlugin.kt',
+} <= files.keys()
+assert 'OdifyYtDlpPlugin' in app
+assert 'OdifyYouTubeExploreCard' in app
+assert '0.16.0' in app and 'android:extractNativeLibs' in app
+assert 'YoutubeDL.getInstance().getInfo(request)' in files['android/app/src/main/kotlin/com/zarz/spotiflac/OdifyYtDlpPlugin.kt'].read_text()
+assert "playSingle(media)" in files['lib/widgets/odify_youtube_explore.dart'].read_text()
