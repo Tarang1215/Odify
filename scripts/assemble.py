@@ -93,6 +93,12 @@ def assemble():
                 'applicationId = "com.zarz.mornye"', 'applicationId = "com.odify.music"')
     replace_one(TARGET / 'android/app/src/main/AndroidManifest.xml',
                 'android:label="Mornye"', 'android:label="Odify"')
+    # Odify's standalone lyric fallback is shared with the in-player button
+    # and the existing track-details "Search online" action.
+    replace_one(TARGET / 'lib/screens/track_metadata_screen.dart',
+                "import 'package:spotiflac_android/services/platform_bridge.dart';",
+                "import 'package:spotiflac_android/services/platform_bridge.dart';\\n"
+                "import 'package:spotiflac_android/services/odify_lyrics_fallback.dart';".replace('\\\\n', '\\n'))
     replace_one(TARGET / 'lib/services/music_player_service.dart',
                 "show ListeningTrack;", "show ListeningTrack, ListeningStatisticsStore;")
     replace_one(TARGET / 'lib/services/music_player_service.dart',
