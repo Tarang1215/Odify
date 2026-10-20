@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:spotiflac_android/services/playable_media.dart';
 import 'package:spotiflac_android/services/library_database.dart';
+import 'package:spotiflac_android/services/odify_device_artwork.dart';
 
 class OdifyDeviceTrack {
   const OdifyDeviceTrack({
@@ -12,6 +13,9 @@ class OdifyDeviceTrack {
     required this.artist,
     required this.album,
     required this.durationMs,
+    this.modifiedSeconds = 0,
+    this.albumId = 0,
+    this.cachedCoverPath,
   });
 
   final String id;
@@ -20,6 +24,9 @@ class OdifyDeviceTrack {
   final String artist;
   final String album;
   final int durationMs;
+  final int modifiedSeconds;
+  final int albumId;
+  final String? cachedCoverPath;
 
   factory OdifyDeviceTrack.fromPlatform(Map<dynamic, dynamic> data) {
     return OdifyDeviceTrack(
@@ -29,6 +36,9 @@ class OdifyDeviceTrack {
       artist: data['artist']?.toString() ?? '',
       album: data['album']?.toString() ?? '',
       durationMs: (data['durationMs'] as num?)?.toInt() ?? 0,
+      modifiedSeconds: (data['modifiedSeconds'] as num?)?.toInt() ?? 0,
+      albumId: (data['albumId'] as num?)?.toInt() ?? 0,
+      cachedCoverPath: data['cachedCoverPath'] as String?,
     );
   }
 
@@ -38,8 +48,18 @@ class OdifyDeviceTrack {
     title: title,
     artist: artist,
     album: album,
+    artUri: _artworkUri(),
     duration: durationMs > 0 ? Duration(milliseconds: durationMs) : null,
   );
+
+  String? _artworkUri() {
+    final path = OdifyDeviceArtwork.peek(
+      id,
+      modifiedSeconds: modifiedSeconds,
+      nativeCachedCover: cachedCoverPath,
+    );
+    return path == null ? null : Uri.file(path).toString();
+  }
 }
 
 class OdifyDeviceCatalog {
@@ -63,6 +83,14 @@ class OdifyDeviceCatalog {
             'artistName': song.artist.isEmpty ? 'Unknown Artist' : song.artist,
             'albumName': song.album.isEmpty ? 'Unknown Album' : song.album,
             'filePath': song.uri,
+            // Only known cached previews are indexed now; artwork misses are
+            // resolved lazily when browsing or playing, never in the 20k scan.
+            'coverPath': OdifyDeviceArtwork.peek(
+              song.id,
+              modifiedSeconds: song.modifiedSeconds,
+              nativeCachedCover: song.cachedCoverPath,
+            ),
+            'fileModTime': song.modifiedSeconds * 1000,
             'scannedAt': stamp,
             'duration': (song.durationMs / 1000).round(),
           },
