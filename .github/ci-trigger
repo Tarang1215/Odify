@@ -1,1 +1,2 @@
 2026-10-21 Android 16 Home-entry crash containment: never run yt-dlp embedded Python on Home mount; require explicit user action, regression asserts zero native calls after 15s. Build and verify ARM64 debug/release artifacts.
+2026-10-21 static checks updated: opt-in preview regression, no Home auto-start. Rerun APK build.
