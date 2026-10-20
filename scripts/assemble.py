@@ -52,6 +52,18 @@ def assemble():
                 "import 'package:spotiflac_android/services/music_player_runtime.dart';",
                 "import 'package:spotiflac_android/services/music_player_runtime.dart';\n"
                 "import 'package:spotiflac_android/services/odify_likes.dart';")
+    # Samsung/MediaStore content URIs require on-demand embedded art lookup.
+    # Mornye's SAF artwork resolver remains the fallback for other sources.
+    replace_one(TARGET / 'lib/services/music_player_service.dart',
+                "import 'package:spotiflac_android/services/music_player_runtime.dart';",
+                "import 'package:spotiflac_android/services/music_player_runtime.dart';\n"
+                "import 'package:spotiflac_android/services/odify_device_artwork.dart';")
+    replace_one(TARGET / 'lib/services/music_player_service.dart',
+                "      extract: (source) =>\n"
+                "          DownloadedEmbeddedCoverResolver.resolveOrExtract(source),",
+                "      extract: (source) async =>\n"
+                "          await OdifyDeviceArtwork.forSource(source) ??\n"
+                "          await DownloadedEmbeddedCoverResolver.resolveOrExtract(source),")
     # Re-resolve YouTube stream URLs when playback starts (IDs survive restarts).
     replace_one(TARGET / 'lib/services/music_player_service.dart',
                 "import 'package:spotiflac_android/services/music_player_runtime.dart';",
