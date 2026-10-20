@@ -78,6 +78,29 @@ class _OdifyDeviceMusicBrowserState
     }
   }
 
+  // Preserve the visible catalogue as the playback queue; playSingle(track)
+  // would install a one-item queue, disabling Next/Previous in the player.
+  // Only currently loaded MediaStore pages enter the queue. More pages can be
+  // loaded via the existing "더 불러오기" control before playback.
+  Future<void> _playFromVisible(
+    List<OdifyDeviceTrack> visible,
+    OdifyDeviceTrack selected,
+  ) async {
+    final initialIndex = visible.indexWhere((track) => track.id == selected.id);
+    if (initialIndex < 0) return;
+    try {
+      await ref.read(musicPlayerControllerProvider).playAll(
+        [for (final track in visible) track.toPlayable()],
+        initialIndex: initialIndex,
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('음악 대기열을 재생할 수 없습니다: $error')),
+      );
+    }
+  }
+
   Future<void> _toggleLike(OdifyDeviceTrack track) async {
     final key = OdifyLikeStore.trackKey(track.artist, track.title);
     final liked = !_likes.contains(key);
@@ -151,8 +174,7 @@ class _OdifyDeviceMusicBrowserState
                 leading: const Icon(Icons.music_note_outlined),
                 title: Text(track.title, maxLines: 1, overflow: TextOverflow.ellipsis),
                 subtitle: Text(track.artist, maxLines: 1, overflow: TextOverflow.ellipsis),
-                onTap: () => ref.read(musicPlayerControllerProvider)
-                    .playSingle(track.toPlayable()),
+                onTap: () => _playFromVisible(filtered, track),
                 trailing: Row(mainAxisSize: MainAxisSize.min, children: [
                   IconButton(
                     tooltip: liked ? '좋아요 취소' : '좋아요',
