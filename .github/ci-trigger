@@ -1,3 +1,3 @@
-Integration checkpoint: 2026-10-20
-Reason: Android 9.4.1 APK packaging fix jniLibs.useLegacyPackaging
-Source commit: bf3dd48bd903c99fe2c52bf24105f9600509a927
+Odify 0.9.0+170 Mornye v5.2.1 pinned base full Android arm64 build.
+Inputs: immutable upstream commit 8e4504e72ddcda6bdf6df5e1275396f46e9dfb9f; CI runtime package com.odify.music; vendor updater disabled.
+Goal: validate release/debug Android Kotlin/Rust compilation after Dart compatibility gate.
