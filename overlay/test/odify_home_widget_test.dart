@@ -11,7 +11,7 @@ import 'package:spotiflac_android/widgets/odify_home_feed.dart';
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
-  testWidgets('Home explains preview and loads results after first frame',
+  testWidgets('Home never starts the native extractor until explicitly requested',
       (tester) async {
     var calls = 0;
     final service = OdifyHomeFeedService(
@@ -46,7 +46,13 @@ void main() {
     expect(find.text('나를 위한 추천'), findsOneWidget);
     expect(calls, 0, reason: 'Home must not block its first paint');
 
-    await tester.pump(const Duration(milliseconds: 950));
+    // A delayed native search could kill a real Android 16 process even
+    // though widget tests appear green. No elapsed time may start it.
+    await tester.pump(const Duration(seconds: 15));
+    expect(calls, 0, reason: 'Entering Home must not start yt-dlp');
+    expect(find.byKey(const Key('odify-home-load-preview')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('odify-home-load-preview')));
+    await tester.pump();
     await tester.pump();
     await tester.pump();
     expect(find.text('Sample K-pop'), findsWidgets);
@@ -82,7 +88,8 @@ void main() {
         ),
       ),
     );
-    await tester.pump(const Duration(milliseconds: 950));
+    await tester.tap(find.byKey(const Key('odify-home-load-preview')));
+    await tester.pump();
     await tester.pump();
     await tester.pump();
     expect(find.byTooltip('좋아요'), findsWidgets);
