@@ -1,0 +1,47 @@
+name: Odify Dart-only validation
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/odify-dart-check.yml"
+      - ".github/dart-check-trigger"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: odify-dart-only-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  flutter:
+    name: Dart analysis and offline sync tests (no APK)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout Odify overlay
+        uses: actions/checkout@v4
+      - name: Validate Python overlay
+        run: |
+          python3 scripts/check_overlay.py
+          python3 -m unittest discover -s tests -v
+      - name: Assemble pinned SpotiFLAC
+        run: python3 scripts/assemble.py
+      - name: Setup Flutter from upstream lock
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version-file: build/Odify/.fvmrc
+          cache: true
+      - name: Fetch Dart dependencies
+        working-directory: build/Odify
+        run: flutter pub get
+      - name: Analyze all Dart code
+        working-directory: build/Odify
+        run: flutter analyze --no-fatal-infos
+      - name: Offline player/discovery/sync tests
+        working-directory: build/Odify
+        run: |
+          flutter test test/odify_discovery_test.dart test/odify_metadata_test.dart test/odify_quick_access_test.dart test/odify_sync_merge_test.dart test/odify_sync_coordinator_test.dart test/odify_drive_transport_test.dart
