@@ -94,7 +94,7 @@ class OdifyMediaStorePlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     // Source-versioned cover cache, stored only in Odify's private directory.
     // Exports scaled JPEG thumbnails rather than copying users' MP3 files.
     private fun coverDirectory(context: Context) =
-        File(context.filesDir, "odify_media_artwork").apply { mkdirs() }
+        File(context.filesDir, "odify_media_artwork")
 
     private fun coverFile(context: Context, id: Long, modifiedSeconds: Long) =
         File(coverDirectory(context), "${id}_${modifiedSeconds}.jpg")
@@ -156,6 +156,9 @@ class OdifyMediaStorePlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
             else Bitmap.createScaledBitmap(bitmap, width, height, true)
         } catch (_: Exception) {
             bitmap.recycle()
+            return null
+        }
+        if (file.parentFile?.mkdirs() == false && !file.parentFile.isDirectory) {
             return null
         }
         val temp = File(file.parentFile, "${file.name}.tmp")
