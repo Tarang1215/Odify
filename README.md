@@ -153,3 +153,17 @@ Google Drive 동기화 공통 엔진의 기반을 `lib/services/odify_sync/sync_
 - **APK를 새로 만들거나 배포하지 않았다.** Flutter/Python 검사로 확인했으며, 네이티브 앨범아트 추출은 다음 Android 통합 빌드 및 실기기 검증이 필요하다.
 
 자세한 설명: [Device artwork & profile settings](docs/DEVICE_ARTWORK_PROFILE_SETTINGS.md).
+
+
+## v1.2 — Odify UI 글래스 리디자인 (소스만 반영, APK 미배포)
+
+참고 이미지 7장 기반으로 실제 Flutter UI를 변경했다. 핵심은 **다크·민트 포인트 컬러·반투명 글래스·앨범 아트 중심 음악 탐색**이다.
+
+- **홈:** Odify 브랜딩/검색 단축키, All/For You/Trending/Covers 바로가기, ‘오늘의 추천’ 대형 아트 카드, 개인 추천 앨범 캐러셀, 국가별 음악 탐색(KR/JP/Global)의 글래스 트랙 목록.
+- **라이브러리:** 4개 단순 텍스트 행을 둥근 2열 글래스 카테고리(재생목록/아티스트/앨범/곡)로 교체. 내부 기존 페이지 및 로컬 앨범/곡 데이터베이스는 변경하지 않는다.
+- **미니 플레이어:** 기존 Mornye 하단 네비게이션/미니 플레이어의 공유 글래스 렌더러를 활용해 24px 라운드/테두리 조정. 이전곡·다음곡 및 재생 관련 동작 유지.
+- **테마:** 신규 사용자는 Odify 다크 + Mornye 프로스티드 글래스 + 녹색 포인트로 시작한다. 기존 설정(라이트 모드 등)은 **그대로 유지**한다. 복잡한 refraction 셰이더는 고성능 기기의 사용자 명시적 설정 때만 켤 수 있다.
+- **성능:** 스크롤 카드에 실시간 BackdropFilter를 추가하지 않고 정적 그라데이션·얇은 테두리를 사용. 썸네일 디코딩 폭 상한, 이미지 RepaintBoundary, 홈 기존 검색 지연/캐시를 유지했다.
+- **검증:** Python overlay 조립·Flutter 전체 분석·홈/라이브러리/글래스/테마 위젯 테스트. 이번 작업에서 APK를 빌드하거나 배포하지 않았다. **실기기 120Hz 프레임 검사 및 UI 확인은 다음 통합 APK 배포 시 별도 진행한다.**
+
+자세한 변경 및 검증 기준: [Odify Glass UI Redesign](docs/ODIFY_GLASS_UI_REDESIGN.md).
