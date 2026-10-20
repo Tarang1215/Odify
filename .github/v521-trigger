@@ -1,1 +1,1 @@
-2026-10-20: v5.2.1 compatibility rerun after isolating updated upstream lock tests and eliminating inherited updater methods.
+2026-10-20: v5.2.1 single canonical build verification; upstream lock matches overlay identity, port avoids rewriting independent AppInfo twice.
