@@ -40,6 +40,11 @@ jobs:
           git config user.name "Odify source snapshot"
           git config user.email "odify-build@users.noreply.github.com"
           git add -f --pathspec-from-file=/tmp/odify-vendor-tracked-files.bin --pathspec-file-nul
+          # GitHub Actions' token lacks the workflows permission required to
+          # create another repository's CI workflows. We vendor runtime source
+          # and attribution, never its .github/workflows release automation.
+          git rm -r --cached --ignore-unmatch -q .github/workflows
+          rm -rf .github/workflows
           printf 'Upstream: mornyeapp/Mornye\nVersion: v5.2.1\nImmutable upstream commit: %s\nThis branch is a frozen source snapshot, not an automatic update feed.\nOriginal license/attribution files remain in the snapshot.\n' "$SOURCE_SHA" > ODIFY_VENDOR_BASE.txt
           git add ODIFY_VENDOR_BASE.txt
           git commit -qm "vendor: freeze reviewed Mornye v5.2.1 source $SOURCE_SHA"
