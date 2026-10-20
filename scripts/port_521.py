@@ -214,13 +214,18 @@ def patch_updater(root: Path) -> None:
     # Never rewrite its identity from Mornye after overlay application.
     identity = info.read_text(encoding="utf-8")
     for own_constant in (
-        "static const String version = '0.2.0';",
-        "static const String buildNumber = '2';",
+        "static const String version = '0.9.0';",
+        "static const String buildNumber = '170';",
         "static const String appName = 'Odify';",
         "static const String githubRepo = 'Tarang1215/Odify';",
     ):
         if own_constant not in identity:
             raise RuntimeError("Odify app identity missing: " + own_constant)
+    one(info,
+        "static const String remoteConfigApiUrl =\n"
+        "      'https://api.zarz.moe/v1/spotiflac-mobile/config';",
+        "static const String remoteConfigApiUrl =\n"
+        "      'https://raw.githubusercontent.com/Tarang1215/Odify/main/config/odify_remote.json';")
     one(root / "lib/services/update_checker.dart",
         "  Future<UpdateInfo?> checkForUpdate({String channel = 'stable'}) async {\n",
         "  Future<UpdateInfo?> checkForUpdate({String channel = 'stable'}) async {\n"
