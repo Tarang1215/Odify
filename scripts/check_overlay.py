@@ -240,8 +240,8 @@ assert 'ListView.separated(' in home_ui
 assert 'cacheWidth: (size * MediaQuery.devicePixelRatioOf(context))' in home_ui
 assert 'radius: 24' in player and 'highlightBorder: true' in player
 assert 'MornyeGlassLevel.frosted' in runtime
-assert 'MornyeAccent.green' in theme and "?? 'mornye'" in theme
-assert "?? 'dark'" in theme and 'prefs.getString(kThemeModeKey)' in theme
+assert 'MornyeAccent.blue' in theme and "?? 'mornye'" in theme
+assert "?? 'light'" in theme and 'prefs.getString(kThemeModeKey)' in theme
 assert 'OdifyGlassSurface(' in files['lib/widgets/odify_device_library_card.dart'].read_text()
 assert 'OdifyGlassSurface(' in files['lib/widgets/odify_youtube_explore.dart'].read_text()
 assert "test/odify_glass_design_test.dart" in files
