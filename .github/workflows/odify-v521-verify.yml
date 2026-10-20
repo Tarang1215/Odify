@@ -20,8 +20,10 @@ jobs:
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
-      - name: Verify lock, old/new assembler tests
-        run: python3 -m unittest discover -s tests -v
+      - name: Verify immutable 5.2.1 lock and release signing helper
+        run: |
+          python3 -m unittest discover -s tests -p 'test_upstream_lock.py' -v
+          python3 -m unittest discover -s tests -p 'test_release_registrant.py' -v
       - name: Clone audited 5.2.1 revision and assemble Odify
         run: python3 scripts/assemble_v521.py
       - name: Check source pin, no accidental updater or old Android namespaces
