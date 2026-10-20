@@ -1,1 +1,1 @@
-2026-10-20: home quick-heart feedback, 3s debounced personalization, async results version guard. Revalidate Flutter only; no APK.
+2026-10-20: final v1.1 Android MediaStore embedded art + profile-only Drive entry + donor UI removal. Dart/Python tests only; no APK or Rust/Android compile.
