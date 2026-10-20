@@ -52,3 +52,11 @@ flutter test
 - yt-dlp를 포함한 네이티브 라이브러리는 GPL-3.0 라이선스입니다. 배포 시 SpotiFLAC(MIT), yt-dlp, youtubedl-android 및 기타 의존성의 저작권·라이선스 고지 및 소스 공개 의무를 별도 점검해야 합니다.
 - 실제 YouTube 스트리밍과 MP3 변환, 네이티브 라이브러리 의존성 빌드는 **Android SDK/Flutter/Rust 환경에서 아직 검증되지 않았습니다**. 로그인 필요 영상, 서명 URL 만료, 오디오 포맷별 재생 오류 가능성이 있습니다. 서비스 약관 및 콘텐츠 권리를 준수하세요.
 - `scripts/assemble.py`는 원본 커밋을 고정하여 조립하고, GitHub Actions는 자동 실행하지 않습니다.
+
+## v0.5 — 안정적 온라인 재생 대기열
+
+- YouTube에서 추출한 일시적 오디오 URL 대신 `odify-youtube://video/<영상 ID>`를 대기열에 저장합니다.
+- SpotiFLAC 오디오 서비스가 실제 재생 직전에 yt-dlp로 최신 오디오 주소를 다시 확인합니다. 이 방식은 재생목록/세션 복원 시 만료 URL을 유지하는 문제를 줄입니다.
+- 대소문자를 구분하는 영상 ID는 URI 호스트가 아닌 경로에 보관합니다.
+- `python3 -m unittest discover -s tests -v`로 인터넷·GitHub Actions 없이 패치 조립 회귀 테스트를 실행할 수 있습니다.
+- **실제 Flutter/Android APK 빌드 및 갤럭시 실재생은 아직 검증되지 않았습니다.**

@@ -51,3 +51,13 @@ assert 'OdifyYouTubeExploreCard' in app
 assert '0.16.0' in app and 'android:extractNativeLibs' in app
 assert 'YoutubeDL.getInstance().getInfo(request)' in files['android/app/src/main/kotlin/com/zarz/spotiflac/OdifyYtDlpPlugin.kt'].read_text()
 assert "playSingle(media)" in files['lib/widgets/odify_youtube_explore.dart'].read_text()
+
+# v0.5: queue sources stay stable, and extraction occurs at playback.
+source = files['lib/services/odify_youtube.dart'].read_text()
+assert 'source: sourceForId(video.id)' in source
+assert "return '$sourceScheme://video/$id';" in source
+assert 'return uri.pathSegments.single;' in source
+assert 'source: url,' not in source
+assert 'OdifyYouTube.resolveAudioSource(media.source)' in app
+assert "'odify-youtube'" in app
+assert 'OdifyYouTube.playable(video)' in files['lib/widgets/odify_youtube_explore.dart'].read_text()
