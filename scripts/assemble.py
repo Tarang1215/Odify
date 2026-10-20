@@ -37,7 +37,6 @@ def assemble():
     framework_sources = {
         # Never replace freshly pinned v5.2.1 core identity or lifecycle files
         # with an older 5.2.0 overlay; reviewed port_521 adjusts their seams.
-        'lib/constants/app_info.dart',
         'android/app/src/main/kotlin/com/zarz/spotiflac/SpotiFlacApplication.kt',
         'android/app/src/main/kotlin/com/zarz/spotiflac/ImpellerCompatibility.kt',
         'lib/providers/theme_provider.dart',
@@ -47,7 +46,6 @@ def assemble():
         'lib/screens/settings/settings_tab.dart',
         'lib/widgets/local_library_artwork_builder.dart',
         'lib/widgets/mini_player.dart',
-        'lib/constants/app_info.dart',  # Apply Odify branding against 5.2.1 source.
     }
     for source in (ROOT / 'overlay').rglob('*'):
         if not source.is_file():
