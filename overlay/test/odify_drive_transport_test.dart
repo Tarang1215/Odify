@@ -25,7 +25,12 @@ void main() {
     final client = MockClient((request) async {
       calls.add(request.url.path);
       expect(request.url.host, 'www.googleapis.com');
-      expect(request.headers['authorization'], 'Bearer test-token');
+      expect(
+        request.headers.entries.any((header) =>
+          header.key.toLowerCase() == 'authorization' &&
+          header.value == 'Bearer test-token'),
+        true,
+      );
 
       if (request.url.path.endsWith('changes/startPageToken')) {
         expect(request.url.queryParameters['spaces'], 'appDataFolder');
@@ -75,7 +80,12 @@ void main() {
         created++;
         expect(request.url.path, '/upload/drive/v3/files');
         expect(request.url.queryParameters['uploadType'], 'multipart');
-        expect(request.headers['content-type'], contains('multipart/related'));
+        expect(
+          request.headers.entries.any((header) =>
+            header.key.toLowerCase() == 'content-type' &&
+            header.value.contains('multipart/related')),
+          true,
+        );
         final body = utf8.decode(request.bodyBytes);
         expect(body, contains('appDataFolder'));
         expect(body, contains('Japanese Covers'));
