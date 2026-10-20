@@ -179,7 +179,10 @@ media_card = files['lib/widgets/odify_device_library_card.dart'].read_text()
 assert 'const OdifyHomeFeed()' in quick
 assert 'OdifyGlassPill' in quick
 assert 'if (showDeviceLibrary)' in quick
-assert 'Timer(const Duration(milliseconds: 900)' in home_ui
+assert "key: const Key('odify-home-load-preview')" in home_ui
+assert 'void _requestPreviews()' in home_ui
+assert '_previewRequested = false' in home_ui
+assert 'Timer(const Duration(milliseconds: 900)' not in home_ui
 assert 'OdifyHomeFeedService.shared' in home_ui
 assert 'cacheWidth: (size * MediaQuery.devicePixelRatioOf(context))' in home_ui
 assert 'OdifyLikeStore.setLiked' in home_ui
