@@ -8,23 +8,43 @@ import 'package:spotiflac_android/services/odify_youtube.dart';
 import 'package:spotiflac_android/services/odify_discovery.dart';
 import 'package:spotiflac_android/services/odify_home_feed.dart';
 import 'package:spotiflac_android/services/odify_likes.dart';
+import 'package:spotiflac_android/widgets/odify_glass.dart';
 
 /// An Odify entry point in the existing SpotiFLAC Home, rather than a browser.
 class OdifyYouTubeExploreCard extends StatelessWidget {
   const OdifyYouTubeExploreCard({super.key});
 
   @override
-  Widget build(BuildContext context) => Card.filled(
-    child: ListTile(
-      leading: const Icon(Icons.headphones_rounded),
-      title: const Text('음악 찾기 · Discover'),
-      subtitle: const Text('눌러서 곡 검색 · 취향 추천 · 커버 · 라이브 보기'),
-      trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 16),
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return OdifyGlassSurface(
+      radius: 23,
+      accent: colors.primary,
       onTap: () => Navigator.of(context, rootNavigator: true).push(
         MaterialPageRoute<void>(builder: (_) => const OdifyYouTubeExplorer()),
       ),
-    ),
-  );
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      child: ListTile(
+        contentPadding: const EdgeInsets.symmetric(horizontal: 2),
+        leading: Container(
+          width: 48,
+          height: 48,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: colors.primary.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Icon(Icons.headphones_rounded, color: colors.primary),
+        ),
+        title: const Text(
+          '음악 찾기 · Discover',
+          style: TextStyle(fontWeight: FontWeight.w800),
+        ),
+        subtitle: const Text('눌러서 곡 검색 · 취향 추천 · 커버 · 라이브 보기'),
+        trailing: Icon(Icons.north_east_rounded, color: colors.primary),
+      ),
+    );
+  }
 }
 
 class OdifyYouTubeExplorer extends ConsumerStatefulWidget {
