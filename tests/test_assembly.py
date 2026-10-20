@@ -23,6 +23,8 @@ FIXTURES = {
         "    show ListeningTrack;\n"
         "part 'music_player_autoplay.dart';\n"
         "  Future<String?> _resolveSource(PlayableMedia media) async {\n"
+        "      extract: (source) =>\n"
+        "          DownloadedEmbeddedCoverResolver.resolveOrExtract(source),\n"
     ),
     'lib/services/playable_media.dart': (
         "const {'network', 'http', 'https'}.contains(Uri.tryParse(source)?.scheme);\n"
@@ -66,6 +68,14 @@ class OdifyAssemblyTests(unittest.TestCase):
                 mod.assemble()
             player = (target / 'lib/services/music_player_service.dart').read_text()
             self.assertIn('OdifyYouTube.resolveAudioSource(media.source)', player)
+            self.assertIn('OdifyDeviceArtwork.forSource(source)', player)
+            profile = (target / 'lib/screens/settings/profile_settings_page.dart').read_text()
+            settings = (target / 'lib/screens/settings/settings_tab.dart').read_text()
+            self.assertIn('odify-profile-drive-sync', profile)
+            self.assertNotIn('DonatePage', settings)
+            self.assertNotIn('_loadDonationGoal', settings)
+            album_art = (target / 'lib/widgets/local_library_artwork_builder.dart').read_text()
+            self.assertIn('OdifyDeviceArtwork.resolve(', album_art)
             self.assertIn("'odify-youtube'", (target / 'lib/services/playable_media.dart').read_text())
             gradle = (target / 'android/app/build.gradle.kts').read_text()
             manifest = (target / 'android/app/src/main/AndroidManifest.xml').read_text()
