@@ -35,6 +35,13 @@ def assemble():
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source, destination)
 
+    # Google OAuth is an opt-in client-only SDK. No Firebase backend or
+    # Trove/Supabase dependency is introduced. A separate public Web OAuth
+    # server client ID will be supplied using --dart-define at a later build.
+    replace_one(TARGET / 'pubspec.yaml',
+                '  shared_preferences: ^2.5.6',
+                '  shared_preferences: ^2.5.6\n'
+                '  google_sign_in: ^7.2.0')
     replace_one(TARGET / 'android/app/build.gradle.kts',
                 'applicationId = "com.zarz.spotiflac"', 'applicationId = "com.odify.music"')
     replace_one(TARGET / 'android/app/src/main/AndroidManifest.xml',
