@@ -58,7 +58,11 @@ class OdifyAssemblyTests(unittest.TestCase):
             player = (target / 'lib/services/music_player_service.dart').read_text()
             self.assertIn('OdifyYouTube.resolveAudioSource(media.source)', player)
             self.assertIn("'odify-youtube'", (target / 'lib/services/playable_media.dart').read_text())
-            self.assertIn('com.odify.music', (target / 'android/app/build.gradle.kts').read_text())
+            gradle = (target / 'android/app/build.gradle.kts').read_text()
+            manifest = (target / 'android/app/src/main/AndroidManifest.xml').read_text()
+            self.assertIn('com.odify.music', gradle)
+            self.assertIn('jniLibs.useLegacyPackaging = true', gradle)
+            self.assertNotIn('android:extractNativeLibs', manifest)
             self.assertTrue((target / 'lib/services/odify_youtube.dart').is_file())
 
     def test_no_signed_audio_url_persisted_in_queue(self):
