@@ -30,6 +30,10 @@ assert 'MediaStore.Audio.Media.EXTERNAL_CONTENT_URI' in kt
 assert 'READ_MEDIA_AUDIO' in kt
 assert 'READ_EXTERNAL_STORAGE' in kt
 assert 'com.odify.music/media_store' in kt
+assert 'MediaStore query returned null' in kt
+taste = files['lib/services/odify_taste.dart'].read_text()
+assert 'likedArtistCounts' in taste and '(liked ? 7.0 : 0.0)' in taste
+assert 'OdifyLikeStore.read()' in taste
 app = assembly.read_text()
 assert 'OdifyMediaStorePlugin' in app and 'odify_likes.dart' in app
 assert 'git clone' not in app  # subprocess call uses argv list

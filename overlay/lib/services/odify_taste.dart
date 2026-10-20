@@ -30,15 +30,20 @@ class OdifyTasteProfile {
         _cacheLikesRevision == OdifyLikeStore.revision) {
       return previous;
     }
+    Set<String> likes = <String>{};
     try {
-      final likes = await OdifyLikeStore.read();
-      final likedArtists = <String, int>{};
-      for (final key in likes) {
-        final sep = key.indexOf('|');
-        if (sep <= 0) continue;
-        final artist = normalizeLookupText(key.substring(0, sep));
-        likedArtists[artist] = (likedArtists[artist] ?? 0) + 1;
-      }
+      likes = await OdifyLikeStore.read();
+    } catch (_) {
+      // A preferences read failure must not block music playback.
+    }
+    final likedArtists = <String, int>{};
+    for (final key in likes) {
+      final sep = key.indexOf('|');
+      if (sep <= 0) continue;
+      final artist = normalizeLookupText(key.substring(0, sep));
+      likedArtists[artist] = (likedArtists[artist] ?? 0) + 1;
+    }
+    try {
       // A bounded 60-day window keeps this feature cheap even for large
       // libraries. Unlike a streaming recommendation API, nothing is uploaded.
       final from = DateTime(now.year, now.month, now.day - 59);
@@ -72,10 +77,13 @@ class OdifyTasteProfile {
     } catch (_) {
       // Never interrupt music playback when usage statistics are disabled,
       // unavailable or need migration.
-      return const OdifyTasteProfile(
-        artistMinutes: {},
-        trackMinutes: {},
+      // Likes still seed recommendations even when listening stats are off.
+      return OdifyTasteProfile(
+        artistMinutes: const {},
+        trackMinutes: const {},
         totalMinutes: 0,
+        likedKeys: likes,
+        likedArtistCounts: likedArtists,
       );
     }
   }
@@ -91,6 +99,9 @@ class OdifyTasteProfile {
     final artistSignal = min(4.0, log(1 + minutesByArtist) * 1.2);
     // Favor an artist's unfamiliar tracks over repeating the same recording.
     final exactSongPenalty = min(2.5, log(1 + minutesBySong) * 0.8);
-    return (artistSignal - exactSongPenalty).clamp(-2.5, 4.0).toDouble();
+    final liked = likedKeys.contains(OdifyLikeStore.trackKey(item.artist, item.title));
+    final artistLikeSignal = min(3.0, (likedArtistCounts[artist] ?? 0) * 0.65);
+    return (artistSignal - (liked ? 0 : exactSongPenalty) +
+        (liked ? 7.0 : 0.0) + artistLikeSignal).clamp(-2.5, 13.0).toDouble();
   }
 }

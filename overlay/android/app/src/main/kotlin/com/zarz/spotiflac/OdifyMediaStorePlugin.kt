@@ -71,11 +71,12 @@ class OdifyMediaStorePlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
             MediaStore.Audio.Media.DURATION, MediaStore.Audio.Media.DATE_MODIFIED, MediaStore.Audio.Media.ALBUM_ID,
         )
         val tracks = ArrayList<Map<String, Any?>>(limit)
-        context.contentResolver.query(
+        val cursor = context.contentResolver.query(
             collection, columns,
             "${MediaStore.Audio.Media.IS_MUSIC} != 0", null,
             "${MediaStore.Audio.Media.DATE_MODIFIED} DESC, ${MediaStore.Audio.Media._ID} DESC",
-        )?.use { cursor ->
+        ) ?: error("MediaStore query returned null")
+        cursor.use {
             val idIndex = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
             val titleIndex = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
             val artistIndex = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
