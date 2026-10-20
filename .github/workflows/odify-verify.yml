@@ -23,6 +23,8 @@ jobs:
     env:
       SPOTIFLAC_DISCORD_SDK: "0"
       SPOTIFLAC_RUST_ANDROID_ABIS: "arm64-v8a"
+      MORNYE_DISCORD_SDK: "0"
+      MORNYE_RUST_ANDROID_ABIS: "arm64-v8a"
     steps:
       - name: Checkout Odify overlay
         uses: actions/checkout@v4
@@ -79,7 +81,7 @@ jobs:
           rustup show
           sudo apt-get update -qq
           sudo apt-get install -y libclang-dev ffmpeg
-          printf 'flutter.sdk=%s\n' "$FLUTTER_ROOT" > ../android/local.properties
+          printf 'flutter.sdk=%s\nflutter.versionName=0.9.0\nflutter.versionCode=170\n' "$FLUTTER_ROOT" > ../android/local.properties
       - name: Compile arm64 Android debug APK
         working-directory: build/Odify
         run: gradle -p android :app:assembleDebug --stacktrace
@@ -111,7 +113,7 @@ jobs:
           test -n "$RELEASE" && test -n "$DEBUG"
           "$SIGNER" verify --verbose "$RELEASE"
           "$SIGNER" verify --verbose "$DEBUG"
-          "$AAPT" dump badging "$RELEASE" | grep "package: name='com.odify.music'"
+          "$AAPT" dump badging "$RELEASE" | grep -E "package: name='com.odify.music' versionCode='170' versionName='0.9.0'"
           "$AAPT" dump badging "$DEBUG" | grep "package: name='com.odify.music.debug'"
           du -h "$RELEASE" "$DEBUG"
       - name: Upload Odify release APK (CI test signing, NOT stable update key)
