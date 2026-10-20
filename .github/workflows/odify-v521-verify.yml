@@ -1,0 +1,49 @@
+name: Odify Mornye 5.2.1 compatibility gate
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/odify-v521-verify.yml"
+      - ".github/v521-trigger"
+permissions:
+  contents: read
+concurrency:
+  group: odify-v521-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compatibility:
+    name: Pinned base assembly + full Flutter tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify lock, old/new assembler tests
+        run: python3 -m unittest discover -s tests -v
+      - name: Clone audited 5.2.1 revision and assemble Odify
+        run: python3 scripts/assemble_v521.py
+      - name: Check source pin, no accidental updater or old Android namespaces
+        run: |
+          set -euo pipefail
+          test "$(git -C build/Odify rev-parse HEAD)" = "$(python3 -c 'import json; print(json.load(open("config/upstream_lock.json"))["base"]["commit"])')"
+          ! grep -q "spotiflacapp/SpotiFLAC-Mobile" build/Odify/lib/constants/app_info.dart
+          grep -q "return false;" build/Odify/lib/screens/main_shell_startup_prompts.dart
+          test -f build/Odify/android/app/src/main/kotlin/com/zarz/mornye/OdifyMediaStorePlugin.kt
+          test -f build/Odify/android/app/src/main/kotlin/com/zarz/mornye/OdifyYtDlpPlugin.kt
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version-file: build/Odify/.fvmrc
+          cache: true
+      - name: Resolve Flutter dependencies
+        working-directory: build/Odify
+        run: flutter pub get
+      - name: Analyze Flutter code
+        working-directory: build/Odify
+        run: flutter analyze --no-fatal-infos
+      - name: Odify regression tests
+        working-directory: build/Odify
+        run: |
+          flutter test test/odify_discovery_test.dart test/odify_metadata_test.dart test/odify_quick_access_test.dart test/odify_sync_merge_test.dart test/odify_sync_coordinator_test.dart test/odify_drive_transport_test.dart test/odify_sync_settings_test.dart test/odify_home_feed_test.dart test/odify_home_widget_test.dart test/odify_device_artwork_test.dart test/odify_glass_design_test.dart
