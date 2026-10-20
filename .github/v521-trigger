@@ -1,1 +1,1 @@
-2026-10-20: rerun immutable v5.2.1 compatibility after removing unused updater methods; no APK until analyzer green.
+2026-10-20: v5.2.1 compatibility rerun after isolating updated upstream lock tests and eliminating inherited updater methods.
