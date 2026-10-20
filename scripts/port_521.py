@@ -272,6 +272,7 @@ def patch_startup_prompts(root: Path) -> None:
           "    // Odify has its own onboarding, not the Mornye 5.2 release tour.\\n"
           "  }\\n\\n"
           "  Future<bool> _checkForUpdates() async {\\n"
+          "    if (_hasCheckedUpdate) return false;\\n"
           "    _hasCheckedUpdate = true;\\n"
           "    return false; // Never force installation of a vendor APK.\\n"
           "  }\\n\\n"
