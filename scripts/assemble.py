@@ -169,8 +169,8 @@ def assemble():
         raise RuntimeError('Expected exactly one Gradle dependencies block')
     replace_one(gradle, dependency_anchor,
                 dependency_anchor +
-                '    implementation("io.github.junkfood02.youtubedl-android:library:0.16.0")\n'
-                '    implementation("io.github.junkfood02.youtubedl-android:ffmpeg:0.16.0")\n')
+                '    implementation("io.github.junkfood02.youtubedl-android:library:0.18.1")\n'
+                '    implementation("io.github.junkfood02.youtubedl-android:ffmpeg:0.18.1")\n')
     # yt-dlp bundles ZIP archives as pseudo .so assets. They are not ELF
     # binaries and must be excluded from native llvm-strip processing.
     replace_one(gradle,
