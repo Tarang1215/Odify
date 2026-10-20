@@ -1,0 +1,83 @@
+name: Odify integration verification
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/odify-verify.yml"
+      - ".github/ci-trigger"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: odify-verify-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android:
+    name: Flutter + Rust + Android debug APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    env:
+      SPOTIFLAC_DISCORD_SDK: "0"
+      SPOTIFLAC_RUST_ANDROID_ABIS: "arm64-v8a"
+    steps:
+      - name: Checkout Odify overlay
+        uses: actions/checkout@v4
+      - name: Validate Python scripts and assembly anchors
+        run: |
+          python3 scripts/check_overlay.py
+          python3 -m unittest discover -s tests -v
+      - name: Assemble pinned SpotiFLAC with Odify changes
+        run: python3 scripts/assemble.py
+      - name: Setup Java 25 (matching upstream)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "25"
+      - name: Setup Flutter pinned to upstream
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version-file: build/Odify/.fvmrc
+          cache: true
+      - name: Fetch Dart/Flutter dependencies
+        working-directory: build/Odify
+        run: flutter pub get
+      - name: Flutter static analyzer
+        working-directory: build/Odify
+        run: flutter analyze --no-fatal-infos
+      - name: Odify recommendation regression tests
+        working-directory: build/Odify
+        run: flutter test test/odify_discovery_test.dart
+      - name: Setup Gradle 9.8.1
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "9.8.1"
+      - name: Install Android SDK + NDK (matching upstream)
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;30.0.16248370" "platforms;android-37.0" "build-tools;37.0.0" "cmake;4.1.2"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/30.0.16248370" >> "$GITHUB_ENV"
+      - name: Prepare Rust, Gradle, native prerequisites
+        run: |
+          cd build/Odify/rust_backend
+          rustup show
+          sudo apt-get update -qq
+          sudo apt-get install -y libclang-dev ffmpeg
+          printf 'flutter.sdk=%s\n' "$FLUTTER_ROOT" > ../android/local.properties
+      - name: Compile arm64 Android debug APK
+        working-directory: build/Odify
+        run: gradle -p android :app:assembleDebug --stacktrace
+      - name: Upload Odify debug APK
+        uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: odify-debug-arm64
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            build/Odify/build/app/outputs/apk/debug/*.apk
+            build/Odify/build/app/outputs/flutter-apk/*.apk
