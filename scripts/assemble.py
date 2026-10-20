@@ -121,15 +121,16 @@ def assemble():
     replace_one(home,
                 "import 'package:spotiflac_android/widgets/app_snack_bar.dart';",
                 "import 'package:spotiflac_android/widgets/app_snack_bar.dart';\n"
-                "import 'package:spotiflac_android/widgets/odify_device_library_card.dart';\n"
-                "import 'package:spotiflac_android/widgets/odify_youtube_explore.dart';")
-    replace_one(TARGET / 'lib/screens/home_tab_intro.dart',
-                "    final sections = <Widget>[",
-                "    final sections = <Widget>[\n"
-                "      _HomeSection(title: 'Discover music & covers', inset: inset,\n"
-                "          child: const OdifyYouTubeExploreCard()),\n"
-                "      _HomeSection(title: 'Your phone music', inset: inset,\n"
-                "          child: const OdifyDeviceLibraryCard()),")
+                "import 'package:spotiflac_android/widgets/odify_quick_access.dart';")
+    # This sliver is outside SpotiFLAC's extension-dependent home sections.
+    # It stays visible in both Home/Browse and Search even when no provider is
+    # installed; the Search tab avoids duplicating the MediaStore sync card.
+    replace_one(home,
+                '              _buildHeaderSliver(greeting: greeting),',
+                '              _buildHeaderSliver(greeting: greeting),\n'
+                '              SliverToBoxAdapter(\n'
+                '                child: OdifyQuickAccess(showDeviceLibrary: _showsHome),\n'
+                '              ),')
     print(f'Odify assembled at {TARGET}')
     print('Next: install the pinned Flutter/Rust/Android toolchain from upstream CI; flutter test.')
 
