@@ -38,7 +38,9 @@ jobs:
         working-directory: build/Odify
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "8e4504e72ddcda6bdf6df5e1275396f46e9dfb9f"
+          # Build an immutable Odify-owned vendor snapshot, not Mornye HEAD.
+          test "$(git rev-parse HEAD)" = "191fd35e1d9cf147a54312453c39e717408d0454"
+          grep -q "8e4504e72ddcda6bdf6df5e1275396f46e9dfb9f" ODIFY_VENDOR_BASE.txt
           grep -q "static const String appName = 'Odify';" lib/constants/app_info.dart
           grep -q "return false; // Never force installation of a vendor APK." lib/screens/main_shell_startup_prompts.dart
           grep -q "waitForActivityAttachment(binding)" lib/main.dart
