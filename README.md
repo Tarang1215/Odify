@@ -116,3 +116,16 @@ Google Drive 동기화 공통 엔진의 기반을 `lib/services/odify_sync/sync_
 **Drive API 어댑터:** `drive_sync_transport.dart`는 Google Drive `appDataFolder` 숨김 파일을 변경 토큰으로 불러오며 수정 기록을 불변 배치로 기록한다. `drive.appdata`로 승인받은 짧은 액세스 토큰은 OS별 Google OAuth 계층에서 전달받아야 한다. **실제 OAuth 로그인 UI와 Drive 계정 연결은 아직 구현되지 않았다.** Trove/Supabase와 무관하다.
 
 **배포 방침:** 이번 변경에는 Android APK 빌드나 APK 업로드를 하지 않는다. 경량 Dart 분석 및 모의 Drive 테스트만 수행한다. 이전 APK를 설치한 상태에서는 아직 이전/다음 곡 수정과 Drive 기능이 반영되지 않았다.
+
+
+## v1.0 — 선택형 Google Drive 계정 연결·동기화 관리 UI (APK 미배포)
+
+`Odify → 동기화 및 백업` 진입 버튼을 홈과 검색에 추가했다. `google_sign_in ^7.2.0` 기반 Android OAuth 어댑터는 **사용자가 직접 동기화 연결 버튼을 누른 경우에만** Google Drive `drive.appdata` 권한을 요청한다. 백그라운드에서 임의로 로그인 화면을 띄우지 않으며, 로그인하지 않아도 음악 플레이어를 사용할 수 있다.
+
+계정마다 SHA-256 기반 서로 다른 SQLite 파일에 변경 기록과 Drive 커서를 저장하여 Google 계정 전환 시 데이터가 뒤섞이는 것을 방지했다. 재생목록 **생성/이름 변경/삭제**, 수동 동기화, Drive 권한 갱신, 연결 해제 버튼을 구현했다. 비밀번호·토큰은 동기화 DB에 저장하지 않는다.
+
+**현재 단계의 제한:** Google Cloud의 Odify 전용 프로젝트/Android OAuth 패키지 및 서명 SHA-1/Web OAuth 클라이언트 ID를 아직 연결하지 않았으므로 일반 APK에서는 로그인 버튼을 비활성화한다. 또한 **기존 SpotiFLAC 재생목록과 좋아요 자동 이관, 곡 추가·순서 변경**은 미완성이다. 여기서 구현된 것은 Odify 동기화 전용 재생목록 이름·변경 기록의 로컬/클라우드 연결 기반이다. 실제 Google Drive 계정에서의 로그인·복원과 다기기 통합 테스트는 아직 수행하지 않았다.
+
+[OAuth 및 고정 APK 서명 설정 방법](docs/GOOGLE_DRIVE_OAUTH_SETUP.md)
+
+[2026-10-20 Dart 전용 정적 분석 및 테스트 성공](https://github.com/Tarang1215/Odify/actions/runs/39404410457) — **Rust/Android 컴파일·APK 재배포 없음**. 갤럭시 기기에는 마지막으로 설치한 이전 APK가 그대로 남아 있다.
