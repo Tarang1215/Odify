@@ -58,8 +58,17 @@ class OdifyYtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                 }
                 withContext(Dispatchers.Main) { result.success(value) }
             } catch (error: Exception) {
+                // yt-dlp exceptions can contain hundreds of retry warnings.
+                // Never dump verbose native traces into a full-screen dialog.
+                android.util.Log.w("OdifyExtractor",
+                    "Native ${call.method} failed: ${error.javaClass.simpleName}")
+                val userMessage = when (call.method) {
+                    "resolve" -> "스트리밍 주소를 찾지 못했습니다. 잠시 후 다시 시도하거나 다른 곡을 선택하세요."
+                    "downloadMp3" -> "MP3를 저장하지 못했습니다. YouTube 추출기 또는 영상 접근 제한을 확인해주세요."
+                    else -> "YouTube 음악 정보를 가져오지 못했습니다. 다시 시도해주세요."
+                }
                 withContext(Dispatchers.Main) {
-                    result.error("odify_yt_dlp_error", error.message ?: "Audio operation failed", null)
+                    result.error("odify_yt_dlp_error", userMessage, null)
                 }
             }
         }
@@ -197,19 +206,37 @@ class OdifyYtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         val directory = File(context.getExternalFilesDir(Environment.DIRECTORY_MUSIC) ?: context.filesDir, "Odify")
         check(directory.exists() || directory.mkdirs()) { "Cannot create music folder" }
         val finalFile = File(directory, "$id.mp3")
-        if (!finalFile.isFile || finalFile.length() == 0L) {
-            val request = YoutubeDLRequest(videoUrl(id))
-            request.addOption("--no-playlist")
-            request.addOption("-f", "bestaudio/best")
-            request.addOption("-x")
-            request.addOption("--audio-format", "mp3")
-            request.addOption("--audio-quality", "2")
-            request.addOption("--add-metadata")
-            request.addOption("--no-overwrites")
-            request.addOption("-o", File(directory, "$id.%(ext)s").absolutePath)
-            YoutubeDL.getInstance().execute(request)
+        if (finalFile.isFile && finalFile.length() > 0L) {
+            return mapOf("path" to finalFile.absolutePath, "videoId" to id,
+                "bytes" to finalFile.length())
         }
-        check(finalFile.isFile && finalFile.length() > 0L) { "MP3 output missing" }
-        return mapOf("path" to finalFile.absolutePath, "videoId" to id, "bytes" to finalFile.length())
+        var failure: Exception? = null
+        for (pass in 0..1) {
+            if (pass == 1 && !refreshExtractorOnce()) break
+            for (client in listOf("android_vr", "web_embedded")) {
+                try {
+                    val request = YoutubeDLRequest(videoUrl(id))
+                    request.addOption("--no-playlist")
+                    request.addOption("--no-warnings")
+                    request.addOption("--extractor-args", "youtube:player_client=$client")
+                    request.addOption("-f", "bestaudio[ext=m4a]/bestaudio/best")
+                    request.addOption("-x")
+                    request.addOption("--audio-format", "mp3")
+                    request.addOption("--audio-quality", "2")
+                    request.addOption("--add-metadata")
+                    request.addOption("--no-overwrites")
+                    request.addOption("-o", File(directory, "$id.%(ext)s").absolutePath)
+                    YoutubeDL.getInstance().execute(request)
+                    if (finalFile.isFile && finalFile.length() > 0L) {
+                        return mapOf("path" to finalFile.absolutePath, "videoId" to id,
+                            "bytes" to finalFile.length())
+                    }
+                } catch (error: Exception) { failure = error }
+            }
+        }
+        android.util.Log.w("OdifyExtractor",
+            "Download audio not available: ${failure?.javaClass?.simpleName}")
+        throw IllegalStateException("No available audio format")
     }
+
 }
