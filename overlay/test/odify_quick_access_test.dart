@@ -15,11 +15,13 @@ void main() {
     );
 
     expect(find.text('Odify'), findsOneWidget);
-    expect(find.text('Discover · For You'), findsOneWidget);
+    expect(find.text('음악 찾기 · Discover'), findsOneWidget);
     expect(
       find.text('음악 · 커버곡 검색은 확장 기능 설치 없이 이용합니다.'),
       findsOneWidget,
     );
     expect(find.byIcon(Icons.headphones_rounded), findsOneWidget);
+    // Search tab has Discover but does not run Home's trending/likes feed.
+    expect(find.text('오늘의 음악 탐색'), findsNothing);
   });
 }
