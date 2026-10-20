@@ -12,7 +12,7 @@
 
 ## 설치
 
-1. GitHub 로그인 후 위 아티팩트 링크에서 ZIP을 다운로드하고 압축 해제한다.
+1. [Odify 통합 빌드 기록](https://github.com/Tarang1215/Odify/actions/workflows/odify-verify.yml)에서 최신 성공 실행을 열고 아래쪽 Artifacts의 `odify-521-debug-arm64` ZIP을 받아 압축 해제한다. 이 문서에 고정된 오래된 APK를 사용하지 않는다.
 2. APK가 여러 개면 **`arm64-v8a`** 포함 파일을 Galaxy S25 Ultra에서 우선 선택한다. 해당 파일이 없다면 `universal` 파일을 선택한다. 디버그 APK이므로 Play Store 앱은 아니다.
 3. 휴대전화에 APK를 복사해 열고, Android의 해당 파일 출처에 대한 **알 수 없는 앱 설치** 승인을 진행한다. 설치 완료 후에는 해당 출처의 허용 설정을 다시 끄는 것을 권장한다.
 4. **테스트용 Debug APK**는 `com.odify.music.debug`, Release APK는 `com.odify.music`입니다. 서로 저장소가 분리되므로 기존 Odify 데이터를 지우지 말고 먼저 Debug로 테스트합니다. Samsung Music을 삭제할 필요도 없습니다.
