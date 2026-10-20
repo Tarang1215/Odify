@@ -7,7 +7,6 @@ import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.media.MediaMetadataRetriever
-import android.net.Uri
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -25,6 +24,8 @@ class OdifyMediaStorePlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     private var channel: MethodChannel? = null
     private var applicationContext: Context? = null
     private val worker = Executors.newSingleThreadExecutor()
+    // Keep artwork decoding from blocking paged song-list requests.
+    private val artworkWorker = Executors.newSingleThreadExecutor()
     private val mainThread = Handler(Looper.getMainLooper())
 
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
@@ -38,6 +39,7 @@ class OdifyMediaStorePlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         channel = null
         applicationContext = null
         worker.shutdownNow()
+        artworkWorker.shutdownNow()
     }
 
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
@@ -66,7 +68,7 @@ class OdifyMediaStorePlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                 result.error("bad_media_id", "Invalid MediaStore audio ID", null)
                 return
             }
-            worker.execute {
+            artworkWorker.execute {
                 try {
                     val path = extractCachedCover(context, mediaId)
                     mainThread.post { result.success(path) }
