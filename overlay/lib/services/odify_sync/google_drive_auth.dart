@@ -47,9 +47,17 @@ class OdifyGoogleDriveAuth implements OdifyDriveAuth {
         'Odify 전용 Google Cloud 프로젝트 및 서명 SHA를 등록하세요.',
       );
     }
-    return _initialization ??= _signIn.initialize(
+    final attempt = _initialization ??= _signIn.initialize(
       serverClientId: _serverClientId,
     );
+    try {
+      await attempt;
+    } catch (_) {
+      // A transient startup/network failure must not poison future manual
+      // login attempts until the user restarts the music player.
+      if (identical(_initialization, attempt)) _initialization = null;
+      rethrow;
+    }
   }
 
   @override
