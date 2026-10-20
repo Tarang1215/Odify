@@ -1,1 +1,1 @@
-2026-10-20: robust AppInfo 5.2.1 -> Odify 0.9.0 update isolation with overlay-compatible audited source variants; validate canonical.
+2026-10-20: pinned v5.2.1 Odify assembly and independent identity/updater compatibility fix; verify against real upstream and Flutter suite.
