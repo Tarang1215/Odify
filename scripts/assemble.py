@@ -117,6 +117,22 @@ def assemble():
                 '            flutterEngine.plugins.add(OdifyMediaStorePlugin())\n        }\n'
                 '        if (!flutterEngine.plugins.has(OdifyYtDlpPlugin::class.java)) {\n'
                 '            flutterEngine.plugins.add(OdifyYtDlpPlugin())\n        }')
+    # MediaStore tracks use the upstream legacy source, whose virtual URI is
+    # not a real filesystem directory. Preserve visibility of this source and
+    # never attempt a native folder scan against the virtual URI.
+    local_sources = TARGET / 'lib/providers/local_library_provider_sources.dart'
+    replace_one(local_sources,
+                "  Future<bool?> _probePathAvailability(String path, {String? bookmark}) async {",
+                "  Future<bool?> _probePathAvailability(String path, {String? bookmark}) async {\n"
+                "    if (path == 'legacy://local-library') return true;")
+    replace_one(local_sources,
+                "  Future<LocalLibrarySource?> _sourceForScan(String sourceId) async {",
+                "  Future<LocalLibrarySource?> _sourceForScan(String sourceId) async {\n"
+                "    if (sourceId == LocalLibraryItem.legacySourceId) {\n"
+                "      final source = await _db.getSources();\n"
+                "      if (source.any((item) => item.id == sourceId &&\n"
+                "          item.path == 'legacy://local-library')) return null;\n"
+                "    }")
     home = TARGET / 'lib/screens/home_tab.dart'
     replace_one(home,
                 "import 'package:spotiflac_android/widgets/app_snack_bar.dart';",
