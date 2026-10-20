@@ -183,3 +183,32 @@ Keep most sync logic pure Dart, reusable by Flutter Android, iOS, Windows, macOS
 - Whether to distribute broadly, and licensing/legal implications of the platform-specific music source layer.
 
 **Immediate next code task:** Stage A with mocked Drive and merge tests; Google Cloud OAuth setup is Stage B and requires the user's authorization/configuration. Do not access or modify Trove/Supabase.
+
+
+## 11. Platform priority and iPad distribution ADR (2026-10-20)
+
+**User-confirmed development order:**
+1. **Galaxy Android:** repair visibility of synced Samsung/shared audio in unified Library; verify native playback; then build local sync-event/outbox merger.
+2. **Windows 11 PC:** shared playlist/likes UI, locally managed desktop audio paths, desktop Google OAuth, Windows media playback. Platform-specific extractor/bridge must be developed independently of Android Kotlin. No background server on the PC.
+3. **iPad (2020 iPad Pro):** **PWA first** to avoid free-Apple-ID 7-day IPA resigning. Desktop/local catalog sync is metadata only; web can show unified playlists via Drive appDataFolder OAuth web flow. Evaluate iPadOS standalone web-app audio/background/Media Session and source availability on device; do not claim full native feature parity before testing. iPad native IPA remains a later optional variant.
+4. **Mac:** Flutter macOS native or hosted web client after Windows and iPad are functional; share domain sync and resolver design.
+
+**One-install iPad decision:** on ordinary stock iPadOS, an arbitrary unsigned IPA cannot be installed forever like an APK. Free Apple ID provisioning expires after 7 days. SideStore/AltStore can ease refresh but not eliminate certificate expiry. TestFlight builds expire after 90 days and require Apple developer distribution. TrollStore offers persistence only on specific exploitable OS versions; NEVER assume compatibility or advise OS downgrades without confirming device firmware. Paid Apple Developer Program and approved App Store distribution avoid weekly expiry but have policy, cost and legal implications; a yt-dlp-based streaming app may face app review/terms compliance issues. To keep GoodNotes and other installed apps untouched, **do not base Odify on LiveContainer**.
+
+**PWA caveat:** no IPA-signing maintenance, but browser source integrations, iPadOS background playback, native local-file support, service worker caching, and Apple platform policies require separate device tests. Use a compliant source resolver instead of embedding Android yt-dlp into web. No 24/7 self-hosted backend; static hosting is acceptable, but appDataFolder OAuth and encrypted data should be reviewed for secure browser token handling.
+
+**Shared app interfaces:** `OdifySyncStore` (local events/outbox), `OdifyRemoteStore` (Drive appDataFolder; replaceable mock), `OdifyPlaybackResolver` (Android, Windows, web, macOS platform implementation), `OdifyLocalFileMatcher` (device-specific local files). Every `playlist_entry` contains a portable source ref, never a local OS path.
+
+## 12. Galaxy MediaStore library visibility bug & mitigation
+
+The existing Odify Home browser retrieves MediaStore audio independently, so songs can be found even if SpotiFLAC's `AppSettings.localLibraryEnabled` remains at its **default false**. SpotiFLAC's `libraryBrowseProvider` honors that setting and excludes all local rows. Additionally, upstream `library_sources` uses virtual `legacy://local-library` for legacy MediaStore rows; source-availability probing with `Directory(path).exists()` may falsely mark this virtual source unavailable, hiding rows in the `library_visible` SQL view.
+
+Fix in Android overlay:
+- On explicit Odify library sync, turn on local-library visibility via `settingsProvider.notifier.setLocalLibraryEnabled(true)`.
+- Explicitly reload the `localLibraryProvider` summary and invalidate `libraryBrowseProvider` to show added albums/artists without restarting.
+- Treat virtual `legacy://local-library` as available, and skip scanning that virtual source as an actual directory. Keep normal availability probing for real folders.
+- Avoid complete MediaStore re-index on every Home visit: throttle automatic background sync to ~6 hours, retain explicit user `Sync now`.
+- On first migration from an older Odify install, reuse already-indexed entries rather than copying music files.
+- QA: open Home MediaStore browser, press **Odify 라이브러리에 동기화**, then open Library and verify albums/tracks appear. Confirm permission denial and source removal behave without destroying unrelated folders.
+
+Build check and Galaxy device verification are separate tasks; this ADR records the code-level mitigation.
