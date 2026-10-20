@@ -1,1 +1,1 @@
-2026-10-20: v5.2.1 single canonical build verification; upstream lock matches overlay identity, port avoids rewriting independent AppInfo twice.
+2026-10-20 v5.2.1 source-locked Mornye runtime + Odify 0.9.0+170 own version; guarded UI port; Flutter analyzer and tests; verify no updater.
