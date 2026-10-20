@@ -110,10 +110,8 @@ def assemble():
     replace_one(gradle,
                 '        if (discordSdkEnabled) jniLibs.pickFirsts += "**/libdiscord_partner_sdk.so"',
                 '        if (discordSdkEnabled) jniLibs.pickFirsts += "**/libdiscord_partner_sdk.so"\n'
-                '        jniLibs.keepDebugSymbols += setOf("**/libffmpeg.zip.so", "**/libpython.zip.so")')
-    replace_one(TARGET / 'android/app/src/main/AndroidManifest.xml',
-                'android:name=".SpotiFlacApplication"',
-                'android:name=".SpotiFlacApplication" android:extractNativeLibs="true"')
+                '        jniLibs.keepDebugSymbols += setOf("**/libffmpeg.zip.so", "**/libpython.zip.so")\n'
+                '        jniLibs.useLegacyPackaging = true')
     replace_one(TARGET / 'android/app/src/main/kotlin/com/zarz/spotiflac/MainActivity.kt',
                 '            flutterEngine.plugins.add(OdifyMediaStorePlugin())\n        }',
                 '            flutterEngine.plugins.add(OdifyMediaStorePlugin())\n        }\n'
