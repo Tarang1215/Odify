@@ -234,7 +234,7 @@ def inspect_audio_video(url: str, title: str) -> None:
                "dance practice", "karaoke", "fancam",
                "뮤직비디오", "라이브", "직캠", "콘서트", "ライブ映像")
     if any(term in lower for term in blocked) or re.search(
-            r"(^|[\\s\\[(])mv([\\s\\])]|$)", lower):
+            r"(?<!\\w)mv(?!\\w)", lower):
         raise ValueError("Music video or performance instead of studio audio")
     known_song = normalize(title)
     metadata_track = normalize(str(info.get("track") or ""))
