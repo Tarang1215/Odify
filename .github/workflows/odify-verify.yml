@@ -54,6 +54,7 @@ jobs:
           grep -q "waitForActivityAttachment(binding)" lib/main.dart
           test -f android/app/src/main/kotlin/com/zarz/mornye/OdifyMediaStorePlugin.kt
           test -f android/app/src/main/kotlin/com/zarz/mornye/OdifyYtDlpPlugin.kt
+          test -f android/app/src/main/kotlin/com/zarz/mornye/OdifyAudioExtractors.kt
           test -f third_party/audioplayers_android/android/src/main/kotlin/xyz/luan/audioplayers/player/OdifyExoPlayerWrapper.kt
           test -f third_party/audioplayers_android/android/src/main/kotlin/xyz/luan/audioplayers/player/OdifyBoundedRangeDataSource.kt
           test -f third_party/audioplayers_android/android/src/main/kotlin/xyz/luan/audioplayers/source/OdifyPlaybackProtocol.kt

@@ -55,6 +55,7 @@ class OdifyYtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     private val resolveBudgetMs = 22_000L
     private val attemptBudgetMs = 8_000L
     private val audioRequests = OdifyAudioRequests<Map<String, Any>>(scope, resolveBudgetMs)
+    private val audioBackend: OdifyAudioExtractor = OdifyYtDlpExtractor()
     private fun prioritizedClients(): List<String> {
         val saved = preferredAudioClient ?:
             context.getSharedPreferences("odify_extractor", Context.MODE_PRIVATE)
@@ -250,6 +251,7 @@ class OdifyYtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                 val validated = withTimeout(attemptBudgetMs) { extractAudio(id, client) }
                 report["playableCdnProbe"] = true
                 report["client"] = client
+                report["extractorEngine"] = audioBackend.engine
                 report["extractMs"] = validated["extractMs"] ?: -1
                 report["cdnProbeMs"] = validated["probeMs"] ?: -1
                 report["audioCodec"] = validated["audioCodec"] ?: "unknown"
@@ -450,31 +452,9 @@ class OdifyYtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     }
 
     private suspend fun extractAudio(id: String, client: String): Map<String, Any> {
-        val request = YoutubeDLRequest(videoUrl(id))
-        request.addOption("--no-playlist")
-        request.addOption("--no-warnings")
-        request.addOption("--socket-timeout", "5")
-        request.addOption("--retries", "0")
-        request.addOption("--extractor-retries", "0")
-        request.addOption("--skip-download")
-        request.addOption("--dump-single-json")
-        // Prefer AAC/M4A, which Android MediaPlayer plays more reliably
-        // than Opus/WebM. Keep an audio-only fallback when AAC is missing.
-        request.addOption("--extractor-args", "youtube:player_client=$client")
-        request.addOption("-f", "bestaudio[ext=m4a]/bestaudio[acodec^=mp4a]/bestaudio")
         val extractedAt = SystemClock.elapsedRealtime()
-        val processId = "odify-stream-${UUID.randomUUID()}"
-        val response = try {
-            // execute() waits on interruptible joins. runInterruptible makes
-            // withTimeout stop the real subprocess, not just the Dart spinner.
-            runInterruptible(Dispatchers.IO) {
-                YoutubeDL.getInstance().execute(request, processId, null)
-            }
-        } finally {
-            YoutubeDL.getInstance().destroyProcessById(processId)
-        }
+        val info = audioBackend.extractJson(videoUrl(id), client)
         val extractMs = SystemClock.elapsedRealtime() - extractedAt
-        val info = JSONObject(response.out.trim())
         val url = info.optString("url")
         val protocol = info.optString("protocol")
         val vcodec = info.optString("vcodec")
