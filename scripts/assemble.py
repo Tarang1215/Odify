@@ -200,7 +200,7 @@ def assemble():
         '        } else {\n'
         '            val odify = OdifyStreamRegistry.lookup(url)\n'
         '            if (odify != null) {\n'
-        '                mediaPlayer.setDataSource(odify.url, odify.headers)\n'
+        '                mediaPlayer.setDataSource(odify.context, android.net.Uri.parse(odify.url), odify.headers)\n'
         '            } else if (OdifyStreamRegistry.isOdifySource(url)) {\n'
         '                error("Expired Odify network audio session")\n'
         '            } else {\n'
