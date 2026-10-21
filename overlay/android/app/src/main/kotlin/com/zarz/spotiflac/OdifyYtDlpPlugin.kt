@@ -12,6 +12,12 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.runInterruptible
+import kotlinx.coroutines.withTimeout
 import com.yausername.ffmpeg.FFmpeg
 import com.yausername.youtubedl_android.YoutubeDL
 import com.yausername.youtubedl_android.YoutubeDLRequest
@@ -22,6 +28,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 import android.os.SystemClock
 import java.util.concurrent.ConcurrentHashMap
+import java.util.UUID
 
 /**
  * yt-dlp adapter for Odify. The UI never accesses expiring extracted URLs
@@ -38,40 +45,60 @@ class OdifyYtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     @Volatile private var preferredAudioClient: String? = null
     private data class CachedAudio(val createdMs: Long, val data: Map<String, Any>)
     private val recentAudio = ConcurrentHashMap<String, CachedAudio>()
-    private val warmingAudio = ConcurrentHashMap.newKeySet<String>()
+    // Foreground playback joins an in-flight warmup instead of spawning a
+    // second Python process. Ownership belongs to the engine, not a UI waiter.
+    private val failedClients = ConcurrentHashMap<String, Long>()
+    private val resolveBudgetMs = 22_000L
+    private val attemptBudgetMs = 8_000L
+    private val audioRequests = OdifyAudioRequests<Map<String, Any>>(scope, resolveBudgetMs)
     private fun prioritizedClients(): List<String> {
         val saved = preferredAudioClient ?:
             context.getSharedPreferences("odify_extractor", Context.MODE_PRIVATE)
                 .getString("working_client", null)
-        return if (saved in audioClients) listOf(saved!!) +
+        val ordered = if (saved in audioClients) listOf(saved!!) +
             audioClients.filter { it != saved } else audioClients
+        val now = SystemClock.elapsedRealtime()
+        val available = ordered.filter { client ->
+            val failedAt = failedClients[client]
+            failedAt == null || now - failedAt >= 60_000L
+        }
+        return available.ifEmpty { ordered }
     }
     private fun cacheSuccess(id: String, client: String, data: Map<String, Any>) {
         preferredAudioClient = client
         context.getSharedPreferences("odify_extractor", Context.MODE_PRIVATE)
             .edit().putString("working_client", client).apply()
         recentAudio[id] = CachedAudio(SystemClock.elapsedRealtime(), data)
-        if (recentAudio.size > 8) recentAudio.clear()
+        // Evict one oldest entry; clearing everything causes repeated cold
+        // extraction when the ninth song is queued.
+        if (recentAudio.size > 8) {
+            recentAudio.entries.minByOrNull { it.value.createdMs }?.let {
+                recentAudio.remove(it.key, it.value)
+            }
+        }
     }
-    private fun prefetchAudio(id: String): Boolean {
+    private suspend fun prefetchAudio(id: String): Boolean {
         videoUrl(id)
-        if (cachedAudio(id) != null) return true
-        if (!warmingAudio.add(id)) return false
         try {
             resolve(id)
             return true
+        } catch (error: CancellationException) {
+            throw error
         } catch (error: Exception) {
             android.util.Log.i("OdifyExtractor",
                 "Prefetch skipped category=${failureCategory(error)}")
             return false
-        } finally {
-            warmingAudio.remove(id)
         }
     }
 
     private fun expireCachedSource(id: String): Boolean {
         videoUrl(id)
-        recentAudio.remove(id)
+        recentAudio.remove(id)?.data?.get("client")?.toString()?.let {
+            // A successful 1 KiB probe does not guarantee MediaPlayer can
+            // keep the connection open. Try a different client on recovery.
+            failedClients[it] = SystemClock.elapsedRealtime()
+        }
+        audioRequests.invalidate(id)
         preferredAudioClient = null
         context.getSharedPreferences("odify_extractor", Context.MODE_PRIVATE)
             .edit().remove("working_client").apply()
@@ -125,6 +152,13 @@ class OdifyYtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                     else -> throw IllegalArgumentException("Unknown command: ${call.method}")
                 }
                 withContext(Dispatchers.Main) { result.success(value) }
+            } catch (error: CancellationException) {
+                // Expiring shared extraction must complete old Flutter calls.
+                // Engine detach still propagates structured cancellation.
+                currentCoroutineContext().ensureActive()
+                withContext(Dispatchers.Main) {
+                    result.error("odify_yt_dlp_CANCELLED", "재생 준비가 취소되었습니다.", null)
+                }
             } catch (error: Exception) {
                 // yt-dlp exceptions can contain hundreds of retry warnings.
                 // Never dump verbose native traces into a full-screen dialog.
@@ -178,7 +212,7 @@ class OdifyYtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         }
     }
 
-    private fun diagnose(id: String): Map<String, Any> {
+    private suspend fun diagnose(id: String): Map<String, Any> {
         videoUrl(id)
         val libraryDir = File(context.applicationInfo.nativeLibraryDir)
         val report = linkedMapOf<String, Any>(
@@ -198,7 +232,7 @@ class OdifyYtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         val attempts = mutableListOf<String>()
         for (client in audioClients) {
             try {
-                val validated = extractAudio(id, client)
+                val validated = withTimeout(attemptBudgetMs) { extractAudio(id, client) }
                 report["playableCdnProbe"] = true
                 report["client"] = client
                 report["extractMs"] = validated["extractMs"] ?: -1
@@ -206,6 +240,7 @@ class OdifyYtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                 report["attempts"] = attempts
                 return report
             } catch (error: Exception) {
+                currentCoroutineContext().ensureActive()
                 attempts.add("$client:${failureCategory(error)}")
             }
         }
@@ -335,13 +370,13 @@ class OdifyYtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         }
     }
 
-    private fun extractAudio(id: String, client: String): Map<String, Any> {
+    private suspend fun extractAudio(id: String, client: String): Map<String, Any> {
         val request = YoutubeDLRequest(videoUrl(id))
         request.addOption("--no-playlist")
         request.addOption("--no-warnings")
-        request.addOption("--socket-timeout", "9")
-        request.addOption("--retries", "1")
-        request.addOption("--extractor-retries", "1")
+        request.addOption("--socket-timeout", "5")
+        request.addOption("--retries", "0")
+        request.addOption("--extractor-retries", "0")
         request.addOption("--skip-download")
         request.addOption("--dump-single-json")
         // Prefer AAC/M4A, which Android MediaPlayer plays more reliably
@@ -349,7 +384,16 @@ class OdifyYtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         request.addOption("--extractor-args", "youtube:player_client=$client")
         request.addOption("-f", "bestaudio[ext=m4a]/bestaudio[acodec^=mp4a]/bestaudio")
         val extractedAt = SystemClock.elapsedRealtime()
-        val response = YoutubeDL.getInstance().execute(request)
+        val processId = "odify-stream-${UUID.randomUUID()}"
+        val response = try {
+            // execute() waits on interruptible joins. runInterruptible makes
+            // withTimeout stop the real subprocess, not just the Dart spinner.
+            runInterruptible(Dispatchers.IO) {
+                YoutubeDL.getInstance().execute(request, processId, null)
+            }
+        } finally {
+            YoutubeDL.getInstance().destroyProcessById(processId)
+        }
         val extractMs = SystemClock.elapsedRealtime() - extractedAt
         val info = JSONObject(response.out.trim())
         val url = info.optString("url")
@@ -375,7 +419,7 @@ class OdifyYtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
             }
         }
         val probeAt = SystemClock.elapsedRealtime()
-        validateAudioRange(url, headers)
+        runInterruptible(Dispatchers.IO) { validateAudioRange(url, headers) }
         val probeMs = SystemClock.elapsedRealtime() - probeAt
         // The Mornye audioplayers implementation normally calls the
         // headerless MediaPlayer.setDataSource(String). A short-lived opaque
@@ -393,22 +437,29 @@ class OdifyYtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         )
     }
 
-    private fun resolve(id: String): Map<String, Any> {
+    private suspend fun resolve(id: String): Map<String, Any> {
         videoUrl(id)
+        cachedAudio(id)?.let { return it }
+        return audioRequests.get(id) { resolveFresh(id) }
+    }
+
+    private suspend fun resolveFresh(id: String): Map<String, Any> {
         cachedAudio(id)?.let { return it }
         val start = SystemClock.elapsedRealtime()
         setup()
         var failure: Exception? = null
         // A successful client is reused first. Do not run NIGHTLY updates
         // synchronously on the tap-to-play critical path.
-        for (client in prioritizedClients()) {
+        for (client in prioritizedClients().take(3)) {
             try {
-                val result = extractAudio(id, client)
+                val result = withTimeout(attemptBudgetMs) { extractAudio(id, client) }
                 cacheSuccess(id, client, result)
                 android.util.Log.i("OdifyExtractor",
                     "Resolved elapsedMs=${SystemClock.elapsedRealtime() - start} client=$client")
                 return result
             } catch (error: Exception) {
+                currentCoroutineContext().ensureActive()
+                failedClients[client] = SystemClock.elapsedRealtime()
                 failure = error
                 android.util.Log.w("OdifyExtractor",
                     "Client=$client failure=${failureCategory(error)} elapsedMs=${SystemClock.elapsedRealtime() - start}")
@@ -470,3 +521,4 @@ class OdifyYtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     }
 
 }
+

@@ -26,6 +26,8 @@ FIXTURES = {
         "    _log.e('Playback failed for ${mediaItem.value?.title}', error, stackTrace);\n"
         "      _sourceReady = true;\n      if (media.source.startsWith('network://')) {\n"
         "  Future<String?> _resolveSource(PlayableMedia media) async {\n"
+        "    if (media.isNetwork) {\n"
+        "      await _player.setNetworkSource(path);\n"
         "          'https',\n        }.contains(Uri.tryParse(path)?.scheme) ||\n"
         "      extract: (source) =>\n"
         "          DownloadedEmbeddedCoverResolver.resolveOrExtract(source),\n"
@@ -94,6 +96,8 @@ class OdifyAssemblyTests(unittest.TestCase):
             self.assertIn('OdifyYouTube.resolveAudioSource(media.source)', player)
             self.assertIn('OdifyYouTube.invalidateAudioSource', player)
             self.assertIn('OdifyYouTube.prefetchAudioSource', player)
+            self.assertIn('OdifyYouTube.prepareAudioSource(', player)
+            self.assertIn('isCurrent: () => _isCurrentPlayRequest(generation, media)', player)
             self.assertIn("'odify-cdn'", player)
             self.assertIn("'odify-youtube'", player)
             self.assertIn('OdifyDeviceArtwork.forSource(source)', player)
@@ -162,3 +166,4 @@ class OdifyAssemblyTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+

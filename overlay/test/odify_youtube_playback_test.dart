@@ -96,6 +96,95 @@ void main() {
     expect(OdifyYouTube.idFromSource(source), id);
   });
 
+  test('Android open failure refreshes once and uses ranged fallback', () async {
+    final methods = <String>[];
+    final prepared = <String>[];
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+      methods.add(call.method);
+      if (call.method == 'expire') return null;
+      return {
+        'url': 'https://r1.googlevideo.com/videoplayback?fresh=1',
+        'headers': {'User-Agent': 'Test-UA'},
+        'nativeSource': nativeSource,
+      };
+    });
+    await OdifyYouTube.prepareAudioSource(
+      source: source,
+      resolved: nativeSource,
+      isCurrent: () => true,
+      prepare: (path) async {
+        prepared.add(path);
+        if (prepared.length == 1) {
+          throw PlatformException(code: 'AndroidAudioError');
+        }
+      },
+    );
+    expect(methods, ['expire', 'resolve']);
+    expect(prepared.length, 2);
+    expect(Uri.parse(prepared.last).host, '127.0.0.1');
+    await OdifyAudioProxy.shared.dispose();
+  });
+
+  test('Next during refresh does not prepare the superseded track', () async {
+    var current = true;
+    var prepared = 0;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+      expect(call.method, 'expire');
+      current = false;
+      return null;
+    });
+    await OdifyYouTube.prepareAudioSource(
+      source: source,
+      resolved: nativeSource,
+      isCurrent: () => current,
+      prepare: (_) async {
+        prepared++;
+        throw PlatformException(code: 'AndroidAudioError');
+      },
+    );
+    expect(prepared, 1);
+  });
+
+  test('second open failure propagates without another retry', () async {
+    var prepared = 0;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+      if (call.method == 'expire') return null;
+      return {'url': 'https://r1.googlevideo.com/videoplayback'};
+    });
+    await expectLater(OdifyYouTube.prepareAudioSource(
+      source: source,
+      resolved: nativeSource,
+      isCurrent: () => true,
+      prepare: (_) async {
+        prepared++;
+        throw PlatformException(code: 'AndroidAudioError');
+      },
+    ), throwsA(isA<PlatformException>()));
+    expect(prepared, 2);
+    await OdifyAudioProxy.shared.dispose();
+  });
+
+  test('local files and unrelated errors never trigger YouTube recovery', () async {
+    var calls = 0;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (_) async { calls++; return null; });
+    for (final item in [
+      ('/music/song.flac', 'AndroidAudioError'),
+      (source, 'UsbOutputUnavailable'),
+    ]) {
+      await expectLater(OdifyYouTube.prepareAudioSource(
+        source: item.$1,
+        resolved: item.$1,
+        isCurrent: () => true,
+        prepare: (_) async => throw PlatformException(code: item.$2),
+      ), throwsA(isA<PlatformException>()));
+    }
+    expect(calls, 0);
+  });
+
   test('prefetch ignores local media paths', () async {
     var calls = 0;
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
@@ -109,3 +198,4 @@ void main() {
   });
 
 }
+

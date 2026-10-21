@@ -84,7 +84,7 @@ def assemble():
     # Trove/Supabase dependency is introduced. A separate public Web OAuth
     # server client ID will be supplied using --dart-define at a later build.
     replace_one(TARGET / 'pubspec.yaml',
-                'version: 5.2.1+163', 'version: 0.9.0+170')
+                'version: 5.2.1+163', 'version: 0.9.1+171')
     replace_one(TARGET / 'pubspec.yaml',
                 '  shared_preferences: ^2.5.6',
                 '  shared_preferences: ^2.5.6\n'
@@ -143,6 +143,20 @@ def assemble():
                 "const {'network', 'http', 'https'}.contains(Uri.tryParse(source)?.scheme);",
                 "const {'network', 'http', 'https', 'odify-youtube'}"
                 ".contains(Uri.tryParse(source)?.scheme);")
+    # _loadIndex owns prepare errors while _switchingGeneration is active,
+    # so one guarded retry cannot race the runtime failure-stop handler.
+    replace_one(TARGET / 'lib/services/music_player_service.dart',
+                "    if (media.isNetwork) {\n"
+                "      await _player.setNetworkSource(path);\n",
+                "    if (media.source.startsWith('odify-youtube://')) {\n"
+                "      await OdifyYouTube.prepareAudioSource(\n"
+                "        source: media.source,\n"
+                "        resolved: path,\n"
+                "        prepare: (source) => _player.setNetworkSource(source),\n"
+                "        isCurrent: () => _isCurrentPlayRequest(generation, media),\n"
+                "      );\n"
+                "    } else if (media.isNetwork) {\n"
+                "      await _player.setNetworkSource(path);\n")
     replace_one(TARGET / 'lib/services/music_player_service.dart',
                 "part 'music_player_autoplay.dart';",
                 "part 'music_player_autoplay.dart';\npart 'odify_taste.dart';")
@@ -296,3 +310,4 @@ def assemble():
 
 if __name__ == '__main__':
     assemble()
+

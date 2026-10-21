@@ -201,6 +201,33 @@ class OdifyYouTube {
     return OdifyAudioProxy.shared.open(url, headers: headers);
   }
 
+  /// Recover once from Android source-open errors, using a fresh URL and
+  /// the ranged relay. Generation checks prevent a late retry from loading
+  /// an old song after Next/Previous. This never downloads or converts MP3.
+  static Future<void> prepareAudioSource({
+    required String source,
+    required String resolved,
+    required Future<void> Function(String) prepare,
+    required bool Function() isCurrent,
+  }) async {
+    if (!isCurrent()) return;
+    try {
+      await prepare(resolved);
+    } on PlatformException catch (error) {
+      if (idFromSource(source) == null ||
+          error.code != 'AndroidAudioError') {
+        rethrow;
+      }
+      if (!isCurrent()) return;
+      await invalidateAudioSource(source);
+      if (!isCurrent()) return;
+      final retry = await resolveAudioSource(source, preferNative: false);
+      if (!isCurrent()) return;
+      // The second failure propagates to Mornye's normal failure handler.
+      await prepare(retry);
+    }
+  }
+
   /// Warm only the next queue item while current music is already playing.
   /// The native side keeps the verified signed URL only in memory.
   static Future<void> prefetchAudioSource(String source) async {
@@ -273,3 +300,4 @@ class OdifyYouTube {
     return path;
   }
 }
+

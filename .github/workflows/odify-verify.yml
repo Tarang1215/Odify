@@ -101,7 +101,7 @@ jobs:
           rustup show
           sudo apt-get update -qq
           sudo apt-get install -y libclang-dev ffmpeg
-          printf 'flutter.sdk=%s\nflutter.versionName=0.9.0\nflutter.versionCode=170\n' "$FLUTTER_ROOT" > ../android/local.properties
+          printf 'flutter.sdk=%s\nflutter.versionName=0.9.1\nflutter.versionCode=171\n' "$FLUTTER_ROOT" > ../android/local.properties
       - name: Compile Android debug APK through Flutter (JIT kernel)
         working-directory: build/Odify
         run: flutter build apk --debug --target-platform android-arm64 --split-per-abi --dart-define=ODIFY_GOOGLE_SERVER_CLIENT_ID="$ODIFY_GOOGLE_SERVER_CLIENT_ID"
@@ -114,6 +114,9 @@ jobs:
           retention-days: 14
           path: |
             build/Odify/build/app/outputs/apk/debug/*arm64-v8a*.apk
+      - name: Test native extraction sharing, cancellation and process timeout
+        working-directory: build/Odify/android
+        run: gradle :app:testDebugUnitTest --tests com.zarz.mornye.OdifyAudioRequestsTest
       - name: Remove dev-only integration test plugin from release registrant
         run: |
           python3 scripts/strip_release_test_plugin.py build/Odify/android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java
@@ -138,11 +141,11 @@ jobs:
           printf 'Debug manifest: %s\\n' "$DEBUG_PACKAGE"
           [[ "$RELEASE_PACKAGE" == *"name='com.odify.music' "* ]]
           # Flutter --split-per-abi adds the ARM64 ABI offset (2000)
-          # to the base pubspec versionCode 170.
-          [[ "$RELEASE_PACKAGE" == *"versionCode='2170' "* ]]
-          [[ "$RELEASE_PACKAGE" == *"versionName='0.9.0'"* ]]
+          # to the base pubspec versionCode 171.
+          [[ "$RELEASE_PACKAGE" == *"versionCode='2171' "* ]]
+          [[ "$RELEASE_PACKAGE" == *"versionName='0.9.1'"* ]]
           [[ "$DEBUG_PACKAGE" == *"name='com.odify.music.debug' "* ]]
-          [[ "$DEBUG_PACKAGE" == *"versionCode='2170' "* ]]
+          [[ "$DEBUG_PACKAGE" == *"versionCode='2171' "* ]]
           python3 ../../scripts/verify_android_apk.py "$RELEASE" --mode release
           python3 ../../scripts/verify_android_apk.py "$DEBUG" --mode debug
           du -h "$RELEASE" "$DEBUG"
@@ -155,3 +158,4 @@ jobs:
           retention-days: 14
           path: |
             build/Odify/build/app/outputs/apk/release/*arm64-v8a*.apk
+
