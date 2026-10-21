@@ -1,0 +1,159 @@
+package xyz.luan.audioplayers.player
+
+import android.net.Uri
+import androidx.annotation.OptIn
+import androidx.media3.common.AudioAttributes
+import androidx.media3.common.C
+import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.PlaybackParameters
+import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.HttpDataSource
+import androidx.media3.datasource.okhttp.OkHttpDataSource
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import okhttp3.OkHttpClient
+import xyz.luan.audioplayers.AudioContextAndroid
+import xyz.luan.audioplayers.source.OdifyStreamRegistry
+import xyz.luan.audioplayers.source.Source
+import xyz.luan.audioplayers.source.UrlSource
+
+/**
+ * Only Odify online streams use Media3. Standard URLs, local MP3/FLAC,
+ * SAF and bit-perfect USB continue through their original player path.
+ * The existing audioplayers Dart API and audio_service queue are preserved.
+ */
+@OptIn(UnstableApi::class)
+class OdifyExoPlayerWrapper(private val wrappedPlayer: WrappedPlayer) : PlayerWrapper {
+    companion object {
+        private const val RELAY_PREFIX = "http://127.0.0.1:"
+        private val relayPattern = Regex("^/stream/[A-Za-z0-9_-]{20,100}$")
+
+        fun accepts(source: Source?): Boolean {
+            val url = (source as? UrlSource)?.url ?: return false
+            if (OdifyStreamRegistry.isOdifySource(url)) return true
+            if (!url.startsWith(RELAY_PREFIX)) return false
+            val uri = runCatching { Uri.parse(url) }.getOrNull() ?: return false
+            return uri.host == "127.0.0.1" && uri.port in 1..65535 &&
+                uri.query.isNullOrEmpty() && uri.fragment.isNullOrEmpty() &&
+                relayPattern.matches(uri.path.orEmpty())
+        }
+    }
+
+    private val appContext = wrappedPlayer.applicationContext
+    private val httpFactory = OkHttpDataSource.Factory(
+        OkHttpClient.Builder().followRedirects(true).followSslRedirects(true).build()
+    )
+    private val player = ExoPlayer.Builder(appContext)
+        .setMediaSourceFactory(
+            DefaultMediaSourceFactory(appContext).setDataSourceFactory(httpFactory)
+        ).build()
+
+    private var released = false
+    private var preparedNotified = false
+
+    init {
+        player.setWakeMode(C.WAKE_MODE_NETWORK)
+        updateContext(wrappedPlayer.context)
+        player.addListener(object : Player.Listener {
+            override fun onPlaybackStateChanged(state: Int) {
+                if (released) return
+                when (state) {
+                    Player.STATE_READY -> if (!preparedNotified) {
+                        preparedNotified = true
+                        wrappedPlayer.onPrepared()
+                    }
+                    Player.STATE_ENDED -> wrappedPlayer.onCompletion()
+                }
+            }
+
+            override fun onPlayerError(error: PlaybackException) {
+                if (released) return
+                val safeCause = generateSequence(error.cause) { it.cause }
+                    .take(4)
+                    .joinToString(",") {
+                        if (it is HttpDataSource.InvalidResponseCodeException) {
+                            "HTTP_" + it.responseCode
+                        } else it.javaClass.simpleName
+                    }
+                // Never log exception messages, headers, video IDs or signed URLs.
+                android.util.Log.w(
+                    "OdifyMedia3", "code=" + error.errorCodeName + " cause=" + safeCause
+                )
+                wrappedPlayer.onExoError(error.errorCodeName, safeCause)
+            }
+        })
+    }
+
+    override fun getDuration(): Int? =
+        player.duration.takeIf { it != C.TIME_UNSET && it > 0 }
+            ?.coerceAtMost(Int.MAX_VALUE.toLong())?.toInt()
+
+    override fun getCurrentPosition(): Int =
+        player.currentPosition.coerceIn(0, Int.MAX_VALUE.toLong()).toInt()
+
+    override fun isLiveStream(): Boolean = getDuration() == null
+
+    override fun setVolume(leftVolume: Float, rightVolume: Float) {
+        // Odify music ordinarily uses equal L/R gain.
+        player.volume = ((leftVolume + rightVolume) / 2f).coerceIn(0f, 1f)
+    }
+
+    override fun setRate(rate: Float) {
+        require(rate > 0f) { "Invalid playback speed" }
+        player.playbackParameters = PlaybackParameters(rate)
+    }
+
+    override fun setLooping(looping: Boolean) {
+        player.repeatMode = if (looping) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
+    }
+
+    override fun updateContext(context: AudioContextAndroid) {
+        // WrappedPlayer's existing FocusManager remains the sole focus owner.
+        player.setAudioAttributes(
+            AudioAttributes.Builder()
+                .setUsage(context.usageType)
+                .setContentType(context.contentType)
+                .build(), false
+        )
+    }
+
+    override fun setSource(source: Source) {
+        require(accepts(source)) { "Only Odify online sources use Media3" }
+        reset()
+        val handle = (source as UrlSource).url
+        val session = if (OdifyStreamRegistry.isOdifySource(handle)) {
+            OdifyStreamRegistry.lookup(handle) ?: error("Expired Odify CDN session")
+        } else null
+        httpFactory.setDefaultRequestProperties(session?.headers ?: emptyMap())
+        val item = MediaItem.Builder()
+            .setUri(session?.url ?: handle)
+            .apply { session?.mimeType?.let { setMimeType(it) } }
+            .build()
+        player.setMediaItem(item)
+    }
+
+    override fun prepare() { player.prepare() }
+    override fun start() { player.play() }
+    override fun pause() { player.pause() }
+    override fun stop() { player.stop() }
+
+    override fun seekTo(position: Int) {
+        player.seekTo(position.toLong())
+        // audioplayers' Dart layer expects an explicit seek-complete callback.
+        wrappedPlayer.onSeekComplete()
+    }
+
+    override fun reset() {
+        preparedNotified = false
+        player.stop()
+        player.clearMediaItems()
+    }
+
+    override fun release() {
+        if (released) return
+        released = true
+        player.release()
+    }
+}
