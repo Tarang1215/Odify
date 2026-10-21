@@ -201,6 +201,18 @@ class OdifyYouTube {
     return OdifyAudioProxy.shared.open(url, headers: headers);
   }
 
+  /// Stop reusing a CDN source after Android reports a media open failure.
+  /// Persisted playlist IDs are untouched. Called best-effort by the player.
+  static Future<void> invalidateAudioSource(String source) async {
+    final id = idFromSource(source);
+    if (id == null) return;
+    try {
+      await _channel.invokeMethod<void>('expire', {'videoId': id});
+    } on PlatformException {
+      // Failure cleanup must never hide the original playback error.
+    }
+  }
+
   /// An on-device diagnostic for one public video. The native plugin probes
   /// YouTube and CDN access but never includes URLs, cookies or video IDs in
   /// the report. This does not download any media bytes to a file.
