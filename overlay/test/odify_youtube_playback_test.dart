@@ -58,6 +58,11 @@ void main() {
             'client': 'android',
             'extractMs': 2450,
             'cdnProbeMs': 95,
+            'audioCodec': 'mp4a.40.2',
+            'audioContainer': 'm4a',
+            'androidPrepare': 'MEDIA_ERROR',
+            'androidErrorWhat': 1,
+            'androidErrorExtra': -1005,
             'attempts': <String>[],
           };
         });
@@ -65,6 +70,10 @@ void main() {
     expect(report, contains('extractMs: 2450'));
     expect(report, contains('cdnProbeMs: 95'));
     expect(report, contains('client: android'));
+    expect(report, contains('audioCodec: mp4a.40.2'));
+    expect(report, contains('audioContainer: m4a'));
+    expect(report, contains('androidPrepare: MEDIA_ERROR'));
+    expect(report, contains('androidErrorExtra: -1005'));
     expect(report, isNot(contains('googlevideo.com')));
     expect(report, isNot(contains(id)));
   });

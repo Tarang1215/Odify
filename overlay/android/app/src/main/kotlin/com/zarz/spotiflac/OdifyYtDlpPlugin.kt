@@ -1,6 +1,8 @@
 package com.zarz.spotiflac
 
 import android.content.Context
+import android.media.MediaPlayer
+import android.net.Uri
 import android.os.Environment
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.plugin.common.MethodCall
@@ -13,6 +15,8 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.runInterruptible
@@ -249,7 +253,19 @@ class OdifyYtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                 report["client"] = client
                 report["extractMs"] = validated["extractMs"] ?: -1
                 report["cdnProbeMs"] = validated["probeMs"] ?: -1
+                report["audioCodec"] = validated["audioCodec"] ?: "unknown"
+                report["audioContainer"] = validated["audioContainer"] ?: "unknown"
                 report["attempts"] = attempts
+                // A successful 1 KiB CDN probe does NOT validate Android's
+                // media demuxer. Test only prepareAsync (never start audio).
+                // Use the exact URL/header session that real playback uses.
+                val handle = validated["nativeSource"]?.toString().orEmpty()
+                val session = OdifyStreamRegistry.lookup(handle)
+                report.putAll(if (session == null) {
+                    mapOf("androidPrepare" to "SESSION_UNAVAILABLE")
+                } else {
+                    probeAndroidMediaPlayer(session)
+                })
                 return report
             } catch (error: Exception) {
                 currentCoroutineContext().ensureActive()
@@ -259,6 +275,49 @@ class OdifyYtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         report["playableCdnProbe"] = false
         report["attempts"] = attempts
         return report
+    }
+
+    /**
+     * Diagnostic only: MediaPlayer's prepareAsync without starting playback,
+     * changing the current queue, or requesting audio focus. This detects
+     * Android format/HTTP opening problems that a 1 KiB CDN GET cannot see.
+     * Never include signed URLs, credentials, headers or video IDs in reports.
+     */
+    private suspend fun probeAndroidMediaPlayer(
+        session: OdifyStreamRegistry.Stream
+    ): Map<String, Any> = withContext(Dispatchers.Main) {
+        val player = MediaPlayer()
+        val readiness = CompletableDeferred<Map<String, Any>>()
+        try {
+            player.setOnPreparedListener {
+                if (!readiness.isCompleted) {
+                    readiness.complete(mapOf("androidPrepare" to "READY"))
+                }
+            }
+            player.setOnErrorListener { _, what, extra ->
+                if (!readiness.isCompleted) {
+                    readiness.complete(mapOf(
+                        "androidPrepare" to "MEDIA_ERROR",
+                        "androidErrorWhat" to what,
+                        "androidErrorExtra" to extra
+                    ))
+                }
+                true
+            }
+            player.setDataSource(session.context, Uri.parse(session.url), session.headers)
+            player.prepareAsync()
+            withTimeoutOrNull(7000L) { readiness.await() }
+                ?: mapOf("androidPrepare" to "TIMEOUT")
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            mapOf("androidPrepare" to "EXCEPTION",
+                  "androidException" to error.javaClass.simpleName)
+        } finally {
+            player.setOnPreparedListener(null)
+            player.setOnErrorListener(null)
+            player.release()
+        }
     }
 
     private fun setup(ffmpeg: Boolean = false) {
@@ -438,6 +497,10 @@ class OdifyYtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         // registry handle lets the pinned native player use the overload
         // accepting yt-dlp headers, with no Dart loopback hop.
         val nativeSource = OdifyStreamRegistry.register(context, url, headers)
+        val audioCodec = info.optString("acodec")
+            .takeIf { it.matches(Regex("[A-Za-z0-9_.-]{1,40}")) } ?: "unknown"
+        val audioContainer = info.optString("ext")
+            .takeIf { it.matches(Regex("[A-Za-z0-9_.-]{1,20}")) } ?: "unknown"
         android.util.Log.i("OdifyExtractor",
             "Validated audio source for native playback; protocol=$protocol " +
             "format=${info.optString("ext")} codec=${info.optString("acodec")} " +
@@ -445,7 +508,8 @@ class OdifyYtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         return mapOf(
             "url" to url, "headers" to headers, "id" to id,
             "nativeSource" to nativeSource, "extractMs" to extractMs,
-            "probeMs" to probeMs, "client" to client
+            "probeMs" to probeMs, "client" to client,
+            "audioCodec" to audioCodec, "audioContainer" to audioContainer
         )
     }
 
