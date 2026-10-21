@@ -84,7 +84,7 @@ def assemble():
     # Trove/Supabase dependency is introduced. A separate public Web OAuth
     # server client ID will be supplied using --dart-define at a later build.
     replace_one(TARGET / 'pubspec.yaml',
-                'version: 5.2.1+163', 'version: 0.9.3+173')
+                'version: 5.2.1+163', 'version: 0.9.4+174')
     replace_one(TARGET / 'pubspec.yaml',
                 '  shared_preferences: ^2.5.6',
                 '  shared_preferences: ^2.5.6\n'
@@ -231,7 +231,8 @@ def assemble():
     # inspection can detect a missing streaming engine before distribution.
     proguard.write_text(
         proguard.read_text(encoding='utf-8') +
-        '\n-keep class xyz.luan.audioplayers.player.OdifyExoPlayerWrapper { *; }\n',
+        '\n-keep class xyz.luan.audioplayers.player.OdifyExoPlayerWrapper { *; }\n'
+        '-keep class xyz.luan.audioplayers.player.OdifyBoundedRangeDataSource { *; }\n',
         encoding='utf-8',
     )
 

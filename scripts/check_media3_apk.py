@@ -11,6 +11,7 @@ import zipfile
 
 REQUIRED = (
     b"Lxyz/luan/audioplayers/player/OdifyExoPlayerWrapper;",
+    b"Lxyz/luan/audioplayers/player/OdifyBoundedRangeDataSource;",
     b"OdifyMedia3",
 )
 
