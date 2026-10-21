@@ -57,24 +57,85 @@ class OdifyYtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                     "playlist" -> playlist(arguments["url"] as? String ?: "")
                     "resolve" -> resolve(arguments["videoId"] as? String ?: "")
                     "downloadMp3" -> downloadMp3(arguments["videoId"] as? String ?: "")
+                    "diagnose" -> diagnose(arguments["videoId"] as? String ?: "")
                     else -> throw IllegalArgumentException("Unknown command: ${call.method}")
                 }
                 withContext(Dispatchers.Main) { result.success(value) }
             } catch (error: Exception) {
                 // yt-dlp exceptions can contain hundreds of retry warnings.
                 // Never dump verbose native traces into a full-screen dialog.
-                android.util.Log.w("OdifyExtractor",
-                    "Native ${call.method} failed: ${error.javaClass.simpleName}")
+                val code = failureCategory(error)
+                android.util.Log.e("OdifyExtractor",
+                    "Native ${call.method} failed category=$code type=${error.javaClass.simpleName}")
                 val userMessage = when (call.method) {
                     "resolve" -> "스트리밍 주소를 찾지 못했습니다. 잠시 후 다시 시도하거나 다른 곡을 선택하세요."
                     "downloadMp3" -> "MP3를 저장하지 못했습니다. YouTube 추출기 또는 영상 접근 제한을 확인해주세요."
                     else -> "YouTube 음악 정보를 가져오지 못했습니다. 다시 시도해주세요."
                 }
                 withContext(Dispatchers.Main) {
-                    result.error("odify_yt_dlp_error", userMessage, null)
+                    result.error("odify_yt_dlp_$code", "$userMessage [$code]",
+                        mapOf("failureCode" to code, "operation" to call.method))
                 }
             }
         }
+    }
+
+    private val audioClients = listOf("android", "web_embedded", "android_vr", "visionos")
+
+    // Classify the native failure without leaking signed Googlevideo URLs,
+    // headers, cookies or video IDs to user-visible diagnostics.
+    private fun failureCategory(error: Throwable): String {
+        val message = generateSequence(error) { it.cause }
+            .take(4).joinToString(" ") { it.message.orEmpty() }.lowercase()
+        return when {
+            "no supported javascript runtime" in message ||
+                "no javascript runtime" in message -> "JS_RUNTIME_MISSING"
+            "ejs" in message || "signature solving" in message ||
+                "nsig" in message -> "JS_CHALLENGE"
+            "sign in to confirm" in message || "not a bot" in message ->
+                "YOUTUBE_VERIFICATION"
+            "http error 403" in message || "audio http 403" in message -> "CDN_403"
+            "http error 429" in message || "audio http 429" in message -> "RATE_LIMIT"
+            "ffmpeg" in message || "libffmpeg" in message -> "FFMPEG_FAILED"
+            "requested format is not available" in message ||
+                "no available audio format" in message -> "FORMAT_UNAVAILABLE"
+            "timed out" in message || "timeout" in message -> "NETWORK_TIMEOUT"
+            "unable to download" in message -> "DOWNLOAD_FAILED"
+            else -> "EXTRACTOR_UNKNOWN"
+        }
+    }
+
+    private fun diagnose(id: String): Map<String, Any> {
+        videoUrl(id)
+        val libraryDir = File(context.applicationInfo.nativeLibraryDir)
+        val report = linkedMapOf<String, Any>(
+            "jsRuntimeBundled" to File(libraryDir, "libqjs.so").isFile,
+            "pythonRuntimeBundled" to File(libraryDir, "libpython.so").isFile,
+            "ffmpegRuntimeBundled" to File(libraryDir, "libffmpeg.so").isFile
+        )
+        try {
+            setup()
+            report["ytDlpInitialized"] = true
+        } catch (error: Exception) {
+            report["ytDlpInitialized"] = false
+            report["failure"] = failureCategory(error)
+            return report
+        }
+        val attempts = mutableListOf<String>()
+        for (client in audioClients) {
+            try {
+                extractAudio(id, client)
+                report["playableCdnProbe"] = true
+                report["client"] = client
+                report["attempts"] = attempts
+                return report
+            } catch (error: Exception) {
+                attempts.add("$client:${failureCategory(error)}")
+            }
+        }
+        report["playableCdnProbe"] = false
+        report["attempts"] = attempts
+        return report
     }
 
     private fun setup(ffmpeg: Boolean = false) {
@@ -253,23 +314,23 @@ class OdifyYtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         var failure: Exception? = null
         // Try uncredentialed, permitted clients and validate that the
         // returned CDN stream actually serves audio bytes and ranges.
-        for (client in listOf("android_vr", "web_embedded")) {
+        for (client in audioClients) {
             try { return extractAudio(id, client) }
             catch (error: Exception) {
                 failure = error
                 android.util.Log.w("OdifyExtractor",
-                    "Audio probe failed ($client): ${error.javaClass.simpleName}")
+                    "Audio probe failed client=$client category=${failureCategory(error)}")
             }
         }
         // Refresh the extractor at most once daily, never on Home startup.
         if (refreshExtractorOnce()) {
-            for (client in listOf("android_vr", "web_embedded")) {
+            for (client in audioClients) {
                 try { return extractAudio(id, client) }
                 catch (error: Exception) { failure = error }
             }
         }
         android.util.Log.w("OdifyExtractor",
-            "YouTube audio unavailable for video $id: ${failure?.javaClass?.simpleName}")
+            "YouTube audio unavailable category=${failure?.let { failureCategory(it) } ?: "NO_CLIENT"}")
         throw IllegalStateException(
             "YouTube 오디오를 가져오지 못했습니다. 영상 제한 또는 추출기 업데이트 문제일 수 있습니다. 네트워크를 확인한 뒤 다시 시도하세요."
         )
@@ -287,7 +348,7 @@ class OdifyYtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         var failure: Exception? = null
         for (pass in 0..1) {
             if (pass == 1 && !refreshExtractorOnce()) break
-            for (client in listOf("android_vr", "web_embedded")) {
+            for (client in audioClients) {
                 try {
                     val request = YoutubeDLRequest(videoUrl(id))
                     request.addOption("--no-playlist")
@@ -305,12 +366,17 @@ class OdifyYtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                         return mapOf("path" to finalFile.absolutePath, "videoId" to id,
                             "bytes" to finalFile.length())
                     }
-                } catch (error: Exception) { failure = error }
+                } catch (error: Exception) {
+                    failure = error
+                    android.util.Log.w("OdifyExtractor",
+                        "Download failed client=$client category=${failureCategory(error)}")
+                }
             }
         }
-        android.util.Log.w("OdifyExtractor",
-            "Download audio not available: ${failure?.javaClass?.simpleName}")
-        throw IllegalStateException("No available audio format")
+        android.util.Log.e("OdifyExtractor",
+            "Download unavailable category=${failure?.let { failureCategory(it) } ?: "UNKNOWN"}")
+        throw IllegalStateException(
+            "Download failed: ${failure?.let { failureCategory(it) } ?: "UNKNOWN"}")
     }
 
 }
