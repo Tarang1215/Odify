@@ -121,6 +121,8 @@ class OdifyTrackMetadata {
 class OdifyYouTube {
   static const _channel = MethodChannel('com.odify.music/yt_dlp');
   static final _idPattern = RegExp(r'^[A-Za-z0-9_-]{11}$');
+  static final _nativeSourcePattern =
+      RegExp(r'^odify-cdn://audio/[a-f0-9]{48}$');
   static const sourceScheme = 'odify-youtube';
 
   static String sourceForId(String videoId) {
@@ -167,7 +169,10 @@ class OdifyYouTube {
 
   /// Called by the existing SpotiFLAC audio service just before loading a
   /// track. The resulting signed URL stays transient and is never serialized.
-  static Future<String> resolveAudioSource(String source) async {
+  static Future<String> resolveAudioSource(
+    String source, {
+    bool preferNative = true,
+  }) async {
     final id = idFromSource(source);
     if (id == null) throw const FormatException('Invalid Odify playback source');
     final data = await _channel.invokeMapMethod<dynamic, dynamic>(
@@ -178,9 +183,15 @@ class OdifyYouTube {
     if (parsed == null || parsed.scheme != 'https' || parsed.host.isEmpty) {
       throw StateError('오디오 주소를 확인하지 못했습니다.');
     }
-    // The Android UrlSource cannot carry the request headers included in
-    // yt-dlp's resolved format. Serve a seekable, ranged HTTP stream through
-    // a loopback-only relay so Googlevideo sees those exact headers.
+    // Native MediaPlayer.setDataSource(url, headers) eliminates the Dart
+    // loopback relay and keeps seek/redirect handling inside Android's media
+    // stack. Only use handles created by the bundled, pinned Kotlin plugin.
+    // The existing ranged proxy remains available as a safe fallback.
+    final nativeSource = data?['nativeSource']?.toString() ?? '';
+    if (preferNative && _nativeSourcePattern.hasMatch(nativeSource)) {
+      return nativeSource;
+    }
+    // Fallback: relay the signed URL and extractor headers via loopback.
     final rawHeaders = data?['headers'];
     final headers = <String, String>{
       if (rawHeaders is Map)
