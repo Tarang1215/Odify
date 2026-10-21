@@ -98,4 +98,98 @@ void main() {
       await origin.close(force: true);
     }
   });
+  test('forwards RFC suffix byte range without silently replacing it with GET', () async {
+    final origin = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    final proxy = OdifyAudioProxy(allowSource: (_) => true);
+    final client = HttpClient();
+    String? rangeAtOrigin;
+    origin.listen((request) async {
+      rangeAtOrigin = request.headers.value(HttpHeaders.rangeHeader);
+      request.response.statusCode = HttpStatus.partialContent;
+      request.response.headers.set(HttpHeaders.contentRangeHeader, 'bytes 6-9/10');
+      request.response.headers.set(HttpHeaders.acceptRangesHeader, 'bytes');
+      request.response.headers.set(HttpHeaders.contentTypeHeader, 'audio/mp4');
+      request.response.contentLength = 4;
+      request.response.add([6, 7, 8, 9]);
+      await request.response.close();
+    });
+    try {
+      final proxyUrl = Uri.parse(await proxy.open(
+        'http://127.0.0.1:${origin.port}/audio',
+      ));
+      final request = await client.getUrl(proxyUrl);
+      request.headers.set(HttpHeaders.rangeHeader, 'bytes=-4');
+      final response = await request.close();
+      final bytes = await response.fold<List<int>>(
+        <int>[],
+        (bytes, chunk) => bytes..addAll(chunk),
+      );
+      expect(rangeAtOrigin, 'bytes=-4');
+      expect(response.statusCode, HttpStatus.partialContent);
+      expect(response.headers.value(HttpHeaders.contentRangeHeader), 'bytes 6-9/10');
+      expect(bytes, [6, 7, 8, 9]);
+    } finally {
+      client.close(force: true);
+      await proxy.dispose();
+      await origin.close(force: true);
+    }
+  });
+
+  test('rejects malformed and multipart ranges before reaching origin', () async {
+    final origin = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    final proxy = OdifyAudioProxy(allowSource: (_) => true);
+    final client = HttpClient();
+    var originRequests = 0;
+    origin.listen((request) async {
+      originRequests++;
+      await request.response.close();
+    });
+    try {
+      final proxyUrl = Uri.parse(await proxy.open(
+        'http://127.0.0.1:${origin.port}/audio',
+      ));
+      for (final invalid in ['bytes=5', 'bytes=0-1,5-6', 'bytes=-0']) {
+        final request = await client.getUrl(proxyUrl);
+        request.headers.set(HttpHeaders.rangeHeader, invalid);
+        final response = await request.close();
+        await response.drain<void>();
+        expect(response.statusCode, HttpStatus.requestedRangeNotSatisfiable);
+        expect(response.headers.contentLength, 0);
+      }
+      expect(originRequests, 0);
+    } finally {
+      client.close(force: true);
+      await proxy.dispose();
+      await origin.close(force: true);
+    }
+  });
+
+  test('does not forward an upstream forbidden HTML page as audio', () async {
+    final origin = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    final proxy = OdifyAudioProxy(allowSource: (_) => true);
+    final client = HttpClient();
+    origin.listen((request) async {
+      request.response.statusCode = HttpStatus.forbidden;
+      request.response.headers.contentType = ContentType.html;
+      request.response.write('signed URL expired');
+      await request.response.close();
+    });
+    try {
+      final proxyUrl = Uri.parse(await proxy.open(
+        'http://127.0.0.1:${origin.port}/audio',
+      ));
+      final response = await (await client.getUrl(proxyUrl)).close();
+      final body = await response.fold<List<int>>(
+        <int>[],
+        (bytes, chunk) => bytes..addAll(chunk),
+      );
+      expect(response.statusCode, HttpStatus.badGateway);
+      expect(body, isEmpty);
+    } finally {
+      client.close(force: true);
+      await proxy.dispose();
+      await origin.close(force: true);
+    }
+  });
+
 }
