@@ -201,6 +201,22 @@ def assemble():
                 "        }\n"
                 "      }\n"
                 "      if (media.source.startsWith('network://')) {")
+    # R8 must preserve Commons Compress ZIP extra-field implementations.
+    # The initial Python bundle unzip uses ExtraFieldUtils' reflective class
+    # registration (Class.newInstance). If R8 removes a nullary constructor
+    # or changes a concrete implementation, the app crashes in <clinit> with
+    # "class ... is not a concrete class" (Galaxy release 2026-10-21).
+    # Keep this narrow to ZIP archivers: preserve unrelated release shrinking.
+    proguard = TARGET / 'android/app/proguard-rules.pro'
+    proguard_text = proguard.read_text(encoding='utf-8')
+    zip_guard = (
+        '\\n# Odify: Apache Commons Compress ZIP registry uses reflection.\\n'
+        '-keep class org.apache.commons.compress.archivers.zip.** { *; }\\n'
+    )
+    if 'org.apache.commons.compress.archivers.zip.**' in proguard_text:
+        raise RuntimeError('Vendor ZIP optimizer rules changed; review before update')
+    proguard.write_text(proguard_text + zip_guard, encoding='utf-8')
+
     # yt-dlp is an optional GPL-3.0 native dependency; retain attribution.
     gradle = TARGET / 'android/app/build.gradle.kts'
     gradle_text = gradle.read_text(encoding='utf-8')
