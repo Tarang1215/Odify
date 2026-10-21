@@ -237,7 +237,7 @@ class OdifyYtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         // headerless MediaPlayer.setDataSource(String). A short-lived opaque
         // registry handle lets the pinned native player use the overload
         // accepting yt-dlp headers, with no Dart loopback hop.
-        val nativeSource = OdifyStreamRegistry.register(url, headers)
+        val nativeSource = OdifyStreamRegistry.register(context, url, headers)
         android.util.Log.i("OdifyExtractor",
             "Validated audio source for native playback; protocol=$protocol " +
             "format=${info.optString("ext")} codec=${info.optString("acodec")} " +
