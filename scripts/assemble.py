@@ -173,6 +173,16 @@ def assemble():
                 "            flutterEngine.plugins.add(MusicHapticsPlugin())\n        }\n"
                 "        if (!flutterEngine.plugins.has(OdifyMediaStorePlugin::class.java)) {\n"
                 "            flutterEngine.plugins.add(OdifyMediaStorePlugin())\n        }")
+    # If Android rejects a signed CDN URL, forget its short-lived handle.
+    # The next user playback attempt must re-extract instead of replaying
+    # the same known-bad URL cached by the native extractor.
+    replace_one(TARGET / 'lib/services/music_player_service.dart',
+                "    _log.e('Playback failed for ${mediaItem.value?.title}', error, stackTrace);",
+                "    _log.e('Playback failed for ${mediaItem.value?.title}', error, stackTrace);\n"
+                "    if (_index >= 0 && _index < _media.length &&\n"
+                "        _media[_index].source.startsWith('odify-youtube://')) {\n"
+                "      unawaited(OdifyYouTube.invalidateAudioSource(_media[_index].source));\n"
+                "    }")
     # yt-dlp is an optional GPL-3.0 native dependency; retain attribution.
     gradle = TARGET / 'android/app/build.gradle.kts'
     gradle_text = gradle.read_text(encoding='utf-8')
