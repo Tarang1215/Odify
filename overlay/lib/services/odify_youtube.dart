@@ -228,6 +228,23 @@ class OdifyYouTube {
     }
   }
 
+  /// Retry an already-started Android player exactly once after a late
+  /// MediaPlayer error event. The caller owns playback generation and must
+  /// reject a superseded song before and after each asynchronous operation.
+  /// Signed URLs are never persisted or written to the log.
+  static Future<void> recoverAfterMediaError({
+    required String source,
+    required Future<void> Function(String relay) prepare,
+    required bool Function() isCurrent,
+  }) async {
+    if (idFromSource(source) == null || !isCurrent()) return;
+    await invalidateAudioSource(source);
+    if (!isCurrent()) return;
+    final relay = await resolveAudioSource(source, preferNative: false);
+    if (!isCurrent()) return;
+    await prepare(relay);
+  }
+
   /// Warm only the next queue item while current music is already playing.
   /// The native side keeps the verified signed URL only in memory.
   static Future<void> prefetchAudioSource(String source) async {

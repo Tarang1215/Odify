@@ -23,6 +23,8 @@ FIXTURES = {
         "import 'package:mornye/services/music_player_runtime.dart';\n"
         "    show ListeningTrack;\n"
         "part 'music_player_autoplay.dart';\n"
+        "  int _playRequestGeneration = 0;\n"
+        "    _sourceReady = false;\n    _playbackError = error;\n"
         "    _log.e('Playback failed for ${mediaItem.value?.title}', error, stackTrace);\n"
         "      _sourceReady = true;\n      if (media.source.startsWith('network://')) {\n"
         "  Future<String?> _resolveSource(PlayableMedia media) async {\n"
@@ -96,6 +98,10 @@ class OdifyAssemblyTests(unittest.TestCase):
             self.assertIn('OdifyYouTube.resolveAudioSource(media.source)', player)
             self.assertIn('OdifyYouTube.invalidateAudioSource', player)
             self.assertIn('OdifyYouTube.prefetchAudioSource', player)
+            self.assertIn('OdifyYouTube.recoverAfterMediaError', player)
+            self.assertIn('_odifyAsyncRecoveryAttempted', player)
+            self.assertIn('await _player.resume();', player)
+            self.assertIn('prepare: (source) async', player)
             self.assertIn('OdifyYouTube.prepareAudioSource(', player)
             self.assertIn('isCurrent: () => _isCurrentPlayRequest(generation, media)', player)
             self.assertIn("'odify-cdn'", player)

@@ -143,20 +143,10 @@ def assemble():
                 "const {'network', 'http', 'https'}.contains(Uri.tryParse(source)?.scheme);",
                 "const {'network', 'http', 'https', 'odify-youtube'}"
                 ".contains(Uri.tryParse(source)?.scheme);")
-    # _loadIndex owns prepare errors while _switchingGeneration is active,
-    # so one guarded retry cannot race the runtime failure-stop handler.
+    # The initial synchronous Android prepare AND resume errors retry once.
     replace_one(TARGET / 'lib/services/music_player_service.dart',
-                "    if (media.isNetwork) {\n"
-                "      await _player.setNetworkSource(path);\n",
-                "    if (media.source.startsWith('odify-youtube://')) {\n"
-                "      await OdifyYouTube.prepareAudioSource(\n"
-                "        source: media.source,\n"
-                "        resolved: path,\n"
-                "        prepare: (source) => _player.setNetworkSource(source),\n"
-                "        isCurrent: () => _isCurrentPlayRequest(generation, media),\n"
-                "      );\n"
-                "    } else if (media.isNetwork) {\n"
-                "      await _player.setNetworkSource(path);\n")
+                "    if (media.isNetwork) {\n      await _player.setNetworkSource(path);\n",
+                "    if (media.source.startsWith('odify-youtube://')) {\n      // Prepare AND resume inside the retry boundary. Android can report\n      // MEDIA_ERROR_UNKNOWN only after asynchronous MediaPlayer preparation.\n      await OdifyYouTube.prepareAudioSource(\n        source: media.source,\n        resolved: path,\n        isCurrent: () => _isCurrentPlayRequest(generation, media),\n        prepare: (source) async {\n          await _player.setNetworkSource(source);\n          if (!_isCurrentPlayRequest(generation, media)) return;\n          if (position != null) {\n            await _player.seek(position);\n            if (!_isCurrentPlayRequest(generation, media)) return;\n          }\n          await _player.resume();\n          if (!_isCurrentPlayRequest(generation, media)) {\n            await _player.pause();\n          }\n        },\n      );\n      return;\n    }\n    if (media.isNetwork) {\n      await _player.setNetworkSource(path);\n")
     replace_one(TARGET / 'lib/services/music_player_service.dart',
                 "part 'music_player_autoplay.dart';",
                 "part 'music_player_autoplay.dart';\npart 'odify_taste.dart';")
@@ -187,6 +177,12 @@ def assemble():
                 "            flutterEngine.plugins.add(MusicHapticsPlugin())\n        }\n"
                 "        if (!flutterEngine.plugins.has(OdifyMediaStorePlugin::class.java)) {\n"
                 "            flutterEngine.plugins.add(OdifyMediaStorePlugin())\n        }")
+    replace_one(TARGET / 'lib/services/music_player_service.dart',
+                "  int _playRequestGeneration = 0;",
+                "  int _playRequestGeneration = 0;\n  int? _odifyAsyncRecoveryAttempted;\n  int? _odifyAsyncRecoveryActive;")
+    replace_one(TARGET / 'lib/services/music_player_service.dart',
+                "    _sourceReady = false;\n    _playbackError = error;",
+                "    if (_odifyAsyncRecoveryActive == _playRequestGeneration) return;\n    // MediaPlayer may emit MEDIA_ERROR_UNKNOWN via the event stream AFTER\n    // setSource/resume have returned. The synchronous retry cannot see it.\n    // Recover once per play generation; never retry local files or older songs.\n    if (_sourceReady &&\n        _switchingGeneration == 0 &&\n        _index >= 0 &&\n        _index < _media.length &&\n        _media[_index].source.startsWith('odify-youtube://') &&\n        !_userPaused &&\n        _odifyAsyncRecoveryAttempted != _playRequestGeneration) {\n      final generation = _playRequestGeneration;\n      final track = _media[_index];\n      _odifyAsyncRecoveryAttempted = generation;\n      _odifyAsyncRecoveryActive = generation;\n      _sourceReady = false;\n      _broadcastState(playerState: PlayerState.playing, loading: true);\n      unawaited(_serializeSourceChange(() async {\n        try {\n          if (!_isCurrentPlayRequest(generation, track)) return;\n          await OdifyYouTube.recoverAfterMediaError(\n            source: track.source,\n            isCurrent: () =>\n                _isCurrentPlayRequest(generation, track) && !_userPaused,\n            prepare: (relay) async {\n              if (!_isCurrentPlayRequest(generation, track) || _userPaused) return;\n              await player.stop();\n              if (!_isCurrentPlayRequest(generation, track) || _userPaused) return;\n              await player.setNetworkSource(relay);\n              if (!_isCurrentPlayRequest(generation, track) || _userPaused) return;\n              await player.setVolume(_normalizationVolume);\n              if (!_isCurrentPlayRequest(generation, track) || _userPaused) return;\n              await player.resume();\n              if (!_isCurrentPlayRequest(generation, track)) {\n                await player.pause();\n              }\n            },\n          );\n          if (!_isCurrentPlayRequest(generation, track)) return;\n          if (_userPaused) {\n            _sourceReady = false;\n            _broadcastState(playerState: PlayerState.paused);\n            return;\n          }\n          _sourceReady = true;\n          _broadcastState();\n        } catch (recoverError, recoverStack) {\n          if (_isCurrentPlayRequest(generation, track)) {\n            _odifyAsyncRecoveryActive = null;\n            _reportPlaybackError(player, recoverError, recoverStack);\n          }\n        } finally {\n          if (_odifyAsyncRecoveryActive == generation) {\n            _odifyAsyncRecoveryActive = null;\n          }\n        }\n      }).catchError((Object recoverError, StackTrace recoverStack) {\n        if (_isCurrentPlayRequest(generation, track)) {\n          _odifyAsyncRecoveryActive = null;\n          _reportPlaybackError(player, recoverError, recoverStack);\n        }\n      }));\n      return;\n    }\n    _sourceReady = false;\n    _playbackError = error;")
     # If Android rejects a signed CDN URL, forget its short-lived handle.
     # The next user playback attempt must re-extract instead of replaying
     # the same known-bad URL cached by the native extractor.

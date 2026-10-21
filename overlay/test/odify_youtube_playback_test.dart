@@ -185,6 +185,70 @@ void main() {
     expect(calls, 0);
   });
 
+  test('late Android media error invalidates and prepares a ranged relay', () async {
+    final methods = <String>[];
+    final prepared = <String>[];
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+      methods.add(call.method);
+      if (call.method == 'expire') return null;
+      expect(call.method, 'resolve');
+      return {
+        'url': 'https://r1.googlevideo.com/videoplayback?renewed=true',
+        'headers': {'User-Agent': 'OdifyTest/2'},
+        'nativeSource': nativeSource,
+      };
+    });
+    await OdifyYouTube.recoverAfterMediaError(
+      source: source,
+      isCurrent: () => true,
+      prepare: (relay) async => prepared.add(relay),
+    );
+    expect(methods, ['expire', 'resolve']);
+    expect(prepared, hasLength(1));
+    expect(Uri.parse(prepared.single).host, '127.0.0.1');
+    await OdifyAudioProxy.shared.dispose();
+  });
+
+  test('late recovery never starts previous song after Next', () async {
+    var current = true;
+    var prepares = 0;
+    final calls = <String>[];
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+      calls.add(call.method);
+      if (call.method == 'expire') {
+        current = false;
+        return null;
+      }
+      return {
+        'url': 'https://r1.googlevideo.com/videoplayback',
+      };
+    });
+    await OdifyYouTube.recoverAfterMediaError(
+      source: source,
+      isCurrent: () => current,
+      prepare: (_) async => prepares++,
+    );
+    expect(calls, ['expire']);
+    expect(prepares, 0);
+  });
+
+  test('late recovery ignores local file without invoking extractor', () async {
+    var nativeCalls = 0;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (_) async {
+      nativeCalls++;
+      return null;
+    });
+    await OdifyYouTube.recoverAfterMediaError(
+      source: '/sdcard/Music/track.flac',
+      isCurrent: () => true,
+      prepare: (_) async => fail('Local file must not be retried'),
+    );
+    expect(nativeCalls, 0);
+  });
+
   test('prefetch ignores local media paths', () async {
     var calls = 0;
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
