@@ -227,6 +227,14 @@ def assemble():
         raise RuntimeError('Vendor ZIP optimizer rules changed; review before update')
     proguard.write_text(proguard_text + zip_guard, encoding='utf-8')
 
+    # Keep this one routed backend name stable across R8 so release APK
+    # inspection can detect a missing streaming engine before distribution.
+    proguard.write_text(
+        proguard.read_text(encoding='utf-8') +
+        '\n-keep class xyz.luan.audioplayers.player.OdifyExoPlayerWrapper { *; }\n',
+        encoding='utf-8',
+    )
+
     # yt-dlp is an optional GPL-3.0 native dependency; retain attribution.
     gradle = TARGET / 'android/app/build.gradle.kts'
     gradle_text = gradle.read_text(encoding='utf-8')
