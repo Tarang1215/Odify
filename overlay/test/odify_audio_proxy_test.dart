@@ -164,7 +164,7 @@ void main() {
     }
   });
 
-  test('does not forward an upstream forbidden HTML page as audio', () async {
+  test('relay reports sanitized upstream status without disclosing response body', () async {
     final origin = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     final proxy = OdifyAudioProxy(allowSource: (_) => true);
     final client = HttpClient();
@@ -184,6 +184,7 @@ void main() {
         (bytes, chunk) => bytes..addAll(chunk),
       );
       expect(response.statusCode, HttpStatus.badGateway);
+      expect(response.headers.value('x-odify-upstream-status'), '403');
       expect(body, isEmpty);
     } finally {
       client.close(force: true);

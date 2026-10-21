@@ -19,3 +19,8 @@ Install the debug variant `com.odify.music.debug` alongside the existing app; do
 5. If it fails, collect only sanitized `OdifyMedia3` error-code/cause-class log lines and media diagnostics, never signed Googlevideo URLs, cookies, headers or video IDs.
 
 CI success and a DEX-contents check confirm compilation/packaging, **not** audible playback on a physical Samsung device.
+
+## 0.9.3 HTTP 502 investigation
+The 0.9.2 Galaxy A/B test reached Media3 but reported `EXO_ERROR_CODE_IO_BAD_HTTP_STATUS / HTTP_502`. The prior Dart relay deliberately mapped any upstream non-200/206/416 status or network failure to 502, masking whether the origin was the CDN or the local relay.
+
+Odify 0.9.3 retries a newly extracted native Media3/OkHttp CDN handle first after a failed network open. The relay remains only for extractors lacking a usable handle. Sanitary transport diagnostics now distinguish `CDN_HTTP_502` from `RELAY_HTTP_502_UPSTREAM_403`, `RELAY_HTTP_502_NETWORK` or `RELAY_HTTP_502_TIMEOUT`, without logging signed URLs, query strings, cookies or headers. No repeated automatic loop is added; generation checks remain in place. This does not by itself prove the remote CDN accepts Media3's range requests.

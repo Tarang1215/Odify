@@ -52,6 +52,7 @@ class OdifyExoPlayerWrapper(private val wrappedPlayer: WrappedPlayer) : PlayerWr
 
     private var released = false
     private var preparedNotified = false
+    private var sourceRoute = "CDN"
 
     init {
         player.setWakeMode(C.WAKE_MODE_NETWORK)
@@ -70,13 +71,28 @@ class OdifyExoPlayerWrapper(private val wrappedPlayer: WrappedPlayer) : PlayerWr
 
             override fun onPlayerError(error: PlaybackException) {
                 if (released) return
-                val safeCause = generateSequence(error.cause) { it.cause }
-                    .take(4)
-                    .joinToString(",") {
-                        if (it is HttpDataSource.InvalidResponseCodeException) {
-                            "HTTP_" + it.responseCode
-                        } else it.javaClass.simpleName
-                    }
+                val safeCause = buildString {
+                    append(sourceRoute)
+                    append('_')
+                    append(generateSequence(error.cause) { it.cause }
+                        .take(4).joinToString(",") { cause ->
+                            if (cause is HttpDataSource.InvalidResponseCodeException) {
+                                val upstream = cause.headerFields.entries.firstOrNull {
+                                    it.key.equals("x-odify-upstream-status", ignoreCase = true)
+                                }?.value?.firstOrNull()?.takeIf {
+                                    it.matches(Regex("[0-9]{3}"))
+                                }
+                                val proxyFailure = cause.headerFields.entries.firstOrNull {
+                                    it.key.equals("x-odify-proxy-failure", ignoreCase = true)
+                                }?.value?.firstOrNull()?.takeIf {
+                                    it in setOf("timeout", "network")
+                                }
+                                "HTTP_" + cause.responseCode +
+                                    (if (upstream != null) "_UPSTREAM_" + upstream else "") +
+                                    (if (proxyFailure != null) "_" + proxyFailure.uppercase() else "")
+                            } else cause.javaClass.simpleName
+                        })
+                }
                 // Never log exception messages, headers, video IDs or signed URLs.
                 android.util.Log.w(
                     "OdifyMedia3", "code=" + error.errorCodeName + " cause=" + safeCause
@@ -123,6 +139,7 @@ class OdifyExoPlayerWrapper(private val wrappedPlayer: WrappedPlayer) : PlayerWr
         require(accepts(source)) { "Only Odify online sources use Media3" }
         reset()
         val handle = (source as UrlSource).url
+        sourceRoute = if (OdifyStreamRegistry.isOdifySource(handle)) "CDN" else "RELAY"
         val session = if (OdifyStreamRegistry.isOdifySource(handle)) {
             OdifyStreamRegistry.lookup(handle) ?: error("Expired Odify CDN session")
         } else null

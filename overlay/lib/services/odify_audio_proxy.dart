@@ -163,6 +163,8 @@ class OdifyAudioProxy {
         // Do not pass a CDN error/HTML response into the decoder.
         await result.drain<void>();
         outgoing.statusCode = HttpStatus.badGateway;
+        outgoing.headers.set('x-odify-upstream-status',
+            result.statusCode.toString());
         outgoing.contentLength = 0;
         return;
       }
@@ -194,6 +196,8 @@ class OdifyAudioProxy {
       try {
         if (!bodyStarted) {
           request.response.statusCode = HttpStatus.badGateway;
+          request.response.headers.set('x-odify-proxy-failure',
+              error is TimeoutException ? 'timeout' : 'network');
           request.response.headers.contentType =
               ContentType('text', 'plain', charset: 'utf-8');
           request.response.write('Audio stream is temporarily unavailable');

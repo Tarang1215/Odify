@@ -105,7 +105,7 @@ void main() {
     expect(OdifyYouTube.idFromSource(source), id);
   });
 
-  test('Android open failure refreshes once and uses ranged fallback', () async {
+  test('Android open failure refreshes once with a native CDN handle', () async {
     final methods = <String>[];
     final prepared = <String>[];
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
@@ -131,7 +131,7 @@ void main() {
     );
     expect(methods, ['expire', 'resolve']);
     expect(prepared.length, 2);
-    expect(Uri.parse(prepared.last).host, '127.0.0.1');
+    expect(prepared.last, nativeSource);
     await OdifyAudioProxy.shared.dispose();
   });
 
@@ -194,7 +194,7 @@ void main() {
     expect(calls, 0);
   });
 
-  test('late Android media error invalidates and prepares a ranged relay', () async {
+  test('late Media3 error invalidates and prepares a new native CDN source', () async {
     final methods = <String>[];
     final prepared = <String>[];
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
@@ -215,7 +215,7 @@ void main() {
     );
     expect(methods, ['expire', 'resolve']);
     expect(prepared, hasLength(1));
-    expect(Uri.parse(prepared.single).host, '127.0.0.1');
+    expect(prepared.single, nativeSource);
     await OdifyAudioProxy.shared.dispose();
   });
 

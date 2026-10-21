@@ -183,10 +183,9 @@ class OdifyYouTube {
     if (parsed == null || parsed.scheme != 'https' || parsed.host.isEmpty) {
       throw StateError('오디오 주소를 확인하지 못했습니다.');
     }
-    // Native MediaPlayer.setDataSource(url, headers) eliminates the Dart
-    // loopback relay and keeps seek/redirect handling inside Android's media
-    // stack. Only use handles created by the bundled, pinned Kotlin plugin.
-    // The existing ranged proxy remains available as a safe fallback.
+    // Media3's OkHttp source consumes opaque, ephemeral native CDN handles
+    // and preserves extractor-supplied request headers. Avoid routing native
+    // playback through Dart loopback except when no valid handle is offered.
     final nativeSource = data?['nativeSource']?.toString() ?? '';
     if (preferNative && _nativeSourcePattern.hasMatch(nativeSource)) {
       return nativeSource;
@@ -201,9 +200,10 @@ class OdifyYouTube {
     return OdifyAudioProxy.shared.open(url, headers: headers);
   }
 
-  /// Recover once from Android source-open errors, using a fresh URL and
-  /// the ranged relay. Generation checks prevent a late retry from loading
-  /// an old song after Next/Previous. This never downloads or converts MP3.
+  /// Recover once from source-open errors using a newly extracted native URL.
+  /// Media3 must not funnel a CDN failure through the Dart relay that maps
+  /// distinct upstream errors to HTTP 502. Use relay only when the extractor
+  /// does not supply an in-process header-preserving CDN handle.
   static Future<void> prepareAudioSource({
     required String source,
     required String resolved,
@@ -221,7 +221,7 @@ class OdifyYouTube {
       if (!isCurrent()) return;
       await invalidateAudioSource(source);
       if (!isCurrent()) return;
-      final retry = await resolveAudioSource(source, preferNative: false);
+      final retry = await resolveAudioSource(source);
       if (!isCurrent()) return;
       // The second failure propagates to Mornye's normal failure handler.
       await prepare(retry);
@@ -229,7 +229,7 @@ class OdifyYouTube {
   }
 
   /// Retry an already-started Android player exactly once after a late
-  /// MediaPlayer error event. The caller owns playback generation and must
+  /// Media3 error event. The caller owns playback generation and must
   /// reject a superseded song before and after each asynchronous operation.
   /// Signed URLs are never persisted or written to the log.
   static Future<void> recoverAfterMediaError({
@@ -240,9 +240,9 @@ class OdifyYouTube {
     if (idFromSource(source) == null || !isCurrent()) return;
     await invalidateAudioSource(source);
     if (!isCurrent()) return;
-    final relay = await resolveAudioSource(source, preferNative: false);
+    final refreshed = await resolveAudioSource(source);
     if (!isCurrent()) return;
-    await prepare(relay);
+    await prepare(refreshed);
   }
 
   /// Warm only the next queue item while current music is already playing.

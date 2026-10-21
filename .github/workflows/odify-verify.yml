@@ -102,7 +102,7 @@ jobs:
           rustup show
           sudo apt-get update -qq
           sudo apt-get install -y libclang-dev ffmpeg
-          printf 'flutter.sdk=%s\nflutter.versionName=0.9.2\nflutter.versionCode=172\n' "$FLUTTER_ROOT" > ../android/local.properties
+          printf 'flutter.sdk=%s\nflutter.versionName=0.9.3\nflutter.versionCode=173\n' "$FLUTTER_ROOT" > ../android/local.properties
       - name: Compile Android debug APK through Flutter (JIT kernel)
         working-directory: build/Odify
         run: flutter build apk --debug --target-platform android-arm64 --split-per-abi --dart-define=ODIFY_GOOGLE_SERVER_CLIENT_ID="$ODIFY_GOOGLE_SERVER_CLIENT_ID"
@@ -110,7 +110,7 @@ jobs:
         uses: actions/upload-artifact@v4
         if: success()
         with:
-          name: odify-092-media3-debug-arm64
+          name: odify-093-media3-debug-arm64
           if-no-files-found: error
           retention-days: 14
           path: |
@@ -146,11 +146,11 @@ jobs:
           printf 'Debug manifest: %s\\n' "$DEBUG_PACKAGE"
           [[ "$RELEASE_PACKAGE" == *"name='com.odify.music' "* ]]
           # Flutter --split-per-abi adds the ARM64 ABI offset (2000)
-          # to the base pubspec versionCode 172.
-          [[ "$RELEASE_PACKAGE" == *"versionCode='2172' "* ]]
-          [[ "$RELEASE_PACKAGE" == *"versionName='0.9.2'"* ]]
+          # to the base pubspec versionCode 173.
+          [[ "$RELEASE_PACKAGE" == *"versionCode='2173' "* ]]
+          [[ "$RELEASE_PACKAGE" == *"versionName='0.9.3'"* ]]
           [[ "$DEBUG_PACKAGE" == *"name='com.odify.music.debug' "* ]]
-          [[ "$DEBUG_PACKAGE" == *"versionCode='2172' "* ]]
+          [[ "$DEBUG_PACKAGE" == *"versionCode='2173' "* ]]
           python3 ../../scripts/verify_android_apk.py "$RELEASE" --mode release
           python3 ../../scripts/verify_android_apk.py "$DEBUG" --mode debug
           # Catch the 2026-10-21 Galaxy ExceptionInInitializerError before
@@ -162,7 +162,7 @@ jobs:
         uses: actions/upload-artifact@v4
         if: success()
         with:
-          name: odify-092-release-r8-mapping
+          name: odify-093-release-r8-mapping
           if-no-files-found: error
           retention-days: 14
           path: build/Odify/build/app/outputs/mapping/release/mapping.txt
@@ -170,7 +170,7 @@ jobs:
         uses: actions/upload-artifact@v4
         if: success()
         with:
-          name: odify-092-media3-release-arm64-test-key
+          name: odify-093-media3-release-arm64-test-key
           if-no-files-found: error
           retention-days: 14
           path: |
