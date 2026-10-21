@@ -38,6 +38,7 @@ class OdifyYtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     @Volatile private var preferredAudioClient: String? = null
     private data class CachedAudio(val createdMs: Long, val data: Map<String, Any>)
     private val recentAudio = ConcurrentHashMap<String, CachedAudio>()
+    private val warmingAudio = ConcurrentHashMap.newKeySet<String>()
     private fun prioritizedClients(): List<String> {
         val saved = preferredAudioClient ?:
             context.getSharedPreferences("odify_extractor", Context.MODE_PRIVATE)
@@ -52,6 +53,22 @@ class OdifyYtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         recentAudio[id] = CachedAudio(SystemClock.elapsedRealtime(), data)
         if (recentAudio.size > 8) recentAudio.clear()
     }
+    private fun prefetchAudio(id: String): Boolean {
+        videoUrl(id)
+        if (cachedAudio(id) != null) return true
+        if (!warmingAudio.add(id)) return false
+        try {
+            resolve(id)
+            return true
+        } catch (error: Exception) {
+            android.util.Log.i("OdifyExtractor",
+                "Prefetch skipped category=${failureCategory(error)}")
+            return false
+        } finally {
+            warmingAudio.remove(id)
+        }
+    }
+
     private fun expireCachedSource(id: String): Boolean {
         videoUrl(id)
         recentAudio.remove(id)
@@ -64,8 +81,18 @@ class OdifyYtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     private fun cachedAudio(id: String): Map<String, Any>? {
         val entry = recentAudio[id] ?: return null
         val handle = entry.data["nativeSource"] as? String ?: return null
+        val signed = entry.data["url"]?.toString() ?: return null
+        val expires = try {
+            java.net.URI(signed).rawQuery?.split('&')
+                ?.firstOrNull { it.startsWith("expire=") }
+                ?.substringAfter("expire=")?.toLongOrNull()
+        } catch (_: Exception) { null }
+        if (expires != null && expires <= System.currentTimeMillis() / 1000L + 90L) {
+            recentAudio.remove(id)
+            return null
+        }
         val ageMs = SystemClock.elapsedRealtime() - entry.createdMs
-        return if (ageMs in 0..59_999L && OdifyStreamRegistry.lookup(handle) != null)
+        return if (ageMs in 0..299_999L && OdifyStreamRegistry.lookup(handle) != null)
             entry.data else { recentAudio.remove(id); null }
     }
 
@@ -94,6 +121,7 @@ class OdifyYtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                     "downloadMp3" -> downloadMp3(arguments["videoId"] as? String ?: "")
                     "diagnose" -> diagnose(arguments["videoId"] as? String ?: "")
                     "expire" -> expireCachedSource(arguments["videoId"] as? String ?: "")
+                    "prefetch" -> prefetchAudio(arguments["videoId"] as? String ?: "")
                     else -> throw IllegalArgumentException("Unknown command: ${call.method}")
                 }
                 withContext(Dispatchers.Main) { result.success(value) }
