@@ -18,6 +18,7 @@ FIXTURES = {
     'pubspec.yaml': 'name: mornye\nversion: 5.2.1+163\n  shared_preferences: ^2.5.6\n',
     'android/app/build.gradle.kts': 'applicationId = "com.zarz.mornye"\n        if (discordSdkEnabled) jniLibs.pickFirsts += "**/libdiscord_partner_sdk.so"\ndependencies {\n}\n',
     'android/app/src/main/AndroidManifest.xml': '<application android:name=".SpotiFlacApplication" android:label="Mornye" />\n',
+    'android/app/src/main/proguard-rules.pro': '# Existing vendor configuration stays intact.\n',
     'lib/services/music_player_service.dart': (
         "import 'package:mornye/services/music_player_runtime.dart';\n"
         "    show ListeningTrack;\n"
@@ -118,6 +119,11 @@ class OdifyAssemblyTests(unittest.TestCase):
             self.assertIn('odify_lyrics_fallback.dart',
                           (target / 'lib/screens/track_metadata_screen.dart').read_text())
             self.assertIn('jniLibs.useLegacyPackaging = true', gradle)
+            zip_rules = (target / 'android/app/proguard-rules.pro').read_text()
+            self.assertIn('# Existing vendor configuration stays intact.', zip_rules)
+            self.assertIn('-keep class org.apache.commons.compress.archivers.zip.** { *; }', zip_rules)
+            self.assertEqual(zip_rules.count('-keep class org.apache.commons.compress.archivers.zip.**'), 1)
+
             self.assertNotIn('android:extractNativeLibs', manifest)
             self.assertTrue((target / 'lib/services/odify_youtube.dart').is_file())
             home = (target / 'lib/screens/home_tab.dart').read_text()
