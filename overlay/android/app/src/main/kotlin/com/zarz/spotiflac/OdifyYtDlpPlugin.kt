@@ -52,6 +52,15 @@ class OdifyYtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         recentAudio[id] = CachedAudio(SystemClock.elapsedRealtime(), data)
         if (recentAudio.size > 8) recentAudio.clear()
     }
+    private fun expireCachedSource(id: String): Boolean {
+        videoUrl(id)
+        recentAudio.remove(id)
+        preferredAudioClient = null
+        context.getSharedPreferences("odify_extractor", Context.MODE_PRIVATE)
+            .edit().remove("working_client").apply()
+        return true
+    }
+
     private fun cachedAudio(id: String): Map<String, Any>? {
         val entry = recentAudio[id] ?: return null
         val handle = entry.data["nativeSource"] as? String ?: return null
@@ -84,6 +93,7 @@ class OdifyYtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                     "resolve" -> resolve(arguments["videoId"] as? String ?: "")
                     "downloadMp3" -> downloadMp3(arguments["videoId"] as? String ?: "")
                     "diagnose" -> diagnose(arguments["videoId"] as? String ?: "")
+                    "expire" -> expireCachedSource(arguments["videoId"] as? String ?: "")
                     else -> throw IllegalArgumentException("Unknown command: ${call.method}")
                 }
                 withContext(Dispatchers.Main) { result.success(value) }
