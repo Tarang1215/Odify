@@ -173,6 +173,19 @@ class OdifyYtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                     result.error("odify_yt_dlp_$code", "$userMessage [$code]",
                         mapOf("failureCode" to code, "operation" to call.method))
                 }
+            } catch (error: LinkageError) {
+                // ExceptionInInitializerError and NoClassDefFoundError extend
+                // LinkageError, NOT Exception. A broken youtubedl-android ZIP
+                // registry must not terminate the entire Flutter process.
+                // Never log the full exception: it may include signed URLs.
+                android.util.Log.e("OdifyExtractor",
+                    "Native runtime linkage failure: ${error.javaClass.simpleName}")
+                withContext(Dispatchers.Main) {
+                    result.error("odify_native_runtime_failure",
+                        "음원 실행 환경 초기화에 실패했습니다. 앱 빌드를 업데이트해주세요.",
+                        mapOf("failureCode" to "NATIVE_RUNTIME_INIT_FAILURE",
+                              "operation" to call.method))
+                }
             }
         }
     }
