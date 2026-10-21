@@ -60,6 +60,7 @@ class OdifyExoPlayerWrapper(private val wrappedPlayer: WrappedPlayer) : PlayerWr
     private var released = false
     private var preparedNotified = false
     private var sourceRoute = "CDN"
+    private var sourceClient = "unknown"
 
     init {
         player.setWakeMode(C.WAKE_MODE_NETWORK)
@@ -104,7 +105,10 @@ class OdifyExoPlayerWrapper(private val wrappedPlayer: WrappedPlayer) : PlayerWr
                 android.util.Log.w(
                     "OdifyMedia3", "code=" + error.errorCodeName + " cause=" + safeCause
                 )
-                wrappedPlayer.onExoError(error.errorCodeName, safeCause)
+                wrappedPlayer.onExoError(
+                    error.errorCodeName,
+                    safeCause + (if (sourceRoute == "CDN") "_CLIENT_" + sourceClient else "")
+                )
             }
         })
     }
@@ -150,6 +154,7 @@ class OdifyExoPlayerWrapper(private val wrappedPlayer: WrappedPlayer) : PlayerWr
         val session = if (OdifyStreamRegistry.isOdifySource(handle)) {
             OdifyStreamRegistry.lookup(handle) ?: error("Expired Odify CDN session")
         } else null
+        sourceClient = session?.client ?: "unknown"
         httpFactory.setDefaultRequestProperties(
             (session?.headers ?: emptyMap()) + ("accept-encoding" to "identity")
         )

@@ -26,6 +26,7 @@ import com.yausername.youtubedl_android.YoutubeDL
 import com.yausername.youtubedl_android.YoutubeDLRequest
 import org.json.JSONObject
 import xyz.luan.audioplayers.source.OdifyStreamRegistry
+import xyz.luan.audioplayers.source.OdifyPlaybackProtocol
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
@@ -58,14 +59,9 @@ class OdifyYtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         val saved = preferredAudioClient ?:
             context.getSharedPreferences("odify_extractor", Context.MODE_PRIVATE)
                 .getString("working_client", null)
-        val ordered = if (saved in audioClients) listOf(saved!!) +
-            audioClients.filter { it != saved } else audioClients
-        val now = SystemClock.elapsedRealtime()
-        val available = ordered.filter { client ->
-            val failedAt = failedClients[client]
-            failedAt == null || now - failedAt >= 60_000L
-        }
-        return available.ifEmpty { ordered }
+        return OdifyPlaybackProtocol.orderedClients(
+            saved, failedClients, SystemClock.elapsedRealtime()
+        )
     }
     private fun cacheSuccess(id: String, client: String, data: Map<String, Any>) {
         preferredAudioClient = client
@@ -96,10 +92,11 @@ class OdifyYtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
 
     private fun expireCachedSource(id: String): Boolean {
         videoUrl(id)
-        recentAudio.remove(id)?.data?.get("client")?.toString()?.let {
-            // A successful 1 KiB probe does not guarantee MediaPlayer can
-            // keep the connection open. Try a different client on recovery.
-            failedClients[it] = SystemClock.elapsedRealtime()
+        recentAudio.remove(id)?.data?.let { old ->
+            old["nativeSource"]?.toString()?.let(OdifyStreamRegistry::invalidate)
+            old["client"]?.toString()?.let { usedClient ->
+                failedClients[usedClient] = SystemClock.elapsedRealtime()
+            }
         }
         audioRequests.invalidate(id)
         preferredAudioClient = null
@@ -194,7 +191,9 @@ class OdifyYtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         }
     }
 
-    private val audioClients = listOf("android", "web_embedded", "android_vr", "visionos")
+    // Music-oriented extractor first, client fallbacks second.
+    // Extraction continues to use pinned yt-dlp; no GPL app code is embedded.
+    private val audioClients = OdifyPlaybackProtocol.clientFallbackOrder
 
     // Classify the native failure without leaking signed Googlevideo URLs,
     // headers, cookies or video IDs to user-visible diagnostics.
@@ -255,6 +254,8 @@ class OdifyYtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                 report["cdnProbeMs"] = validated["probeMs"] ?: -1
                 report["audioCodec"] = validated["audioCodec"] ?: "unknown"
                 report["audioContainer"] = validated["audioContainer"] ?: "unknown"
+                report["probeSegments"] = validated["probeSegments"] ?: 0
+                report["headerParity"] = validated["headerParity"] ?: false
                 report["attempts"] = attempts
                 // A successful 1 KiB CDN probe does NOT validate Android's
                 // media demuxer. Test only prepareAsync (never start audio).
@@ -407,37 +408,44 @@ class OdifyYtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         }
     }
 
-    // A YouTube format URL alone is not necessarily playable: yt-dlp
-    // supplies user-agent/referer headers that Android MediaPlayer drops.
-    // Verify the first range against the CDN before handing it to Flutter.
+    // Validate two independent requests with exactly the headers stored
+    // for Media3. The first successful kilobyte alone does not prove that
+    // subsequent seek/buffer HTTP requests are accepted by this CDN token.
     private fun validateAudioRange(url: String, headers: Map<String, String>) {
-        val connection = URL(url).openConnection() as HttpURLConnection
-        try {
-            connection.connectTimeout = 3500
-            connection.readTimeout = 3500
-            connection.instanceFollowRedirects = true
-            connection.setRequestProperty("Range", "bytes=0-1023")
-            connection.setRequestProperty("Accept-Encoding", "identity")
-            for ((name, value) in headers) {
-                if (name.lowercase() in setOf("user-agent", "referer",
-                        "origin", "accept", "accept-language")) {
+        for (start in listOf(0, 1024)) {
+            val connection = URL(url).openConnection() as HttpURLConnection
+            try {
+                connection.connectTimeout = 3500
+                connection.readTimeout = 3500
+                connection.instanceFollowRedirects = true
+                connection.setRequestProperty("Range", "bytes=$start-${start + 1023}")
+                connection.setRequestProperty("Accept-Encoding", "identity")
+                for ((name, value) in headers) {
                     connection.setRequestProperty(name, value)
                 }
+                val status = connection.responseCode
+                if ((start == 0 && status != 200 && status != 206) ||
+                    (start > 0 && status != 206)) {
+                    throw IllegalStateException("CDN audio HTTP $status")
+                }
+                if (start > 0) {
+                    val contentRange = connection.getHeaderField("Content-Range")
+                        .orEmpty().lowercase()
+                    if (!contentRange.startsWith("bytes $start-")) {
+                        throw IllegalStateException("CDN range mismatch")
+                    }
+                }
+                val mime = (connection.contentType ?: "").lowercase()
+                if (mime.startsWith("image/") || mime.startsWith("text/") ||
+                    mime.contains("json")) {
+                    throw IllegalStateException("CDN returned non-audio content")
+                }
+                connection.inputStream.use {
+                    if (it.read() < 0) throw IllegalStateException("Empty audio source")
+                }
+            } finally {
+                connection.disconnect()
             }
-            val status = connection.responseCode
-            if (status != 200 && status != 206) {
-                throw IllegalStateException("CDN audio HTTP $status")
-            }
-            val mime = (connection.contentType ?: "").lowercase()
-            if (mime.startsWith("image/") || mime.startsWith("text/") ||
-                mime.contains("json")) {
-                throw IllegalStateException("CDN returned non-audio content")
-            }
-            connection.inputStream.use {
-                if (it.read() < 0) throw IllegalStateException("Empty audio source")
-            }
-        } finally {
-            connection.disconnect()
         }
     }
 
@@ -489,14 +497,17 @@ class OdifyYtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                 }
             }
         }
+        val playbackHeaders = OdifyPlaybackProtocol.canonicalHeaders(headers)
         val probeAt = SystemClock.elapsedRealtime()
-        runInterruptible(Dispatchers.IO) { validateAudioRange(url, headers) }
+        runInterruptible(Dispatchers.IO) { validateAudioRange(url, playbackHeaders) }
         val probeMs = SystemClock.elapsedRealtime() - probeAt
         // The Mornye audioplayers implementation normally calls the
         // headerless MediaPlayer.setDataSource(String). A short-lived opaque
         // registry handle lets the pinned native player use the overload
         // accepting yt-dlp headers, with no Dart loopback hop.
-        val nativeSource = OdifyStreamRegistry.register(context, url, headers, info.optString("ext"))
+        val nativeSource = OdifyStreamRegistry.register(
+            context, url, playbackHeaders, info.optString("ext"), client
+        )
         val audioCodec = info.optString("acodec")
             .takeIf { it.matches(Regex("[A-Za-z0-9_.-]{1,40}")) } ?: "unknown"
         val audioContainer = info.optString("ext")
@@ -506,9 +517,10 @@ class OdifyYtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
             "format=${info.optString("ext")} codec=${info.optString("acodec")} " +
             "headerCount=${headers.size} extractMs=$extractMs probeMs=$probeMs")
         return mapOf(
-            "url" to url, "headers" to headers, "id" to id,
+            "url" to url, "headers" to playbackHeaders, "id" to id,
             "nativeSource" to nativeSource, "extractMs" to extractMs,
             "probeMs" to probeMs, "client" to client,
+            "probeSegments" to 2, "headerParity" to true,
             "audioCodec" to audioCodec, "audioContainer" to audioContainer
         )
     }
