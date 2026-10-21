@@ -23,6 +23,7 @@ FIXTURES = {
         "    show ListeningTrack;\n"
         "part 'music_player_autoplay.dart';\n"
         "    _log.e('Playback failed for ${mediaItem.value?.title}', error, stackTrace);\n"
+        "      _sourceReady = true;\n      if (media.source.startsWith('network://')) {\n"
         "  Future<String?> _resolveSource(PlayableMedia media) async {\n"
         "          'https',\n        }.contains(Uri.tryParse(path)?.scheme) ||\n"
         "      extract: (source) =>\n"
@@ -91,6 +92,7 @@ class OdifyAssemblyTests(unittest.TestCase):
             player = (target / 'lib/services/music_player_service.dart').read_text()
             self.assertIn('OdifyYouTube.resolveAudioSource(media.source)', player)
             self.assertIn('OdifyYouTube.invalidateAudioSource', player)
+            self.assertIn('OdifyYouTube.prefetchAudioSource', player)
             self.assertIn("'odify-cdn'", player)
             self.assertIn("'odify-youtube'", player)
             self.assertIn('OdifyDeviceArtwork.forSource(source)', player)
