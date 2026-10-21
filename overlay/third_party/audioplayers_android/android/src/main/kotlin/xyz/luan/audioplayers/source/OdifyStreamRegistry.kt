@@ -1,5 +1,6 @@
 package xyz.luan.audioplayers.source
 
+import android.content.Context
 import java.net.URI
 import java.security.SecureRandom
 import java.util.LinkedHashMap
@@ -13,7 +14,7 @@ import java.util.LinkedHashMap
  * a system provider or an app-global persisted database. Never log URLs.
  */
 object OdifyStreamRegistry {
-    data class Stream(val url: String, val headers: Map<String, String>, val expiresAtMs: Long)
+    data class Stream(val context: Context, val url: String, val headers: Map<String, String>, val expiresAtMs: Long)
 
     private val random = SecureRandom()
     private val sessions = LinkedHashMap<String, Stream>()
@@ -25,7 +26,7 @@ object OdifyStreamRegistry {
     private const val PREFIX = "odify-cdn://audio/"
 
     @Synchronized
-    fun register(url: String, headers: Map<String, String>): String {
+    fun register(context: Context, url: String, headers: Map<String, String>): String {
         val uri = URI(url)
         val hostname = uri.host?.lowercase() ?: ""
         require(uri.scheme == "https" && uri.userInfo == null &&
@@ -44,7 +45,7 @@ object OdifyStreamRegistry {
         val token = bytes.joinToString("") { "%02x".format(it.toInt() and 0xff) }
         val now = System.currentTimeMillis()
         sessions.entries.removeAll { it.value.expiresAtMs <= now }
-        sessions[token] = Stream(url, safe, now + TTL_MS)
+        sessions[token] = Stream(context.applicationContext, url, safe, now + TTL_MS)
         while (sessions.size > MAX_SESSIONS) {
             sessions.remove(sessions.keys.first())
         }
