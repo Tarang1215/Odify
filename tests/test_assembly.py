@@ -37,6 +37,11 @@ FIXTURES = {
         "    limit,\n  ) = input;\n"
         "    preferenceAdjustment: (track) => model.rankAdjustment(\n"
     ),
+    'third_party/audioplayers_android/android/src/main/kotlin/xyz/luan/audioplayers/source/UrlSource.kt': (
+        "        } else {\n"
+        "            mediaPlayer.setDataSource(url)\n"
+        "        }\n"
+    ),
     'android/app/src/main/kotlin/com/zarz/mornye/MainActivity.kt': (
         "            flutterEngine.plugins.add(MusicHapticsPlugin())\n        }\n"
     ),
@@ -94,6 +99,9 @@ class OdifyAssemblyTests(unittest.TestCase):
                 (target / 'android/app/src/main/kotlin/com/zarz/mornye/OdifyMediaStorePlugin.kt').is_file()
             )
             self.assertIn("'odify-youtube'", (target / 'lib/services/playable_media.dart').read_text())
+            native = (target / 'third_party/audioplayers_android/android/src/main/kotlin/xyz/luan/audioplayers/source/UrlSource.kt').read_text()
+            self.assertIn('mediaPlayer.setDataSource(odify.url, odify.headers)', native)
+            self.assertTrue((target / 'third_party/audioplayers_android/android/src/main/kotlin/xyz/luan/audioplayers/source/OdifyStreamRegistry.kt').is_file())
             gradle = (target / 'android/app/build.gradle.kts').read_text()
             manifest = (target / 'android/app/src/main/AndroidManifest.xml').read_text()
             self.assertIn('com.odify.music', gradle)
