@@ -1,0 +1,50 @@
+name: Odify music collection and Drive pilot checks
+
+on:
+  push:
+    branches:
+      - feature/drive-music-pilot-20261022
+  pull_request:
+    paths:
+      - 'tools/music_catalog.py'
+      - 'tools/test_music_catalog.py'
+      - 'overlay/lib/services/odify_drive_pilot_store.dart'
+      - 'overlay/lib/widgets/odify_drive_pilot_screen.dart'
+      - 'overlay/lib/widgets/odify_quick_access.dart'
+      - '.github/workflows/odify-drive-pilot-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Music catalog offline tests
+        run: python3 -m unittest discover -s tools -p 'test_*.py' -v
+      - name: Odify overlay regression tests
+        run: python3 -m unittest discover -s tests -p 'test_*.py' -v
+  flutter:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - name: Assemble locked Odify
+        run: python3 scripts/assemble_v521.py
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version-file: build/Odify/.fvmrc
+          cache: true
+      - name: Fetch Flutter dependencies
+        working-directory: build/Odify
+        run: flutter pub get
+      - name: Analyze Odify Dart sources
+        working-directory: build/Odify
+        run: flutter analyze --no-fatal-infos
+      - name: Run existing core widget tests
+        working-directory: build/Odify
+        run: flutter test test/odify_quick_access_test.dart test/odify_drive_transport_test.dart test/odify_home_widget_test.dart
