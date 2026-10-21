@@ -183,6 +183,24 @@ def assemble():
                 "        _media[_index].source.startsWith('odify-youtube://')) {\n"
                 "      unawaited(OdifyYouTube.invalidateAudioSource(_media[_index].source));\n"
                 "    }")
+    # Best-effort prefetch: one next YouTube ID when a track starts.
+    # Prefetch runs after a 3-second delay; local and SAF playback unchanged.
+    replace_one(TARGET / 'lib/services/music_player_service.dart',
+                "      _sourceReady = true;\n"
+                "      if (media.source.startsWith('network://')) {",
+                "      _sourceReady = true;\n"
+                "      if (media.source.startsWith('odify-youtube://') &&\n"
+                "          _index + 1 < _media.length) {\n"
+                "        final following = _media[_index + 1];\n"
+                "        if (following.source.startsWith('odify-youtube://')) {\n"
+                "          unawaited(Future<void>.delayed(const Duration(seconds: 3), () async {\n"
+                "            if (_isCurrentPlayRequest(generation, media)) {\n"
+                "              await OdifyYouTube.prefetchAudioSource(following.source);\n"
+                "            }\n"
+                "          }));\n"
+                "        }\n"
+                "      }\n"
+                "      if (media.source.startsWith('network://')) {")
     # yt-dlp is an optional GPL-3.0 native dependency; retain attribution.
     gradle = TARGET / 'android/app/build.gradle.kts'
     gradle_text = gradle.read_text(encoding='utf-8')
