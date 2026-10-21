@@ -20,6 +20,8 @@ import xyz.luan.audioplayers.source.OdifyStreamRegistry
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
+import android.os.SystemClock
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * yt-dlp adapter for Odify. The UI never accesses expiring extracted URLs
@@ -33,6 +35,30 @@ class OdifyYtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     @Volatile private var initialized = false
     private val initLock = Any()
     private val updateLock = Any()
+    @Volatile private var preferredAudioClient: String? = null
+    private data class CachedAudio(val createdMs: Long, val data: Map<String, Any>)
+    private val recentAudio = ConcurrentHashMap<String, CachedAudio>()
+    private fun prioritizedClients(): List<String> {
+        val saved = preferredAudioClient ?:
+            context.getSharedPreferences("odify_extractor", Context.MODE_PRIVATE)
+                .getString("working_client", null)
+        return if (saved in audioClients) listOf(saved!!) +
+            audioClients.filter { it != saved } else audioClients
+    }
+    private fun cacheSuccess(id: String, client: String, data: Map<String, Any>) {
+        preferredAudioClient = client
+        context.getSharedPreferences("odify_extractor", Context.MODE_PRIVATE)
+            .edit().putString("working_client", client).apply()
+        recentAudio[id] = CachedAudio(SystemClock.elapsedRealtime(), data)
+        if (recentAudio.size > 8) recentAudio.clear()
+    }
+    private fun cachedAudio(id: String): Map<String, Any>? {
+        val entry = recentAudio[id] ?: return null
+        val handle = entry.data["nativeSource"] as? String ?: return null
+        val ageMs = SystemClock.elapsedRealtime() - entry.createdMs
+        return if (ageMs in 0..59_999L && OdifyStreamRegistry.lookup(handle) != null)
+            entry.data else { recentAudio.remove(id); null }
+    }
 
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         context = binding.applicationContext
@@ -241,8 +267,8 @@ class OdifyYtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     private fun validateAudioRange(url: String, headers: Map<String, String>) {
         val connection = URL(url).openConnection() as HttpURLConnection
         try {
-            connection.connectTimeout = 9000
-            connection.readTimeout = 9000
+            connection.connectTimeout = 3500
+            connection.readTimeout = 3500
             connection.instanceFollowRedirects = true
             connection.setRequestProperty("Range", "bytes=0-1023")
             connection.setRequestProperty("Accept-Encoding", "identity")
@@ -282,7 +308,9 @@ class OdifyYtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         // than Opus/WebM. Keep an audio-only fallback when AAC is missing.
         request.addOption("--extractor-args", "youtube:player_client=$client")
         request.addOption("-f", "bestaudio[ext=m4a]/bestaudio[acodec^=mp4a]/bestaudio")
+        val extractedAt = SystemClock.elapsedRealtime()
         val response = YoutubeDL.getInstance().execute(request)
+        val extractMs = SystemClock.elapsedRealtime() - extractedAt
         val info = JSONObject(response.out.trim())
         val url = info.optString("url")
         val protocol = info.optString("protocol")
@@ -306,7 +334,9 @@ class OdifyYtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                 }
             }
         }
+        val probeAt = SystemClock.elapsedRealtime()
         validateAudioRange(url, headers)
+        val probeMs = SystemClock.elapsedRealtime() - probeAt
         // The Mornye audioplayers implementation normally calls the
         // headerless MediaPlayer.setDataSource(String). A short-lived opaque
         // registry handle lets the pinned native player use the overload
@@ -315,37 +345,36 @@ class OdifyYtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         android.util.Log.i("OdifyExtractor",
             "Validated audio source for native playback; protocol=$protocol " +
             "format=${info.optString("ext")} codec=${info.optString("acodec")} " +
-            "headerCount=${headers.size}")
+            "headerCount=${headers.size} extractMs=$extractMs probeMs=$probeMs")
         return mapOf(
             "url" to url, "headers" to headers, "id" to id,
-            "nativeSource" to nativeSource
+            "nativeSource" to nativeSource, "extractMs" to extractMs,
+            "probeMs" to probeMs, "client" to client
         )
     }
 
     private fun resolve(id: String): Map<String, Any> {
+        videoUrl(id)
+        cachedAudio(id)?.let { return it }
+        val start = SystemClock.elapsedRealtime()
         setup()
         var failure: Exception? = null
-        // Try uncredentialed, permitted clients and validate that the
-        // returned CDN stream actually serves audio bytes and ranges.
-        for (client in audioClients) {
-            try { return extractAudio(id, client) }
-            catch (error: Exception) {
+        // A successful client is reused first. Do not run NIGHTLY updates
+        // synchronously on the tap-to-play critical path.
+        for (client in prioritizedClients()) {
+            try {
+                val result = extractAudio(id, client)
+                cacheSuccess(id, client, result)
+                android.util.Log.i("OdifyExtractor",
+                    "Resolved elapsedMs=${SystemClock.elapsedRealtime() - start} client=$client")
+                return result
+            } catch (error: Exception) {
                 failure = error
                 android.util.Log.w("OdifyExtractor",
-                    "Audio probe failed client=$client category=${failureCategory(error)}")
+                    "Client=$client failure=${failureCategory(error)} elapsedMs=${SystemClock.elapsedRealtime() - start}")
             }
         }
-        // Refresh the extractor at most once daily, never on Home startup.
-        if (refreshExtractorOnce()) {
-            for (client in audioClients) {
-                try { return extractAudio(id, client) }
-                catch (error: Exception) { failure = error }
-            }
-        }
-        android.util.Log.w("OdifyExtractor",
-            "YouTube audio unavailable category=${failure?.let { failureCategory(it) } ?: "NO_CLIENT"}")
-        throw IllegalStateException(
-            "Audio resolution failed: ${failure?.let { failureCategory(it) } ?: "NO_CLIENT"}")
+        throw IllegalStateException("Audio resolution failed: ${failure?.let { failureCategory(it) } ?: "NO_CLIENT"}")
     }
 
     private fun downloadMp3(id: String): Map<String, Any> {
