@@ -176,7 +176,7 @@ class _ProfileSettingsPageState extends ConsumerState<ProfileSettingsPage> {
                           leading: const Icon(Icons.cloud_sync_outlined),
                           title: const Text('Google 계정 · Drive 동기화'),
                           subtitle: const Text(
-                            '재생목록·좋아요를 기기 간 동기화하고 계정을 관리합니다.',
+                            '재생목록 변경 기록을 Drive에 백업합니다. 좋아요 동기화는 준비 중입니다.',
                           ),
                           trailing: const Icon(Icons.chevron_right_rounded),
                           onTap: _busy

@@ -54,9 +54,19 @@ assert 'home_tab_intro.dart' not in app  # Not hidden in extension-dependent sec
 assert 'odify_quick_access.dart' in app
 assert 'OdifyYouTubeExploreCard' in files['lib/widgets/odify_quick_access.dart'].read_text()
 assert 'OdifyDeviceLibraryCard' in files['lib/widgets/odify_quick_access.dart'].read_text()
-assert '0.16.0' in app and 'jniLibs.useLegacyPackaging = true' in app
+assert '0.18.1' in app and 'jniLibs.useLegacyPackaging = true' in app
 assert 'android:extractNativeLibs' not in app
-assert 'YoutubeDL.getInstance().getInfo(request)' in files['android/app/src/main/kotlin/com/zarz/spotiflac/OdifyYtDlpPlugin.kt'].read_text()
+native_stream = files['android/app/src/main/kotlin/com/zarz/spotiflac/OdifyYtDlpPlugin.kt'].read_text()
+assert 'validateAudioRange(url, headers)' in native_stream
+assert 'request.addOption("--dump-single-json")' in native_stream
+assert 'info.optJSONObject("http_headers")' in native_stream
+assert 'lib/services/odify_audio_proxy.dart' in files
+assert 'test/odify_audio_proxy_test.dart' in files
+relay = files['lib/services/odify_audio_proxy.dart'].read_text()
+assert 'InternetAddress.loopbackIPv4' in relay
+assert 'HttpHeaders.rangeHeader' in relay
+assert 'HttpHeaders.contentRangeHeader' in relay
+assert 'OdifyAudioProxy.shared.open(url, headers: headers)' in files['lib/services/odify_youtube.dart'].read_text()
 assert "playAll(" in files['lib/widgets/odify_youtube_explore.dart'].read_text()
 assert "initialIndex: index" in files['lib/widgets/odify_youtube_explore.dart'].read_text()
 
@@ -179,7 +189,10 @@ media_card = files['lib/widgets/odify_device_library_card.dart'].read_text()
 assert 'const OdifyHomeFeed()' in quick
 assert 'OdifyGlassPill' in quick
 assert 'if (showDeviceLibrary)' in quick
-assert 'Timer(const Duration(milliseconds: 900)' in home_ui
+assert "key: const Key('odify-home-load-preview')" in home_ui
+assert 'void _requestPreviews()' in home_ui
+assert '_previewRequested = false' in home_ui
+assert 'Timer(const Duration(milliseconds: 900)' not in home_ui
 assert 'OdifyHomeFeedService.shared' in home_ui
 assert 'cacheWidth: (size * MediaQuery.devicePixelRatioOf(context))' in home_ui
 assert 'OdifyLikeStore.setLiked' in home_ui
@@ -240,8 +253,8 @@ assert 'ListView.separated(' in home_ui
 assert 'cacheWidth: (size * MediaQuery.devicePixelRatioOf(context))' in home_ui
 assert 'radius: 24' in player and 'highlightBorder: true' in player
 assert 'MornyeGlassLevel.frosted' in runtime
-assert 'MornyeAccent.green' in theme and "?? 'mornye'" in theme
-assert "?? 'dark'" in theme and 'prefs.getString(kThemeModeKey)' in theme
+assert 'MornyeAccent.blue' in theme and "?? 'mornye'" in theme
+assert "?? 'light'" in theme and 'prefs.getString(kThemeModeKey)' in theme
 assert 'OdifyGlassSurface(' in files['lib/widgets/odify_device_library_card.dart'].read_text()
 assert 'OdifyGlassSurface(' in files['lib/widgets/odify_youtube_explore.dart'].read_text()
 assert "test/odify_glass_design_test.dart" in files

@@ -141,25 +141,50 @@ def patch_theme(root: Path) -> None:
     p = root / "lib/providers/theme_provider.dart"
     one(p, "(ref) => const ThemeSettings(),",
         "(ref) => const ThemeSettings(\n"
-        "    themeMode: ThemeMode.dark,\n"
+        "    themeMode: ThemeMode.light,\n"
         "    style: AppThemeStyle.mornye,\n"
-        "    mornyeAccent: MornyeAccent.green,\n"
+        "    mornyeAccent: MornyeAccent.blue,\n"
         "    useDynamicColor: false,\n"
         "    mornyeGlassClarity: 0.82,\n"
         "  ),")
     for before, after in (
         ("themeModeFromString(prefs.getString(kThemeModeKey))",
-         "themeModeFromString(prefs.getString(kThemeModeKey) ?? 'dark')"),
+         "themeModeFromString(prefs.getString(kThemeModeKey) ?? 'light')"),
         ("prefs.getBool(kUseDynamicColorKey) ?? true",
          "prefs.getBool(kUseDynamicColorKey) ?? false"),
         ("themeStyleFromString(prefs.getString(kThemeStyleKey))",
          "themeStyleFromString(prefs.getString(kThemeStyleKey) ?? 'mornye')"),
         ("mornyeAccentFromString(prefs.getString(kMornyeAccentKey))",
-         "mornyeAccentFromString(prefs.getString(kMornyeAccentKey) ?? 'green')"),
+         "mornyeAccentFromString(prefs.getString(kMornyeAccentKey) ?? 'blue')"),
         ("prefs.getDouble(kMornyeGlassClarityKey)",
          "prefs.getDouble(kMornyeGlassClarityKey) ?? 0.82"),
     ):
         one(p, before, after)
+    # Migrate inherited green preference once, preserving explicit changes.
+    one(p, "mornyeAccentFromString(prefs.getString(kMornyeAccentKey) ?? 'blue')",
+        """mornyeAccentFromString(
+      (prefs.getBool('odify_blue_theme_migrated_v1') ?? false)
+          ? prefs.getString(kMornyeAccentKey) ?? 'blue'
+          : ((prefs.getString(kMornyeAccentKey) ?? 'green') == 'green'
+              ? 'blue' : prefs.getString(kMornyeAccentKey)),
+    )""")
+    one(p, "      var loaded = loadBootstrapThemeSettings(prefs);",
+        """      var loaded = loadBootstrapThemeSettings(prefs);
+      if (!(prefs.getBool('odify_blue_theme_migrated_v1') ?? false)) {
+        if ((prefs.getString(kMornyeAccentKey) ?? 'green') == 'green') {
+          await prefs.setString(kMornyeAccentKey, 'blue');
+          if (prefs.getString(kThemeModeKey) == 'dark') {
+            await prefs.setString(kThemeModeKey, 'light');
+            loaded = loaded.copyWith(themeMode: ThemeMode.light);
+          }
+        }
+        await prefs.setBool('odify_blue_theme_migrated_v1', true);
+      }""")
+    one(root / "lib/theme/mornye_theme.dart",
+        "MornyeAccent.blue => CupertinoColors.systemBlue,",
+        """MornyeAccent.blue => const CupertinoDynamicColor.withBrightness(
+          color: Color(0xff526f9e), darkColor: Color(0xff9fb8e2),
+        ),""")
     r = root / "lib/providers/runtime_profile_provider.dart"
     one(r,
         """  if (!lowEnd && ref.watch(deviceSupportsLiquidGlassProvider)) {

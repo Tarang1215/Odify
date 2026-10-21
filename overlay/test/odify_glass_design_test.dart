@@ -7,14 +7,14 @@ import 'package:spotiflac_android/widgets/odify_glass.dart';
 import 'package:spotiflac_android/widgets/odify_library_shortcuts.dart';
 
 void main() {
-  test('new Odify install starts in dark glass without changing saved theme',
+  test('new Odify install uses white glass and soft blue, honoring saved colors',
       () async {
     SharedPreferences.setMockInitialValues({});
     final blank = await SharedPreferences.getInstance();
     final defaults = loadBootstrapThemeSettings(blank);
-    expect(defaults.themeMode, ThemeMode.dark);
+    expect(defaults.themeMode, ThemeMode.light);
     expect(defaults.style, AppThemeStyle.mornye);
-    expect(defaults.mornyeAccent, MornyeAccent.green);
+    expect(defaults.mornyeAccent, MornyeAccent.blue);
     expect(defaults.useDynamicColor, false);
     expect(defaults.mornyeGlassClarity, greaterThan(0.75));
 

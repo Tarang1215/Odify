@@ -2,6 +2,8 @@ name: Odify Dart-only validation
 
 on:
   workflow_dispatch:
+  pull_request:
+    branches: [main]
   push:
     branches: [main]
     paths:
@@ -27,7 +29,7 @@ jobs:
         run: |
           python3 scripts/check_overlay.py
           python3 -m unittest discover -s tests -v
-      - name: Assemble pinned SpotiFLAC
+      - name: Assemble Odify from self-owned pinned Mornye 5.2.1 snapshot
         run: python3 scripts/assemble.py
       - name: Setup Flutter from upstream lock
         uses: subosito/flutter-action@v2
@@ -44,4 +46,4 @@ jobs:
       - name: Offline player/discovery/sync tests
         working-directory: build/Odify
         run: |
-          flutter test test/odify_discovery_test.dart test/odify_metadata_test.dart test/odify_quick_access_test.dart test/odify_sync_merge_test.dart test/odify_sync_coordinator_test.dart test/odify_drive_transport_test.dart test/odify_sync_settings_test.dart test/odify_home_feed_test.dart test/odify_home_widget_test.dart test/odify_device_artwork_test.dart test/odify_glass_design_test.dart
+          flutter test test/odify_discovery_test.dart test/odify_metadata_test.dart test/odify_quick_access_test.dart test/odify_sync_merge_test.dart test/odify_sync_coordinator_test.dart test/odify_drive_transport_test.dart test/odify_playlist_track_link_test.dart test/odify_lyrics_fallback_test.dart test/odify_sync_settings_test.dart test/odify_home_feed_test.dart test/odify_home_widget_test.dart test/odify_audio_proxy_test.dart test/odify_youtube_playback_test.dart test/odify_device_artwork_test.dart test/odify_glass_design_test.dart
