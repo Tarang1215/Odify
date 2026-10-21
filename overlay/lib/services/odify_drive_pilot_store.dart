@@ -99,7 +99,115 @@ class OdifyDrivePilotStore {
           Map<String, dynamic>.from(entry),
         );
         // Only accept a generated digest basename and supported extension.
-        if (!RegExp(r'^[a-f0-9]{64}\\.(mp3|m4a|aac|flac|wav|ogg|opus)$')
+        if (!RegExp(r'^[a-f0-9]{64}\.(mp3|m4a|aac|flac|wav|ogg|opus))
+            .hasMatch(track.relativePath)) {
+          continue;
+        }
+        if (await File(p.join(_root.path, track.relativePath)).exists()) {
+          result.add(track);
+        }
+      } catch (_) {
+        // A malformed record never prevents opening valid imported songs.
+      }
+    }
+    return result;
+  }
+
+  Future<void> _save(List<OdifyDrivePilotTrack> tracks) async {
+    final tmp = File(p.join(_root.path, 'index.v1.json.tmp'));
+    await tmp.writeAsString(jsonEncode({
+      'version': 1,
+      'tracks': tracks.map((item) => item.toJson()).toList(),
+    }), flush: true);
+    // rename replaces the old index atomically on supported Android storage;
+    // never delete the good catalog before the new one is ready.
+    await tmp.rename(_index.path);
+  }
+
+  /// Ask Android DocumentsUI. Google Drive appears as a provider when the
+  /// installed Drive app is signed in; local file providers work too.
+  /// Returns 0 on cancellation and never destroys an existing catalog.
+  Future<int> importFromPicker() async {
+    final selected = await FilePicker.pickFiles(type: FileType.audio);
+    if (selected.isEmpty) return 0;
+    if (selected.length > _maxBatchFiles) {
+      throw StateError('한 번에 최대 20곡까지 테스트할 수 있습니다.');
+    }
+    final existing = await tracks();
+    final byId = {for (final t in existing) t.id: t};
+    var imported = 0;
+    for (final selectedFile in selected) {
+      final extension = p.extension(selectedFile.name).toLowerCase();
+      if (!_extensions.contains(extension)) {
+        throw FormatException('지원하지 않는 음악 형식: ${selectedFile.name}');
+      }
+      final reportedLength =
+          selectedFile.lengthSync() ?? await selectedFile.length();
+      if (reportedLength != null &&
+          (reportedLength <= 0 || reportedLength > _maxFileBytes)) {
+        throw StateError('음악 파일이 비어 있거나 100MB 제한을 초과합니다.');
+      }
+      final pending = File(p.join(
+        _root.path,
+        '.import-${DateTime.now().microsecondsSinceEpoch}.tmp',
+      ));
+      var count = 0;
+      try {
+        final sink = pending.openWrite();
+        try {
+          await for (final chunk in selectedFile.readAsByteStream()) {
+            count += chunk.length;
+            if (count > _maxFileBytes) {
+              throw StateError('100MB보다 큰 음악 파일은 현재 가져올 수 없습니다.');
+            }
+            sink.add(chunk);
+          }
+          await sink.flush();
+        } finally {
+          await sink.close();
+        }
+        if (count == 0) throw const FormatException('빈 음악 파일입니다.');
+        final digest = await sha256.bind(pending.openRead()).first;
+        final id = digest.toString();
+        final relativePath = '$id$extension';
+        final destination = File(p.join(_root.path, relativePath));
+        if (!await destination.exists()) {
+          await pending.rename(destination.path);
+        }
+        if (!byId.containsKey(id)) {
+          final base = p.basenameWithoutExtension(selectedFile.name);
+          final divider = base.indexOf(' - ');
+          final artist =
+              divider > 0 ? base.substring(0, divider).trim() : '';
+          final title = divider > 0
+              ? base.substring(divider + 3).trim()
+              : base.trim();
+          byId[id] = OdifyDrivePilotTrack(
+            id: id,
+            filename: selectedFile.name,
+            relativePath: relativePath,
+            bytes: count,
+            title: title.isEmpty ? selectedFile.name : title,
+            artist: artist,
+          );
+          imported++;
+        }
+      } finally {
+        if (await pending.exists()) await pending.delete();
+      }
+    }
+    await _save(byId.values.toList(growable: false));
+    return imported;
+  }
+
+  Future<void> remove(OdifyDrivePilotTrack track) async {
+    final current = await tracks();
+    await _save(current.where((e) => e.id != track.id).toList());
+    final target = File(p.join(_root.path, track.relativePath));
+    if (await target.exists()) await target.delete();
+  }
+}
+)
             .hasMatch(track.relativePath)) {
           continue;
         }
