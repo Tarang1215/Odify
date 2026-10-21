@@ -16,6 +16,7 @@ import com.yausername.ffmpeg.FFmpeg
 import com.yausername.youtubedl_android.YoutubeDL
 import com.yausername.youtubedl_android.YoutubeDLRequest
 import org.json.JSONObject
+import xyz.luan.audioplayers.source.OdifyStreamRegistry
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
@@ -232,7 +233,19 @@ class OdifyYtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
             }
         }
         validateAudioRange(url, headers)
-        return mapOf("url" to url, "headers" to headers, "id" to id)
+        // The Mornye audioplayers implementation normally calls the
+        // headerless MediaPlayer.setDataSource(String). A short-lived opaque
+        // registry handle lets the pinned native player use the overload
+        // accepting yt-dlp headers, with no Dart loopback hop.
+        val nativeSource = OdifyStreamRegistry.register(url, headers)
+        android.util.Log.i("OdifyExtractor",
+            "Validated audio source for native playback; protocol=$protocol " +
+            "format=${info.optString("ext")} codec=${info.optString("acodec")} " +
+            "headerCount=${headers.size}")
+        return mapOf(
+            "url" to url, "headers" to headers, "id" to id,
+            "nativeSource" to nativeSource
+        )
     }
 
     private fun resolve(id: String): Map<String, Any> {
