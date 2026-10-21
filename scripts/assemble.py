@@ -84,7 +84,7 @@ def assemble():
     # Trove/Supabase dependency is introduced. A separate public Web OAuth
     # server client ID will be supplied using --dart-define at a later build.
     replace_one(TARGET / 'pubspec.yaml',
-                'version: 5.2.1+163', 'version: 0.9.4+174')
+                'version: 5.2.1+163', 'version: 0.9.5+175')
     replace_one(TARGET / 'pubspec.yaml',
                 '  shared_preferences: ^2.5.6',
                 '  shared_preferences: ^2.5.6\n'
@@ -232,11 +232,12 @@ def assemble():
     proguard.write_text(
         proguard.read_text(encoding='utf-8') +
         '\n-keep class xyz.luan.audioplayers.player.OdifyExoPlayerWrapper { *; }\n'
-        '-keep class xyz.luan.audioplayers.player.OdifyBoundedRangeDataSource { *; }\n',
+        '-keep class xyz.luan.audioplayers.player.OdifyBoundedRangeDataSource { *; }\n'
+        '-keep class xyz.luan.audioplayers.source.OdifyPlaybackProtocol { *; }\n',
         encoding='utf-8',
     )
 
-    # yt-dlp is an optional GPL-3.0 native dependency; retain attribution.
+    # Preserve notices for bundled extractor, multimedia runtimes and upstream.
     gradle = TARGET / 'android/app/build.gradle.kts'
     gradle_text = gradle.read_text(encoding='utf-8')
     dependency_anchor = 'dependencies {\n'

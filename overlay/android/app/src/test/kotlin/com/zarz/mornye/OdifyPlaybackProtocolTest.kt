@@ -1,4 +1,4 @@
-package com.zarz.spotiflac
+package com.zarz.mornye
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse

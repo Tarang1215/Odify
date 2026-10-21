@@ -239,9 +239,9 @@ def patch_updater(root: Path) -> None:
     if "static const String version = '5.2.1';" in identity:
         for old, new in (
             ("static const String version = '5.2.1';",
-             "static const String version = '0.9.1';"),
+             "static const String version = '0.9.5';"),
             ("static const String buildNumber = '163';",
-             "static const String buildNumber = '171';"),
+             "static const String buildNumber = '175';"),
             ("static const String appName = 'Mornye';",
              "static const String appName = 'Odify';"),
             ("static const String githubRepo = 'spotiflacapp/SpotiFLAC-Mobile';",
@@ -252,8 +252,8 @@ def patch_updater(root: Path) -> None:
     # existing account data or fall back to the upstream release domain.
     own_identity = info.read_text(encoding="utf-8")
     for own_constant in (
-        "static const String version = '0.9.1';",
-        "static const String buildNumber = '171';",
+        "static const String version = '0.9.5';",
+        "static const String buildNumber = '175';",
         "static const String appName = 'Odify';",
         "static const String githubRepo = 'Tarang1215/Odify';",
     ):

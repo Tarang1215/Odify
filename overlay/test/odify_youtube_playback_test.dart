@@ -60,6 +60,8 @@ void main() {
             'cdnProbeMs': 95,
             'audioCodec': 'mp4a.40.2',
             'audioContainer': 'm4a',
+            'probeSegments': 2,
+            'headerParity': true,
             'androidPrepare': 'MEDIA_ERROR',
             'androidErrorWhat': 1,
             'androidErrorExtra': -1005,
@@ -72,6 +74,8 @@ void main() {
     expect(report, contains('client: android'));
     expect(report, contains('audioCodec: mp4a.40.2'));
     expect(report, contains('audioContainer: m4a'));
+    expect(report, contains('probeSegments: 2'));
+    expect(report, contains('headerParity: true'));
     expect(report, contains('androidPrepare: MEDIA_ERROR'));
     expect(report, contains('androidErrorExtra: -1005'));
     expect(report, isNot(contains('googlevideo.com')));
