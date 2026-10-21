@@ -201,6 +201,20 @@ class OdifyYouTube {
     return OdifyAudioProxy.shared.open(url, headers: headers);
   }
 
+  /// Warm only the next queue item while current music is already playing.
+  /// The native side keeps the verified signed URL only in memory.
+  static Future<void> prefetchAudioSource(String source) async {
+    final id = idFromSource(source);
+    if (id == null) return;
+    try {
+      await _channel.invokeMethod<bool>('prefetch', {'videoId': id});
+    } on PlatformException {
+      // Background warmup failure is not a current playback failure.
+    } on MissingPluginException {
+      // Older builds do not have prefetch support.
+    }
+  }
+
   /// Stop reusing a CDN source after Android reports a media open failure.
   /// Persisted playlist IDs are untouched. Called best-effort by the player.
   static Future<void> invalidateAudioSource(String source) async {
