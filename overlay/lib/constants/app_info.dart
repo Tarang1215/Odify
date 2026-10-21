@@ -1,9 +1,9 @@
 import 'package:flutter/foundation.dart';
 
 class AppInfo {
-  static const String version = '0.9.0';
+  static const String version = '0.9.1';
   static const String upstreamBaseVersion = '5.2.1';
-  static const String buildNumber = '170';
+  static const String buildNumber = '171';
 
   static const String gitCommit = String.fromEnvironment('GIT_COMMIT');
   static String get shortGitCommit =>
@@ -31,3 +31,4 @@ class AppInfo {
   static const String kofiUrl = 'https://ko-fi.com/zarzet';
   static const String githubSponsorsUrl = 'https://github.com/sponsors/zarzet/';
 }
+

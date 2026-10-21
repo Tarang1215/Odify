@@ -8,6 +8,8 @@ import 'package:spotiflac_android/providers/music_player_provider.dart';
 import 'package:spotiflac_android/services/odify_device_catalog.dart';
 import 'package:spotiflac_android/widgets/odify_device_artwork_tile.dart';
 import 'package:spotiflac_android/services/odify_likes.dart';
+import 'package:spotiflac_android/models/track.dart';
+import 'package:spotiflac_android/widgets/playlist_picker_sheet.dart';
 
 /// Browse Android's actual shared audio catalogue and play inside Odify.
 class OdifyDeviceMusicBrowser extends ConsumerStatefulWidget {
@@ -119,6 +121,28 @@ class _OdifyDeviceMusicBrowserState
     }
   }
 
+  // MediaStore songs are already indexed in Odify's local library. Bridge
+  // their stable ID to the same picker used for other library tracks, rather
+  // than mistakenly mapping a 'playlist add' icon to the playback queue.
+  Future<void> _addToPlaylist(OdifyDeviceTrack song) async {
+    final track = Track(
+      id: 'odify-media:${song.id}',
+      name: song.title,
+      artistName: song.artist,
+      albumName: song.album,
+      duration: (song.durationMs / 1000).round(),
+      source: 'local',
+    );
+    try {
+      await showAddTrackToPlaylistSheet(context, ref, track);
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('재생목록을 불러오지 못했습니다. 다시 시도해주세요.')),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final query = _controller.text.trim().toLowerCase();
@@ -186,10 +210,24 @@ class _OdifyDeviceMusicBrowserState
                     icon: Icon(liked ? Icons.favorite : Icons.favorite_border),
                   ),
                   IconButton(
-                    tooltip: '대기열에 추가',
-                    onPressed: () => ref.read(musicPlayerControllerProvider)
-                        .addToQueue(track.toPlayable()),
+                    tooltip: '재생목록에 추가',
+                    onPressed: () => _addToPlaylist(track),
                     icon: const Icon(Icons.playlist_add),
+                  ),
+                  PopupMenuButton<String>(
+                    tooltip: '다른 작업',
+                    icon: const Icon(Icons.more_horiz_rounded),
+                    onSelected: (action) async {
+                      if (action == 'queue') {
+                        await ref.read(musicPlayerControllerProvider)
+                            .addToQueue(track.toPlayable());
+                      }
+                    },
+                    itemBuilder: (_) => const [
+                      PopupMenuItem(
+                        value: 'queue', child: Text('재생 대기열에 추가'),
+                      ),
+                    ],
                   ),
                 ]),
               );

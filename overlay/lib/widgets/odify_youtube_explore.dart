@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:spotiflac_android/providers/music_player_provider.dart';
 import 'package:spotiflac_android/providers/local_library_provider.dart';
@@ -149,6 +150,37 @@ class _OdifyYouTubeExplorerState extends ConsumerState<OdifyYouTubeExplorer> {
     }
   }
 
+  Future<void> _runStreamDiagnostic() async {
+    if (_results.isEmpty || _busyVideo != null || _loading) return;
+    final id = _results.first.id;
+    setState(() => _busyVideo = id);
+    late final String report;
+    try {
+      report = await OdifyYouTube.diagnoseVideo(id);
+    } catch (_) {
+      report = '진단 실패: 네이티브 플러그인을 확인해 주세요.';
+    } finally {
+      if (mounted) setState(() => _busyVideo = null);
+    }
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('스트리밍 연결 진단'),
+        content: SingleChildScrollView(child: SelectableText(report)),
+        actions: [
+          TextButton(
+            onPressed: () => Clipboard.setData(ClipboardData(text: report)),
+            child: const Text('진단 결과 복사'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('닫기'),
+          ),
+        ],
+      ),
+    );
+  }
   Future<void> _toggleLike(OdifyVideo video) async {
     final key = OdifyLikeStore.trackKey(video.artist, video.title);
     final shouldLike = !_liked.contains(key);
@@ -206,7 +238,17 @@ class _OdifyYouTubeExplorerState extends ConsumerState<OdifyYouTubeExplorer> {
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     return Scaffold(
-      appBar: AppBar(title: const Text('Odify Discover')),
+      appBar: AppBar(
+        title: const Text('Odify Discover'),
+        actions: [
+          IconButton(
+            tooltip: '스트리밍 지연/추출 진단',
+            icon: const Icon(Icons.monitor_heart_outlined),
+            onPressed: _results.isEmpty || _busyVideo != null || _loading
+                ? null : _runStreamDiagnostic,
+          ),
+        ],
+      ),
       body: SafeArea(child: Column(children: [
         const Padding(
           padding: EdgeInsets.fromLTRB(16, 8, 16, 6),

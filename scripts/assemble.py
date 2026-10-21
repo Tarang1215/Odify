@@ -84,7 +84,7 @@ def assemble():
     # Trove/Supabase dependency is introduced. A separate public Web OAuth
     # server client ID will be supplied using --dart-define at a later build.
     replace_one(TARGET / 'pubspec.yaml',
-                'version: 5.2.1+163', 'version: 0.9.0+170')
+                'version: 5.2.1+163', 'version: 0.9.1+171')
     replace_one(TARGET / 'pubspec.yaml',
                 '  shared_preferences: ^2.5.6',
                 '  shared_preferences: ^2.5.6\n'
@@ -93,6 +93,11 @@ def assemble():
                 'applicationId = "com.zarz.mornye"', 'applicationId = "com.odify.music"')
     replace_one(TARGET / 'android/app/src/main/AndroidManifest.xml',
                 'android:label="Mornye"', 'android:label="Odify"')
+    # Share Odify's LRCLIB fallback with track detail and player screens.
+    replace_one(TARGET / 'lib/screens/track_metadata_screen.dart',
+                "import 'package:spotiflac_android/services/platform_bridge.dart';",
+                "import 'package:spotiflac_android/services/platform_bridge.dart';\n"
+                "import 'package:spotiflac_android/services/odify_lyrics_fallback.dart';")
     replace_one(TARGET / 'lib/services/music_player_service.dart',
                 "show ListeningTrack;", "show ListeningTrack, ListeningStatisticsStore;")
     replace_one(TARGET / 'lib/services/music_player_service.dart',
@@ -111,6 +116,13 @@ def assemble():
                 "      extract: (source) async =>\n"
                 "          await OdifyDeviceArtwork.forSource(source) ??\n"
                 "          await DownloadedEmbeddedCoverResolver.resolveOrExtract(source),")
+    # Odify's transient CDN handle and persistent YouTube ID are network
+    # identities. Never ask ReplayGain's local-file analyzer to open them;
+    # otherwise every Play/Next can incur failed filesystem probing.
+    replace_one(TARGET / 'lib/services/music_player_service.dart',
+                "          'https',\n        }.contains(Uri.tryParse(path)?.scheme) ||",
+                "          'https',\n          'odify-cdn',\n"
+                "          'odify-youtube',\n        }.contains(Uri.tryParse(path)?.scheme) ||")
     # Re-resolve YouTube stream URLs when playback starts (IDs survive restarts).
     replace_one(TARGET / 'lib/services/music_player_service.dart',
                 "import 'package:spotiflac_android/services/music_player_runtime.dart';",
@@ -131,6 +143,10 @@ def assemble():
                 "const {'network', 'http', 'https'}.contains(Uri.tryParse(source)?.scheme);",
                 "const {'network', 'http', 'https', 'odify-youtube'}"
                 ".contains(Uri.tryParse(source)?.scheme);")
+    # The initial synchronous Android prepare AND resume errors retry once.
+    replace_one(TARGET / 'lib/services/music_player_service.dart',
+                "    if (media.isNetwork) {\n      await _player.setNetworkSource(path);\n",
+                "    if (media.source.startsWith('odify-youtube://')) {\n      // Prepare AND resume inside the retry boundary. Android can report\n      // MEDIA_ERROR_UNKNOWN only after asynchronous MediaPlayer preparation.\n      await OdifyYouTube.prepareAudioSource(\n        source: media.source,\n        resolved: path,\n        isCurrent: () => _isCurrentPlayRequest(generation, media),\n        prepare: (source) async {\n          await _player.setNetworkSource(source);\n          if (!_isCurrentPlayRequest(generation, media)) return;\n          if (position != null) {\n            await _player.seek(position);\n            if (!_isCurrentPlayRequest(generation, media)) return;\n          }\n          await _player.resume();\n          if (!_isCurrentPlayRequest(generation, media)) {\n            await _player.pause();\n          }\n        },\n      );\n      return;\n    }\n    if (media.isNetwork) {\n      await _player.setNetworkSource(path);\n")
     replace_one(TARGET / 'lib/services/music_player_service.dart',
                 "part 'music_player_autoplay.dart';",
                 "part 'music_player_autoplay.dart';\npart 'odify_taste.dart';")
@@ -161,6 +177,56 @@ def assemble():
                 "            flutterEngine.plugins.add(MusicHapticsPlugin())\n        }\n"
                 "        if (!flutterEngine.plugins.has(OdifyMediaStorePlugin::class.java)) {\n"
                 "            flutterEngine.plugins.add(OdifyMediaStorePlugin())\n        }")
+    replace_one(TARGET / 'lib/services/music_player_service.dart',
+                "  int _playRequestGeneration = 0;",
+                "  int _playRequestGeneration = 0;\n  int? _odifyAsyncRecoveryAttempted;\n  int? _odifyAsyncRecoveryActive;")
+    replace_one(TARGET / 'lib/services/music_player_service.dart',
+                "    _sourceReady = false;\n    _playbackError = error;",
+                "    if (_odifyAsyncRecoveryActive == _playRequestGeneration) return;\n    // MediaPlayer may emit MEDIA_ERROR_UNKNOWN via the event stream AFTER\n    // setSource/resume have returned. The synchronous retry cannot see it.\n    // Recover once per play generation; never retry local files or older songs.\n    if (_sourceReady &&\n        _switchingGeneration == 0 &&\n        _index >= 0 &&\n        _index < _media.length &&\n        _media[_index].source.startsWith('odify-youtube://') &&\n        !_userPaused &&\n        _odifyAsyncRecoveryAttempted != _playRequestGeneration) {\n      final generation = _playRequestGeneration;\n      final track = _media[_index];\n      _odifyAsyncRecoveryAttempted = generation;\n      _odifyAsyncRecoveryActive = generation;\n      _sourceReady = false;\n      _broadcastState(playerState: PlayerState.playing, loading: true);\n      unawaited(_serializeSourceChange(() async {\n        try {\n          if (!_isCurrentPlayRequest(generation, track)) return;\n          await OdifyYouTube.recoverAfterMediaError(\n            source: track.source,\n            isCurrent: () =>\n                _isCurrentPlayRequest(generation, track) && !_userPaused,\n            prepare: (relay) async {\n              if (!_isCurrentPlayRequest(generation, track) || _userPaused) return;\n              await player.stop();\n              if (!_isCurrentPlayRequest(generation, track) || _userPaused) return;\n              await player.setNetworkSource(relay);\n              if (!_isCurrentPlayRequest(generation, track) || _userPaused) return;\n              await player.setVolume(_normalizationVolume);\n              if (!_isCurrentPlayRequest(generation, track) || _userPaused) return;\n              await player.resume();\n              if (!_isCurrentPlayRequest(generation, track)) {\n                await player.pause();\n              }\n            },\n          );\n          if (!_isCurrentPlayRequest(generation, track)) return;\n          if (_userPaused) {\n            _sourceReady = false;\n            _broadcastState(playerState: PlayerState.paused);\n            return;\n          }\n          _sourceReady = true;\n          _broadcastState();\n        } catch (recoverError, recoverStack) {\n          if (_isCurrentPlayRequest(generation, track)) {\n            _odifyAsyncRecoveryActive = null;\n            _reportPlaybackError(player, recoverError, recoverStack);\n          }\n        } finally {\n          if (_odifyAsyncRecoveryActive == generation) {\n            _odifyAsyncRecoveryActive = null;\n          }\n        }\n      }).catchError((Object recoverError, StackTrace recoverStack) {\n        if (_isCurrentPlayRequest(generation, track)) {\n          _odifyAsyncRecoveryActive = null;\n          _reportPlaybackError(player, recoverError, recoverStack);\n        }\n      }));\n      return;\n    }\n    _sourceReady = false;\n    _playbackError = error;")
+    # If Android rejects a signed CDN URL, forget its short-lived handle.
+    # The next user playback attempt must re-extract instead of replaying
+    # the same known-bad URL cached by the native extractor.
+    replace_one(TARGET / 'lib/services/music_player_service.dart',
+                "    _log.e('Playback failed for ${mediaItem.value?.title}', error, stackTrace);",
+                "    _log.e('Playback failed for ${mediaItem.value?.title}', error, stackTrace);\n"
+                "    if (_index >= 0 && _index < _media.length &&\n"
+                "        _media[_index].source.startsWith('odify-youtube://')) {\n"
+                "      unawaited(OdifyYouTube.invalidateAudioSource(_media[_index].source));\n"
+                "    }")
+    # Best-effort prefetch: one next YouTube ID when a track starts.
+    # Prefetch runs after a 3-second delay; local and SAF playback unchanged.
+    replace_one(TARGET / 'lib/services/music_player_service.dart',
+                "      _sourceReady = true;\n"
+                "      if (media.source.startsWith('network://')) {",
+                "      _sourceReady = true;\n"
+                "      if (media.source.startsWith('odify-youtube://') &&\n"
+                "          _index + 1 < _media.length) {\n"
+                "        final following = _media[_index + 1];\n"
+                "        if (following.source.startsWith('odify-youtube://')) {\n"
+                "          unawaited(Future<void>.delayed(const Duration(seconds: 3), () async {\n"
+                "            if (_isCurrentPlayRequest(generation, media)) {\n"
+                "              await OdifyYouTube.prefetchAudioSource(following.source);\n"
+                "            }\n"
+                "          }));\n"
+                "        }\n"
+                "      }\n"
+                "      if (media.source.startsWith('network://')) {")
+    # R8 must preserve Commons Compress ZIP extra-field implementations.
+    # The initial Python bundle unzip uses ExtraFieldUtils' reflective class
+    # registration (Class.newInstance). If R8 removes a nullary constructor
+    # or changes a concrete implementation, the app crashes in <clinit> with
+    # "class ... is not a concrete class" (Galaxy release 2026-10-21).
+    # Keep this narrow to ZIP archivers: preserve unrelated release shrinking.
+    proguard = TARGET / 'android/app/proguard-rules.pro'
+    proguard_text = proguard.read_text(encoding='utf-8')
+    zip_guard = (
+        '\n# Odify: Apache Commons Compress ZIP registry uses reflection.\n'
+        '-keep class org.apache.commons.compress.archivers.zip.** { *; }\n'
+    )
+    if 'org.apache.commons.compress.archivers.zip.**' in proguard_text:
+        raise RuntimeError('Vendor ZIP optimizer rules changed; review before update')
+    proguard.write_text(proguard_text + zip_guard, encoding='utf-8')
+
     # yt-dlp is an optional GPL-3.0 native dependency; retain attribution.
     gradle = TARGET / 'android/app/build.gradle.kts'
     gradle_text = gradle.read_text(encoding='utf-8')
@@ -169,8 +235,8 @@ def assemble():
         raise RuntimeError('Expected exactly one Gradle dependencies block')
     replace_one(gradle, dependency_anchor,
                 dependency_anchor +
-                '    implementation("io.github.junkfood02.youtubedl-android:library:0.16.0")\n'
-                '    implementation("io.github.junkfood02.youtubedl-android:ffmpeg:0.16.0")\n')
+                '    implementation("io.github.junkfood02.youtubedl-android:library:0.18.1")\n'
+                '    implementation("io.github.junkfood02.youtubedl-android:ffmpeg:0.18.1")\n')
     # yt-dlp bundles ZIP archives as pseudo .so assets. They are not ELF
     # binaries and must be excluded from native llvm-strip processing.
     replace_one(gradle,
@@ -183,6 +249,26 @@ def assemble():
                 '            flutterEngine.plugins.add(OdifyMediaStorePlugin())\n        }\n'
                 '        if (!flutterEngine.plugins.has(OdifyYtDlpPlugin::class.java)) {\n'
                 '            flutterEngine.plugins.add(OdifyYtDlpPlugin())\n        }')
+    # Odify network audio may bypass the Dart loopback relay: pass yt-dlp's
+    # bounded source headers directly to Android MediaPlayer. Only this
+    # reviewed network-source seam changes; SAF and MP3/FLAC are unchanged.
+    replace_one(
+        TARGET / 'third_party/audioplayers_android/android/src/main/kotlin/'
+                 'xyz/luan/audioplayers/source/UrlSource.kt',
+        '        } else {\n'
+        '            mediaPlayer.setDataSource(url)\n'
+        '        }',
+        '        } else {\n'
+        '            val odify = OdifyStreamRegistry.lookup(url)\n'
+        '            if (odify != null) {\n'
+        '                mediaPlayer.setDataSource(odify.context, android.net.Uri.parse(odify.url), odify.headers)\n'
+        '            } else if (OdifyStreamRegistry.isOdifySource(url)) {\n'
+        '                error("Expired Odify network audio session")\n'
+        '            } else {\n'
+        '                mediaPlayer.setDataSource(url)\n'
+        '            }\n'
+        '        }',
+    )
     # MediaStore tracks use the upstream legacy source, whose virtual URI is
     # not a real filesystem directory. Preserve visibility of this source and
     # never attempt a native folder scan against the virtual URI.
@@ -220,3 +306,4 @@ def assemble():
 
 if __name__ == '__main__':
     assemble()
+

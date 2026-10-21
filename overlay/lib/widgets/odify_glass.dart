@@ -37,17 +37,17 @@ class OdifyGlassSurface extends StatelessWidget {
           colors: dark
               ? [
                   Color.alphaBlend(
-                    glow.withValues(alpha: 0.11),
-                    const Color(0xff242629),
+                    glow.withValues(alpha: 0.035),
+                    const Color(0xff202126),
                   ),
-                  const Color(0xff17191c),
+                  const Color(0xff121317),
                 ]
               : [
                   Color.alphaBlend(
-                    glow.withValues(alpha: 0.065),
-                    const Color(0xfffcfcfd),
+                    glow.withValues(alpha: 0.018),
+                    const Color(0xffffffff),
                   ),
-                  const Color(0xffeff1f4),
+                  const Color(0xfff6f7f9),
                 ],
         ),
         border: Border.all(
