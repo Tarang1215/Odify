@@ -18,11 +18,19 @@ FIXTURES = {
     'pubspec.yaml': 'name: mornye\nversion: 5.2.1+163\n  shared_preferences: ^2.5.6\n',
     'android/app/build.gradle.kts': 'applicationId = "com.zarz.mornye"\n        if (discordSdkEnabled) jniLibs.pickFirsts += "**/libdiscord_partner_sdk.so"\ndependencies {\n}\n',
     'android/app/src/main/AndroidManifest.xml': '<application android:name=".SpotiFlacApplication" android:label="Mornye" />\n',
+    'android/app/proguard-rules.pro': '# Existing vendor configuration stays intact.\n',
     'lib/services/music_player_service.dart': (
         "import 'package:mornye/services/music_player_runtime.dart';\n"
         "    show ListeningTrack;\n"
         "part 'music_player_autoplay.dart';\n"
+        "  int _playRequestGeneration = 0;\n"
+        "    _sourceReady = false;\n    _playbackError = error;\n"
+        "    _log.e('Playback failed for ${mediaItem.value?.title}', error, stackTrace);\n"
+        "      _sourceReady = true;\n      if (media.source.startsWith('network://')) {\n"
         "  Future<String?> _resolveSource(PlayableMedia media) async {\n"
+        "    if (media.isNetwork) {\n"
+        "      await _player.setNetworkSource(path);\n"
+        "          'https',\n        }.contains(Uri.tryParse(path)?.scheme) ||\n"
         "      extract: (source) =>\n"
         "          DownloadedEmbeddedCoverResolver.resolveOrExtract(source),\n"
     ),
@@ -37,8 +45,26 @@ FIXTURES = {
         "    limit,\n  ) = input;\n"
         "    preferenceAdjustment: (track) => model.rankAdjustment(\n"
     ),
+    'third_party/audioplayers_android/android/src/main/kotlin/xyz/luan/audioplayers/player/WrappedPlayer.kt': (
+        "                    val player = getOrCreatePlayer()\n"
+        "    private fun getOrCreatePlayer(): PlayerWrapper {\n"
+        "        val currentPlayer = player\n"
+        "        return if (released || currentPlayer == null) {\n"
+        "            createPlayer().also {\n"
+        "    private fun createPlayer(): PlayerWrapper {\n"
+        "        return when (playerMode) {\n"
+        "            MEDIA_PLAYER -> MediaPlayerWrapper(this)\n"
+        "    fun onError(what: Int, extra: Int): Boolean {\n"
+    ),
+    'third_party/audioplayers_android/android/build.gradle': (
+        "        minSdkVersion 19\n"
+        "    implementation \"androidx.core:core-ktx:1.19.1\"\n"
+    ),
     'android/app/src/main/kotlin/com/zarz/mornye/MainActivity.kt': (
         "            flutterEngine.plugins.add(MusicHapticsPlugin())\n        }\n"
+    ),
+    'lib/screens/track_metadata_screen.dart': (
+        "import 'package:mornye/services/platform_bridge.dart';\\n"
     ),
     'lib/screens/home_tab.dart': (
         "import 'package:mornye/widgets/app_snack_bar.dart';\n"
@@ -80,6 +106,16 @@ class OdifyAssemblyTests(unittest.TestCase):
                 mod.assemble()
             player = (target / 'lib/services/music_player_service.dart').read_text()
             self.assertIn('OdifyYouTube.resolveAudioSource(media.source)', player)
+            self.assertIn('OdifyYouTube.invalidateAudioSource', player)
+            self.assertIn('OdifyYouTube.prefetchAudioSource', player)
+            self.assertIn('OdifyYouTube.recoverAfterMediaError', player)
+            self.assertIn('_odifyAsyncRecoveryAttempted', player)
+            self.assertIn('await _player.resume();', player)
+            self.assertIn('prepare: (source) async', player)
+            self.assertIn('OdifyYouTube.prepareAudioSource(', player)
+            self.assertIn('isCurrent: () => _isCurrentPlayRequest(generation, media)', player)
+            self.assertIn("'odify-cdn'", player)
+            self.assertIn("'odify-youtube'", player)
             self.assertIn('OdifyDeviceArtwork.forSource(source)', player)
             port = (ROOT / 'scripts/port_521.py').read_text()
             self.assertIn('odify-profile-drive-sync', port)
@@ -91,13 +127,67 @@ class OdifyAssemblyTests(unittest.TestCase):
                 (target / 'android/app/src/main/kotlin/com/zarz/mornye/OdifyMediaStorePlugin.kt').is_file()
             )
             self.assertIn("'odify-youtube'", (target / 'lib/services/playable_media.dart').read_text())
+            native = (target / 'third_party/audioplayers_android/android/src/main/kotlin/xyz/luan/audioplayers/player/WrappedPlayer.kt').read_text()
+            self.assertIn('OdifyExoPlayerWrapper.accepts(nextSource)', native)
+            self.assertIn('OdifyExoPlayerWrapper(this)', native)
+            self.assertIn('fun onExoError(', native)
+            media3_wrapper = (target / 'third_party/audioplayers_android/android/src/main/kotlin/xyz/luan/audioplayers/player/OdifyExoPlayerWrapper.kt').read_text()
+            self.assertIn('DefaultHttpDataSource.Factory()', media3_wrapper)
+            self.assertIn('OdifyBoundedRangeDataSource(httpFactory)', media3_wrapper)
+            bounded = (target / 'third_party/audioplayers_android/android/src/main/kotlin/xyz/luan/audioplayers/player/OdifyBoundedRangeDataSource.kt').read_text()
+            self.assertIn('PROBE_BYTES = 1024L', bounded)
+            self.assertIn('CHUNK_BYTES = 256L * 1024L', bounded)
+            self.assertIn('original.subrange(offset - original.position, wanted)', bounded)
+            self.assertIn('CDN does not support ranged seek', bounded)
+            self.assertIn('responseHeaders', bounded)
+            self.assertIn('player.setMediaItem(item)', media3_wrapper)
+            self.assertIn('wrappedPlayer.onPrepared()', media3_wrapper)
+            self.assertIn('wrappedPlayer.onExoError(', media3_wrapper)
+            self.assertIn('OdifyStreamRegistry.lookup(handle)', media3_wrapper)
+            plugin_gradle = (target / 'third_party/audioplayers_android/android/build.gradle').read_text()
+            self.assertIn('media3-exoplayer:1.9.4', plugin_gradle)
+            self.assertIn('media3-datasource-okhttp:1.9.4', plugin_gradle)
+            self.assertTrue((target / 'third_party/audioplayers_android/android/src/main/kotlin/xyz/luan/audioplayers/source/OdifyStreamRegistry.kt').is_file())
+            extractor = (target / 'android/app/src/main/kotlin/com/zarz/mornye/OdifyYtDlpPlugin.kt').read_text()
+            self.assertIn('private suspend fun probeAndroidMediaPlayer', extractor)
+            self.assertIn('player.prepareAsync()', extractor)
+            self.assertNotIn('player.start()', extractor)
+            self.assertIn('OdifyPlaybackProtocol.canonicalHeaders(headers)', extractor)
+            self.assertIn('validateAudioRange(url, playbackHeaders)', extractor)
+            self.assertIn('OdifyStreamRegistry.register(', extractor)
+            self.assertIn('"probeSegments" to 2', extractor)
+            self.assertIn('OdifyPlaybackProtocol.orderedClients(', extractor)
+            self.assertIn('audioBackend.extractJson(videoUrl(id), client)', extractor)
+            self.assertIn('extractorEngine', extractor)
+            isolated = (target / 'android/app/src/main/kotlin/com/zarz/mornye/OdifyAudioExtractors.kt').read_text()
+            self.assertIn('internal interface OdifyAudioExtractor', isolated)
+            self.assertIn('internal class OdifyYtDlpExtractor', isolated)
+            self.assertIn('runInterruptible(Dispatchers.IO)', isolated)
+            self.assertIn('OdifyStreamRegistry::invalidate', extractor)
+            policy = (target / 'third_party/audioplayers_android/android/src/main/kotlin/xyz/luan/audioplayers/source/OdifyPlaybackProtocol.kt').read_text()
+            self.assertIn('Client-bound CDN User-Agent unavailable', policy)
+            self.assertIn('expiryDeadlineMs(', policy)
+            self.assertIn('clientFallbackOrder', policy)
+            self.assertIn('OdifyPlaybackProtocol.expiryDeadlineMs', (target / 'third_party/audioplayers_android/android/src/main/kotlin/xyz/luan/audioplayers/source/OdifyStreamRegistry.kt').read_text())
+            self.assertTrue((target / 'android/app/src/test/kotlin/com/zarz/mornye/OdifyPlaybackProtocolTest.kt').is_file())
+            self.assertIn('"audioCodec" to audioCodec', extractor)
+            self.assertIn('"androidErrorExtra" to extra', extractor)
             gradle = (target / 'android/app/build.gradle.kts').read_text()
             manifest = (target / 'android/app/src/main/AndroidManifest.xml').read_text()
             self.assertIn('com.odify.music', gradle)
             self.assertIn('package:mornye/services/playable_media.dart',
                           (target / 'lib/services/odify_youtube.dart').read_text())
             self.assertIn('google_sign_in: ^7.2.0', (target / 'pubspec.yaml').read_text())
+            self.assertIn('odify_lyrics_fallback.dart',
+                          (target / 'lib/screens/track_metadata_screen.dart').read_text())
             self.assertIn('jniLibs.useLegacyPackaging = true', gradle)
+            zip_rules = (target / 'android/app/proguard-rules.pro').read_text()
+            self.assertIn('# Existing vendor configuration stays intact.', zip_rules)
+            self.assertIn('-keep class org.apache.commons.compress.archivers.zip.** { *; }', zip_rules)
+            self.assertEqual(zip_rules.count('-keep class org.apache.commons.compress.archivers.zip.**'), 1)
+            self.assertIn('-keep class xyz.luan.audioplayers.player.OdifyBoundedRangeDataSource { *; }', zip_rules)
+            self.assertIn('-keep class xyz.luan.audioplayers.source.OdifyPlaybackProtocol { *; }', zip_rules)
+
             self.assertNotIn('android:extractNativeLibs', manifest)
             self.assertTrue((target / 'lib/services/odify_youtube.dart').is_file())
             home = (target / 'lib/screens/home_tab.dart').read_text()
@@ -136,3 +226,4 @@ class OdifyAssemblyTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+

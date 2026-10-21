@@ -14,6 +14,7 @@ Status: **source integrated; real Google account authentication remains unverifi
    flutter build apk --dart-define=ODIFY_GOOGLE_SERVER_CLIENT_ID=YOUR_PUBLIC_WEB_CLIENT_ID
    ```
    This step is illustrative; Odify's pinned Flutter/Rust/Android assembly and native build prerequisites still apply.
+   For GitHub Actions builds, alternatively add the **public** Web client ID as the repository Actions variable `ODIFY_GOOGLE_SERVER_CLIENT_ID` (Settings → Secrets and variables → Actions → Variables). The integration workflow passes this value to both Flutter APK build modes. This is not a client secret. If unset, sign-in stays disabled and the local player continues to work. **A Web client ID alone is insufficient**: Android package ID and installed APK signing SHA-1 must also match the Android OAuth client registration. Never upload a private signing keystore as a public variable.
 7. When the user opens **Odify → 동기화 및 백업 → Google 계정 연결**, request only `https://www.googleapis.com/auth/drive.appdata`. Google authentication is distinct from Drive scope authorization.
 8. Verify account selection, 401/re-consent, sign-out, and reauthentication on the *installed* Galaxy. Then connect a second installation and confirm playlist operations converge.
 

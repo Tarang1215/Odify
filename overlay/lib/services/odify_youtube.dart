@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/services.dart';
+import 'package:spotiflac_android/services/odify_audio_proxy.dart';
 import 'package:spotiflac_android/services/playable_media.dart';
 import 'package:spotiflac_android/services/library_database.dart';
 
@@ -120,6 +121,8 @@ class OdifyTrackMetadata {
 class OdifyYouTube {
   static const _channel = MethodChannel('com.odify.music/yt_dlp');
   static final _idPattern = RegExp(r'^[A-Za-z0-9_-]{11}$');
+  static final _nativeSourcePattern =
+      RegExp(r'^odify-cdn://audio/[a-f0-9]{48}$');
   static const sourceScheme = 'odify-youtube';
 
   static String sourceForId(String videoId) {
@@ -166,7 +169,10 @@ class OdifyYouTube {
 
   /// Called by the existing SpotiFLAC audio service just before loading a
   /// track. The resulting signed URL stays transient and is never serialized.
-  static Future<String> resolveAudioSource(String source) async {
+  static Future<String> resolveAudioSource(
+    String source, {
+    bool preferNative = true,
+  }) async {
     final id = idFromSource(source);
     if (id == null) throw const FormatException('Invalid Odify playback source');
     final data = await _channel.invokeMapMethod<dynamic, dynamic>(
@@ -174,12 +180,117 @@ class OdifyYouTube {
     );
     final url = data?['url']?.toString() ?? '';
     final parsed = Uri.tryParse(url);
-    if (parsed == null ||
-        (parsed.scheme != 'https' && parsed.scheme != 'http') ||
-        parsed.host.isEmpty) {
+    if (parsed == null || parsed.scheme != 'https' || parsed.host.isEmpty) {
       throw StateError('오디오 주소를 확인하지 못했습니다.');
     }
-    return url;
+    // Media3's OkHttp source consumes opaque, ephemeral native CDN handles
+    // and preserves extractor-supplied request headers. Avoid routing native
+    // playback through Dart loopback except when no valid handle is offered.
+    final nativeSource = data?['nativeSource']?.toString() ?? '';
+    if (preferNative && _nativeSourcePattern.hasMatch(nativeSource)) {
+      return nativeSource;
+    }
+    // Fallback: relay the signed URL and extractor headers via loopback.
+    final rawHeaders = data?['headers'];
+    final headers = <String, String>{
+      if (rawHeaders is Map)
+        for (final entry in rawHeaders.entries)
+          entry.key.toString(): entry.value.toString(),
+    };
+    return OdifyAudioProxy.shared.open(url, headers: headers);
+  }
+
+  /// Recover once from source-open errors using a newly extracted native URL.
+  /// Media3 must not funnel a CDN failure through the Dart relay that maps
+  /// distinct upstream errors to HTTP 502. Use relay only when the extractor
+  /// does not supply an in-process header-preserving CDN handle.
+  static Future<void> prepareAudioSource({
+    required String source,
+    required String resolved,
+    required Future<void> Function(String) prepare,
+    required bool Function() isCurrent,
+  }) async {
+    if (!isCurrent()) return;
+    try {
+      await prepare(resolved);
+    } on PlatformException catch (error) {
+      if (idFromSource(source) == null ||
+          error.code != 'AndroidAudioError') {
+        rethrow;
+      }
+      if (!isCurrent()) return;
+      await invalidateAudioSource(source);
+      if (!isCurrent()) return;
+      final retry = await resolveAudioSource(source);
+      if (!isCurrent()) return;
+      // The second failure propagates to Mornye's normal failure handler.
+      await prepare(retry);
+    }
+  }
+
+  /// Retry an already-started Android player exactly once after a late
+  /// Media3 error event. The caller owns playback generation and must
+  /// reject a superseded song before and after each asynchronous operation.
+  /// Signed URLs are never persisted or written to the log.
+  static Future<void> recoverAfterMediaError({
+    required String source,
+    required Future<void> Function(String relay) prepare,
+    required bool Function() isCurrent,
+  }) async {
+    if (idFromSource(source) == null || !isCurrent()) return;
+    await invalidateAudioSource(source);
+    if (!isCurrent()) return;
+    final refreshed = await resolveAudioSource(source);
+    if (!isCurrent()) return;
+    await prepare(refreshed);
+  }
+
+  /// Warm only the next queue item while current music is already playing.
+  /// The native side keeps the verified signed URL only in memory.
+  static Future<void> prefetchAudioSource(String source) async {
+    final id = idFromSource(source);
+    if (id == null) return;
+    try {
+      await _channel.invokeMethod<bool>('prefetch', {'videoId': id});
+    } on PlatformException {
+      // Background warmup failure is not a current playback failure.
+    } on MissingPluginException {
+      // Older builds do not have prefetch support.
+    }
+  }
+
+  /// Stop reusing a CDN source after Android reports a media open failure.
+  /// Persisted playlist IDs are untouched. Called best-effort by the player.
+  static Future<void> invalidateAudioSource(String source) async {
+    final id = idFromSource(source);
+    if (id == null) return;
+    try {
+      await _channel.invokeMethod<void>('expire', {'videoId': id});
+    } on PlatformException {
+      // Failure cleanup must never hide the original playback error.
+    }
+  }
+
+  /// An on-device diagnostic for one public video. The native plugin probes
+  /// YouTube and CDN access but never includes URLs, cookies or video IDs in
+  /// the report. This does not download any media bytes to a file.
+  static Future<String> diagnoseVideo(String videoId) async {
+    sourceForId(videoId);
+    try {
+      final raw = await _channel.invokeMapMethod<dynamic, dynamic>(
+        'diagnose', {'videoId': videoId},
+      );
+      final report = raw ?? const <dynamic, dynamic>{};
+      return [
+        'Odify YouTube diagnostics',
+        for (final item in report.entries)
+          '${item.key}: ${item.value}',
+      ].join('\n');
+    } on PlatformException catch (error) {
+      // Message is a controlled category from the native plugin; do not
+      // surface arbitrary stderr or signed URL fragments.
+      return 'Native diagnostic unavailable: ${error.code}';
+    }
   }
 
   /// Downloads only to Odify's app-owned directory. No Samsung files change.
@@ -206,3 +317,4 @@ class OdifyYouTube {
     return path;
   }
 }
+

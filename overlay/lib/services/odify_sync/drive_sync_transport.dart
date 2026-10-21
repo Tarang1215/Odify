@@ -51,8 +51,12 @@ class OdifyDriveSyncTransport implements OdifySyncTransport {
       ..headers['Accept'] = 'application/json';
     if (contentType != null) request.headers['Content-Type'] = contentType;
     if (bytes != null) request.bodyBytes = bytes;
-    final streamed = await _client.send(request);
-    final response = await http.Response.fromStream(streamed);
+    final streamed = await _client.send(request).timeout(
+      const Duration(seconds: 30),
+    );
+    final response = await http.Response.fromStream(streamed).timeout(
+      const Duration(seconds: 30),
+    );
     if (response.statusCode < 200 || response.statusCode >= 300) {
       // Intentionally omit response bodies; they may contain account details.
       throw OdifyDriveSyncError(response.statusCode);
@@ -177,9 +181,19 @@ class OdifyDriveSyncTransport implements OdifySyncTransport {
 
   @override
   Future<OdifyRemoteDelta> pull({String? cursor}) async {
-    if (cursor != null) return _readChanges(cursor);
+    if (cursor != null) {
+      try {
+        return await _readChanges(cursor);
+      } on OdifyDriveSyncError catch (error) {
+        if (error.statusCode != 410) rethrow;
+        // Google expires idle/invalid changes tokens (HTTP 410). Rebuild the
+        // remote view instead of permanently breaking sync. The persistent
+        // event ledger deduplicates the replayed immutable event IDs.
+      }
+    }
 
-    // First sync must cover files which existed BEFORE the change token.
+    // First sync and expired-cursor recovery must cover files which existed
+    // BEFORE the new change token.
     // Read the token FIRST, then enumerate existing files, then catch up.
     final tokenData = await _getJson('changes/startPageToken', {
       'spaces': 'appDataFolder',
@@ -264,7 +278,8 @@ class OdifyDriveSyncError implements Exception {
   final int statusCode;
 
   bool get shouldReauthorize => statusCode == 401 || statusCode == 403;
-  bool get shouldRetry => statusCode == 429 || statusCode >= 500;
+  bool get shouldRetry => statusCode == 408 ||
+      statusCode == 429 || statusCode >= 500;
 
   @override
   String toString() => 'Odify Drive API error (HTTP $statusCode)';

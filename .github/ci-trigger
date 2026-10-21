@@ -1,1 +1,2 @@
-2026-10-20 pinned Odify vendor v5.2.1 owned snapshot SHA 191fd35e1d9cf147a54312453c39e717408d0454; repair startup updater Dart newline, validate with regression test and signed ARM64 release/debug build. No auto-upstream updates.
+2026-10-21 Android 16 Home-entry crash containment: never run yt-dlp embedded Python on Home mount; require explicit user action, regression asserts zero native calls after 15s. Build and verify ARM64 debug/release artifacts.
+2026-10-21 static checks updated: opt-in preview regression, no Home auto-start. Rerun APK build.

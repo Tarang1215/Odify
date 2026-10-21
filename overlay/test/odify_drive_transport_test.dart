@@ -130,6 +130,65 @@ void main() {
     expect(posts, 0);
   });
 
+  test('expired Drive changes cursor recovers with full appData scan', () async {
+    final requests = <String>[];
+    final client = MockClient((request) async {
+      final path = request.url.path;
+      requests.add('$path?${request.url.query}');
+      if (path.endsWith('/changes') &&
+          request.url.queryParameters['pageToken'] == 'expired') {
+        return http.Response('expired cursor', 410);
+      }
+      if (path.endsWith('changes/startPageToken')) {
+        return http.Response('{"startPageToken":"10"}', 200);
+      }
+      if (path.endsWith('/files') && request.method == 'GET') {
+        return http.Response(jsonEncode({
+          'files': [{'id': 'f1', 'name': filename}],
+        }), 200);
+      }
+      if (path.endsWith('/files/f1')) {
+        return http.Response(jsonEncode({
+          'schemaVersion': 1,
+          'events': [example().toJson()],
+        }), 200);
+      }
+      if (path.endsWith('/changes') &&
+          request.url.queryParameters['pageToken'] == '10') {
+        return http.Response(
+          '{"changes":[],"newStartPageToken":"11"}', 200,
+        );
+      }
+      return http.Response('unexpected request', 404);
+    });
+    final transport = OdifyDriveSyncTransport(
+      accessToken: () async => 'test-token',
+      client: client,
+    );
+    final delta = await transport.pull(cursor: 'expired');
+    expect(delta.cursor, '11');
+    expect(delta.events.single.eventId, 'e1');
+    expect(requests.any((url) => url.contains('startPageToken')), isTrue);
+  });
+
+  test('auth error does not trigger a full account rescan', () async {
+    var requests = 0;
+    final client = MockClient((request) async {
+      requests++;
+      return http.Response('do not leak sensitive account details', 401);
+    });
+    final transport = OdifyDriveSyncTransport(
+      accessToken: () async => 'test-token',
+      client: client,
+    );
+    await expectLater(
+      transport.pull(cursor: 'previous'),
+      throwsA(isA<OdifyDriveSyncError>()
+        .having((e) => e.statusCode, 'HTTP status', 401)),
+    );
+    expect(requests, 1);
+  });
+
   test('HTTP 429 retains retryable error without leaking details', () async {
     final client = MockClient((_) async => http.Response(
       '{"error":"private details must not enter logs"}', 429,

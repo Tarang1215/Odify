@@ -4,9 +4,15 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
     paths:
       - ".github/workflows/odify-verify.yml"
       - ".github/ci-trigger"
+      - "overlay/**"
+      - "scripts/**"
+      - "tests/**"
+      - "config/**"
 
 permissions:
   contents: read
@@ -25,6 +31,8 @@ jobs:
       MORNYE_RUST_ANDROID_ABIS: "arm64-v8a"
       SPOTIFLAC_DISCORD_SDK: "0"
       SPOTIFLAC_RUST_ANDROID_ABIS: "arm64-v8a"
+      # Public OAuth Web client ID; matching Android signing SHA-1 is configured in Google Cloud.
+      ODIFY_GOOGLE_SERVER_CLIENT_ID: ${{ vars.ODIFY_GOOGLE_SERVER_CLIENT_ID }}
     steps:
       - name: Checkout immutable Odify overlay
         uses: actions/checkout@v4
@@ -46,6 +54,10 @@ jobs:
           grep -q "waitForActivityAttachment(binding)" lib/main.dart
           test -f android/app/src/main/kotlin/com/zarz/mornye/OdifyMediaStorePlugin.kt
           test -f android/app/src/main/kotlin/com/zarz/mornye/OdifyYtDlpPlugin.kt
+          test -f android/app/src/main/kotlin/com/zarz/mornye/OdifyAudioExtractors.kt
+          test -f third_party/audioplayers_android/android/src/main/kotlin/xyz/luan/audioplayers/player/OdifyExoPlayerWrapper.kt
+          test -f third_party/audioplayers_android/android/src/main/kotlin/xyz/luan/audioplayers/player/OdifyBoundedRangeDataSource.kt
+          test -f third_party/audioplayers_android/android/src/main/kotlin/xyz/luan/audioplayers/source/OdifyPlaybackProtocol.kt
       - name: Setup Java 25
         uses: actions/setup-java@v4
         with:
@@ -66,7 +78,7 @@ jobs:
       - name: Test music library, Drive sync, MediaStore art and glass UI
         working-directory: build/Odify
         run: |
-          flutter test test/odify_discovery_test.dart test/odify_metadata_test.dart test/odify_quick_access_test.dart test/odify_sync_merge_test.dart test/odify_sync_coordinator_test.dart test/odify_drive_transport_test.dart test/odify_sync_settings_test.dart test/odify_home_feed_test.dart test/odify_home_widget_test.dart test/odify_device_artwork_test.dart test/odify_glass_design_test.dart
+          flutter test test/odify_discovery_test.dart test/odify_metadata_test.dart test/odify_quick_access_test.dart test/odify_sync_merge_test.dart test/odify_sync_coordinator_test.dart test/odify_drive_transport_test.dart test/odify_playlist_track_link_test.dart test/odify_lyrics_fallback_test.dart test/odify_sync_settings_test.dart test/odify_home_feed_test.dart test/odify_home_widget_test.dart test/odify_audio_proxy_test.dart test/odify_youtube_playback_test.dart test/odify_device_artwork_test.dart test/odify_glass_design_test.dart test/music_player_playback_failures_test.dart test/music_player_runtime_test.dart test/music_player_provider_test.dart
       - name: Setup Gradle 9.8.1
         uses: gradle/actions/setup-gradle@v4
         with:
@@ -93,25 +105,32 @@ jobs:
           rustup show
           sudo apt-get update -qq
           sudo apt-get install -y libclang-dev ffmpeg
-          printf 'flutter.sdk=%s\nflutter.versionName=0.9.0\nflutter.versionCode=170\n' "$FLUTTER_ROOT" > ../android/local.properties
-      - name: Compile Android debug APK through Flutter (includes libapp.so)
+          printf 'flutter.sdk=%s\nflutter.versionName=0.9.5\nflutter.versionCode=175\n' "$FLUTTER_ROOT" > ../android/local.properties
+      - name: Compile Android debug APK through Flutter (JIT kernel)
         working-directory: build/Odify
-        run: flutter build apk --debug --target-platform android-arm64 --split-per-abi
+        run: flutter build apk --debug --target-platform android-arm64 --split-per-abi --dart-define=ODIFY_GOOGLE_SERVER_CLIENT_ID="$ODIFY_GOOGLE_SERVER_CLIENT_ID"
       - name: Upload debug APK, independent of release result
         uses: actions/upload-artifact@v4
         if: success()
         with:
-          name: odify-521-debug-arm64
+          name: odify-095-profile-debug-arm64
           if-no-files-found: error
           retention-days: 14
           path: |
             build/Odify/build/app/outputs/apk/debug/*arm64-v8a*.apk
+      - name: Validate Media3 route in debug APK
+        working-directory: build/Odify
+        run: |
+          python3 ../../scripts/check_media3_apk.py build/app/outputs/apk/debug/*arm64-v8a*.apk
+      - name: Test native extraction sharing, cancellation and process timeout
+        working-directory: build/Odify/android
+        run: gradle :app:testDebugUnitTest --tests com.zarz.mornye.OdifyAudioRequestsTest --tests com.zarz.mornye.OdifyPlaybackProtocolTest
       - name: Remove dev-only integration test plugin from release registrant
         run: |
           python3 scripts/strip_release_test_plugin.py build/Odify/android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java
       - name: Compile Android release APK through Flutter AOT (includes libapp.so)
         working-directory: build/Odify
-        run: flutter build apk --release --target-platform android-arm64 --split-per-abi
+        run: flutter build apk --release --target-platform android-arm64 --split-per-abi --dart-define=ODIFY_GOOGLE_SERVER_CLIENT_ID="$ODIFY_GOOGLE_SERVER_CLIENT_ID"
       - name: Verify APK signatures, own package/version, and native startup ELF
         working-directory: build/Odify
         run: |
@@ -123,17 +142,40 @@ jobs:
           test -n "$RELEASE" && test -n "$DEBUG"
           "$SIGNER" verify --verbose "$RELEASE"
           "$SIGNER" verify --verbose "$DEBUG"
-          "$AAPT" dump badging "$RELEASE" | grep -E "package: name='com.odify.music' versionCode='170' versionName='0.9.0'"
-          "$AAPT" dump badging "$DEBUG" | grep -E "package: name='com.odify.music.debug' versionCode='170'"
-          python3 ../../scripts/verify_android_apk.py "$RELEASE"
-          python3 ../../scripts/verify_android_apk.py "$DEBUG"
+          # Log only the package/version lines, never user data or credentials.
+          RELEASE_PACKAGE="$("$AAPT" dump badging "$RELEASE" | grep '^package:')"
+          DEBUG_PACKAGE="$("$AAPT" dump badging "$DEBUG" | grep '^package:')"
+          printf 'Release manifest: %s\\n' "$RELEASE_PACKAGE"
+          printf 'Debug manifest: %s\\n' "$DEBUG_PACKAGE"
+          [[ "$RELEASE_PACKAGE" == *"name='com.odify.music' "* ]]
+          # Flutter --split-per-abi adds the ARM64 ABI offset (2000)
+          # to the base pubspec versionCode 175.
+          [[ "$RELEASE_PACKAGE" == *"versionCode='2175' "* ]]
+          [[ "$RELEASE_PACKAGE" == *"versionName='0.9.5'"* ]]
+          [[ "$DEBUG_PACKAGE" == *"name='com.odify.music.debug' "* ]]
+          [[ "$DEBUG_PACKAGE" == *"versionCode='2175' "* ]]
+          python3 ../../scripts/verify_android_apk.py "$RELEASE" --mode release
+          python3 ../../scripts/verify_android_apk.py "$DEBUG" --mode debug
+          # Catch the 2026-10-21 Galaxy ExceptionInInitializerError before
+          # shipping any R8-minified release APK.
+          python3 ../../scripts/check_release_zip_reflection.py "$RELEASE"
+          python3 ../../scripts/check_media3_apk.py "$RELEASE"
           du -h "$RELEASE" "$DEBUG"
+      - name: Upload Release R8 mapping for crash retrace
+        uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: odify-095-release-r8-mapping
+          if-no-files-found: error
+          retention-days: 14
+          path: build/Odify/build/app/outputs/mapping/release/mapping.txt
       - name: Upload signed Release test APK
         uses: actions/upload-artifact@v4
         if: success()
         with:
-          name: odify-521-release-arm64-test-key
+          name: odify-095-profile-release-arm64-test-key
           if-no-files-found: error
           retention-days: 14
           path: |
             build/Odify/build/app/outputs/apk/release/*arm64-v8a*.apk
+

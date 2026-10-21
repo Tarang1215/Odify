@@ -5,9 +5,9 @@ import 'package:spotiflac_android/models/theme_settings.dart';
 
 final initialThemeSettingsProvider = Provider<ThemeSettings>(
   (ref) => const ThemeSettings(
-    themeMode: ThemeMode.dark,
+    themeMode: ThemeMode.light,
     style: AppThemeStyle.mornye,
-    mornyeAccent: MornyeAccent.green,
+    mornyeAccent: MornyeAccent.blue,
     useDynamicColor: false,
     mornyeGlassClarity: 0.82,
   ),
@@ -15,12 +15,18 @@ final initialThemeSettingsProvider = Provider<ThemeSettings>(
 
 ThemeSettings loadBootstrapThemeSettings(SharedPreferences prefs) {
   return ThemeSettings(
-    themeMode: themeModeFromString(prefs.getString(kThemeModeKey) ?? 'dark'),
+    themeMode: themeModeFromString(prefs.getString(kThemeModeKey) ?? 'light'),
     useDynamicColor: prefs.getBool(kUseDynamicColorKey) ?? false,
     seedColorValue: prefs.getInt(kSeedColorKey) ?? kDefaultSeedColor,
     useAmoled: prefs.getBool(kUseAmoledKey) ?? false,
     style: themeStyleFromString(prefs.getString(kThemeStyleKey) ?? 'mornye'),
-    mornyeAccent: mornyeAccentFromString(prefs.getString(kMornyeAccentKey) ?? 'green'),
+    mornyeAccent: mornyeAccentFromString(
+      (prefs.getBool('odify_blue_theme_migrated_v1') ?? false)
+          ? prefs.getString(kMornyeAccentKey) ?? 'blue'
+          : ((prefs.getString(kMornyeAccentKey) ?? 'green') == 'green'
+              ? 'blue'
+              : prefs.getString(kMornyeAccentKey)),
+    ),
     useSystemFont: prefs.getBool(kUseSystemFontKey) ?? false,
     customFontId: prefs.getString(kCustomFontIdKey) ?? '',
     customFontName: prefs.getString(kCustomFontNameKey) ?? '',
@@ -58,6 +64,14 @@ class ThemeNotifier extends Notifier<ThemeSettings> {
     try {
       final prefs = await _prefs;
       var loaded = loadBootstrapThemeSettings(prefs);
+      // Migrate only the inherited vendor green palette. Explicit red, teal,
+      // blue or other colors remain a user preference after this one-off step.
+      if (!(prefs.getBool('odify_blue_theme_migrated_v1') ?? false)) {
+        if ((prefs.getString(kMornyeAccentKey) ?? 'green') == 'green') {
+          await prefs.setString(kMornyeAccentKey, 'blue');
+        }
+        await prefs.setBool('odify_blue_theme_migrated_v1', true);
+      }
       for (final edit in _loadingEdits) {
         loaded = edit(loaded);
       }

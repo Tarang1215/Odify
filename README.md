@@ -1,12 +1,17 @@
-# Odify — SpotiFLAC 기반 Android 음악 앱
+# Odify — 자체 버전·업데이트 정책을 가진 Android 음악 앱
 
-SpotiFLAC Mobile의 MIT 라이선스를 준수하는 **고정 업스트림 + Odify 변경사항(overlay)** 구조입니다. 기존 Flutter/Rust/Android 프로젝트를 처음부터 다시 구현하지 않습니다.
+Odify는 Mornye 5.2.1의 검토된 오픈소스 코드를 **Odify 저장소 안의 변경 불가능한 vendor 스냅샷**으로 보유하고, 고유 Flutter UI·음악 탐색·Google Drive 동기화 모듈을 조립하는 앱입니다. 실행할 때 Mornye 서버나 원본 GitHub에 연결해 앱 코드를 내려받지 않으며, 원본 앱 업데이트가 Odify를 강제로 업데이트하지 않습니다.
 
-- 고정 원본 커밋: `21ee30c46d405aa72dd650d0cc6e3da0df831c12` (2026-10-19)
-- 앱 이름: **Odify** / Application ID: `com.odify.music`
-- Flutter 내부 패키지명 `spotiflac_android`와 원본 네이티브 패키지 `com.zarz.spotiflac`는 기존 코드 호환을 위해 유지합니다.
-- 오디오 엔진, FLAC 다운로드·가사·홈·컬렉션 UI는 **기존 SpotiFLAC 코드**를 사용합니다.
-- Actions는 자동으로 실행하지 않습니다.
+- 검토된 기반: Mornye **5.2.1**, 원본 커밋 `8e4504e72ddcda6bdf6df5e1275396f46e9dfb9f`
+- Odify가 소유한 고정 소스: `vendor/mornye-v5.2.1` @ `191fd35e1d9cf147a54312453c39e717408d0454`
+- 앱 식별자: **Odify** / Android Release `com.odify.music` / Debug `com.odify.music.debug`
+- Odify 고유 버전: `0.9.0+170`. 원본 강제 업데이트 알림은 차단하고, Odify 업데이터는 기본적으로 꺼져 있습니다.
+- Flutter 내부 `package:mornye`, Android Kotlin `com.zarz.mornye`, 네이티브 오디오 라이브러리 등은 기반 코드와의 **컴파일 호환성을 위해 남아 있는 내부 이름**입니다. 이것은 업데이트 종속성이 아닌 코드 계승이며, 전체 독립 재작성 완료를 뜻하지 않습니다.
+- Rust 오디오 엔진·재생/가사 UI는 검토된 Mornye 5.2.1 구현을 유지합니다. 소스 업데이트는 잠금 파일 변경·회귀 테스트·CI를 동반한 수동 마이그레이션만 허용합니다.
+- 빌드: `scripts/assemble_v521.py` 또는 `scripts/assemble.py`로 **Odify 저장소의 자체 스냅샷**을 조립합니다. GitHub Actions 통합 검증은 별도 워크플로에서 실행합니다.
+- Google Drive: 계정별 `appDataFolder` 이벤트 동기화 기반만 준비되어 있으며 Google Cloud OAuth 구성, 기존 음악 재생목록/좋아요 자동 연동 및 실기기 검증은 미완료입니다.
+
+[시작 오류 검증/갤럭시 로그 수집](docs/STARTUP_CRASH_V521.md) · [Drive OAuth 설정](docs/GOOGLE_DRIVE_OAUTH_SETUP.md) · [UI 리디자인](docs/ODIFY_GLASS_UI_REDESIGN.md)
 
 ## 추가된 기능
 
@@ -167,3 +172,14 @@ Google Drive 동기화 공통 엔진의 기반을 `lib/services/odify_sync/sync_
 - **검증:** Python overlay 조립·Flutter 전체 분석·홈/라이브러리/글래스/테마 위젯 테스트. 이번 작업에서 APK를 빌드하거나 배포하지 않았다. **실기기 120Hz 프레임 검사 및 UI 확인은 다음 통합 APK 배포 시 별도 진행한다.**
 
 자세한 변경 및 검증 기준: [Odify Glass UI Redesign](docs/ODIFY_GLASS_UI_REDESIGN.md).
+
+
+## 0.9.1+171 — 스트리밍 대기 및 소스 열기 복구
+
+- 기반 APK 소스: PR #2의 `98f6273e235d1077cd90b79b799b5621f1b10aea`.
+- 다음 곡 미리 준비와 실제 재생이 같은 영상 ID의 추출 작업을 공유한다. 대기 중인 화면이 사라져도 다른 재생 요청의 추출은 취소하지 않는다.
+- 추출 작업에 전체 22초, 클라이언트별 8초 예산과 실제 Python 프로세스 중단을 적용한다. 소켓 자체의 정리 시간 때문에 반환 시점에 약간의 차이가 있을 수 있다.
+- 기존 4개 클라이언트를 전체 시간 예산 내에서만 시도하고, 실패한 클라이언트는 60초간 후순위로 돌린다. 9번째 캐시 항목이 들어와도 전체 캐시를 비우지 않는다.
+- Android 소스 열기 실패 시 한 번만 새 주소를 받아 헤더/Range를 유지하는 루프백 경로로 재시도한다. 다른 곡으로 이동한 요청은 다시 재생하지 않는다.
+- 스트리밍은 여전히 직접 오디오 재생이며 MP3 다운로드/변환 완료를 기다리지 않는다. 로컬 음악 및 동기화 데이터는 변경하지 않는다.
+- 검증: Python 조립 회귀, Flutter 소스 열기 복구 테스트, JVM 추출 공유/취소/타임아웃 테스트, Android debug/release APK 컴파일. 실제 Galaxy 지연 및 재생 성공은 별도 기기 검증 대상이다.
