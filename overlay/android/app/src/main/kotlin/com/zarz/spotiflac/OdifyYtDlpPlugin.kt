@@ -13,7 +13,6 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.runInterruptible
@@ -450,7 +449,7 @@ class OdifyYtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         var failure: Exception? = null
         // A successful client is reused first. Do not run NIGHTLY updates
         // synchronously on the tap-to-play critical path.
-        for (client in prioritizedClients().take(3)) {
+        for (client in prioritizedClients()) {
             try {
                 val result = withTimeout(attemptBudgetMs) { extractAudio(id, client) }
                 cacheSuccess(id, client, result)
