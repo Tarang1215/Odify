@@ -201,6 +201,28 @@ class OdifyYouTube {
     return OdifyAudioProxy.shared.open(url, headers: headers);
   }
 
+  /// An on-device diagnostic for one public video. The native plugin probes
+  /// YouTube and CDN access but never includes URLs, cookies or video IDs in
+  /// the report. This does not download any media bytes to a file.
+  static Future<String> diagnoseVideo(String videoId) async {
+    sourceForId(videoId);
+    try {
+      final raw = await _channel.invokeMapMethod<dynamic, dynamic>(
+        'diagnose', {'videoId': videoId},
+      );
+      final report = raw ?? const <dynamic, dynamic>{};
+      return [
+        'Odify YouTube diagnostics',
+        for (final item in report.entries)
+          '${item.key}: ${item.value}',
+      ].join('\n');
+    } on PlatformException catch (error) {
+      // Message is a controlled category from the native plugin; do not
+      // surface arbitrary stderr or signed URL fragments.
+      return 'Native diagnostic unavailable: ${error.code}';
+    }
+  }
+
   /// Downloads only to Odify's app-owned directory. No Samsung files change.
   static Future<String> downloadMp3(OdifyVideo video) async {
     sourceForId(video.id);
