@@ -88,6 +88,15 @@ class OdifyYtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         val message = generateSequence(error) { it.cause }
             .take(4).joinToString(" ") { it.message.orEmpty() }.lowercase()
         return when {
+            "js_runtime_missing" in message -> "JS_RUNTIME_MISSING"
+            "js_challenge" in message -> "JS_CHALLENGE"
+            "youtube_verification" in message -> "YOUTUBE_VERIFICATION"
+            "cdn_403" in message -> "CDN_403"
+            "rate_limit" in message -> "RATE_LIMIT"
+            "ffmpeg_failed" in message -> "FFMPEG_FAILED"
+            "format_unavailable" in message -> "FORMAT_UNAVAILABLE"
+            "network_timeout" in message -> "NETWORK_TIMEOUT"
+            "download_failed" in message -> "DOWNLOAD_FAILED"
             "no supported javascript runtime" in message ||
                 "no javascript runtime" in message -> "JS_RUNTIME_MISSING"
             "ejs" in message || "signature solving" in message ||
@@ -114,8 +123,9 @@ class OdifyYtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
             "ffmpegRuntimeBundled" to File(libraryDir, "libffmpeg.so").isFile
         )
         try {
-            setup()
+            setup(ffmpeg = true)
             report["ytDlpInitialized"] = true
+            report["ffmpegInitialized"] = true
         } catch (error: Exception) {
             report["ytDlpInitialized"] = false
             report["failure"] = failureCategory(error)
@@ -263,6 +273,9 @@ class OdifyYtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         val request = YoutubeDLRequest(videoUrl(id))
         request.addOption("--no-playlist")
         request.addOption("--no-warnings")
+        request.addOption("--socket-timeout", "9")
+        request.addOption("--retries", "1")
+        request.addOption("--extractor-retries", "1")
         request.addOption("--skip-download")
         request.addOption("--dump-single-json")
         // Prefer AAC/M4A, which Android MediaPlayer plays more reliably
@@ -332,8 +345,7 @@ class OdifyYtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         android.util.Log.w("OdifyExtractor",
             "YouTube audio unavailable category=${failure?.let { failureCategory(it) } ?: "NO_CLIENT"}")
         throw IllegalStateException(
-            "YouTube 오디오를 가져오지 못했습니다. 영상 제한 또는 추출기 업데이트 문제일 수 있습니다. 네트워크를 확인한 뒤 다시 시도하세요."
-        )
+            "Audio resolution failed: ${failure?.let { failureCategory(it) } ?: "NO_CLIENT"}")
     }
 
     private fun downloadMp3(id: String): Map<String, Any> {
@@ -353,6 +365,9 @@ class OdifyYtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                     val request = YoutubeDLRequest(videoUrl(id))
                     request.addOption("--no-playlist")
                     request.addOption("--no-warnings")
+                    request.addOption("--socket-timeout", "9")
+                    request.addOption("--retries", "1")
+                    request.addOption("--extractor-retries", "1")
                     request.addOption("--extractor-args", "youtube:player_client=$client")
                     request.addOption("-f", "bestaudio[ext=m4a]/bestaudio/best")
                     request.addOption("-x")
