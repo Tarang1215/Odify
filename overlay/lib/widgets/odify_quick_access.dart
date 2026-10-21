@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:spotiflac_android/services/odify_home_feed.dart';
 import 'package:spotiflac_android/widgets/odify_device_library_card.dart';
+import 'package:spotiflac_android/widgets/odify_drive_pilot_screen.dart';
 import 'package:spotiflac_android/widgets/odify_glass.dart';
 import 'package:spotiflac_android/widgets/odify_youtube_explore.dart';
 import 'package:spotiflac_android/widgets/odify_home_feed.dart';
@@ -143,6 +144,21 @@ class OdifyQuickAccess extends StatelessWidget {
           if (showDeviceLibrary) ...[
             const SizedBox(height: 18),
             const OdifyDeviceLibraryCard(),
+            const SizedBox(height: 12),
+            Card(
+              child: ListTile(
+                key: const Key('odify-drive-pilot-entry'),
+                leading: const Icon(Icons.cloud_download_outlined),
+                title: const Text('Google Drive 음악 테스트'),
+                subtitle: const Text('Drive에서 오디오 가져와 Odify로 재생'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.of(context, rootNavigator: true).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const OdifyDrivePilotScreen(),
+                  ),
+                ),
+              ),
+            ),
           ],
         ],
       ),
