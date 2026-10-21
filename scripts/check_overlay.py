@@ -57,7 +57,10 @@ assert 'OdifyDeviceLibraryCard' in files['lib/widgets/odify_quick_access.dart'].
 assert '0.18.1' in app and 'jniLibs.useLegacyPackaging = true' in app
 assert 'android:extractNativeLibs' not in app
 native_stream = files['android/app/src/main/kotlin/com/zarz/spotiflac/OdifyYtDlpPlugin.kt'].read_text()
-assert 'validateAudioRange(url, headers)' in native_stream
+assert 'validateAudioRange(url, playbackHeaders)' in native_stream
+assert 'OdifyPlaybackProtocol.canonicalHeaders(headers)' in native_stream
+assert 'OdifyPlaybackProtocol.clientFallbackOrder' in native_stream
+assert 'probeSegments' in native_stream
 assert 'request.addOption("--dump-single-json")' in native_stream
 assert 'info.optJSONObject("http_headers")' in native_stream
 assert 'lib/services/odify_audio_proxy.dart' in files
