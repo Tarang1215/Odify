@@ -84,7 +84,7 @@ def assemble():
     # Trove/Supabase dependency is introduced. A separate public Web OAuth
     # server client ID will be supplied using --dart-define at a later build.
     replace_one(TARGET / 'pubspec.yaml',
-                'version: 5.2.1+163', 'version: 0.9.1+171')
+                'version: 5.2.1+163', 'version: 0.9.2+172')
     replace_one(TARGET / 'pubspec.yaml',
                 '  shared_preferences: ^2.5.6',
                 '  shared_preferences: ^2.5.6\n'
@@ -249,25 +249,66 @@ def assemble():
                 '            flutterEngine.plugins.add(OdifyMediaStorePlugin())\n        }\n'
                 '        if (!flutterEngine.plugins.has(OdifyYtDlpPlugin::class.java)) {\n'
                 '            flutterEngine.plugins.add(OdifyYtDlpPlugin())\n        }')
-    # Odify network audio may bypass the Dart loopback relay: pass yt-dlp's
-    # bounded source headers directly to Android MediaPlayer. Only this
-    # reviewed network-source seam changes; SAF and MP3/FLAC are unchanged.
+    # Select Media3 only for Odify's opaque online CDN/relay sources.
+    # All ordinary streams, SAF, local audio and USB DAC retain upstream path.
+    plugin_dir = TARGET / 'third_party/audioplayers_android/android'
+    wrapped = plugin_dir / 'src/main/kotlin/xyz/luan/audioplayers/player/WrappedPlayer.kt'
     replace_one(
-        TARGET / 'third_party/audioplayers_android/android/src/main/kotlin/'
-                 'xyz/luan/audioplayers/source/UrlSource.kt',
-        '        } else {\n'
-        '            mediaPlayer.setDataSource(url)\n'
-        '        }',
-        '        } else {\n'
-        '            val odify = OdifyStreamRegistry.lookup(url)\n'
-        '            if (odify != null) {\n'
-        '                mediaPlayer.setDataSource(odify.context, android.net.Uri.parse(odify.url), odify.headers)\n'
-        '            } else if (OdifyStreamRegistry.isOdifySource(url)) {\n'
-        '                error("Expired Odify network audio session")\n'
-        '            } else {\n'
-        '                mediaPlayer.setDataSource(url)\n'
-        '            }\n'
-        '        }',
+        wrapped,
+        '                    val player = getOrCreatePlayer()\n',
+        '                    val player = getOrCreatePlayer(value)\n',
+    )
+    replace_one(
+        wrapped,
+        '    private fun getOrCreatePlayer(): PlayerWrapper {\n'
+        '        val currentPlayer = player\n'
+        '        return if (released || currentPlayer == null) {\n'
+        '            createPlayer().also {',
+        '    private fun getOrCreatePlayer(nextSource: Source? = source): PlayerWrapper {\n'
+        '        var currentPlayer = player\n'
+        '        if (playerMode == MEDIA_PLAYER && currentPlayer != null &&\n'
+        '            (currentPlayer is OdifyExoPlayerWrapper) != OdifyExoPlayerWrapper.accepts(nextSource)) {\n'
+        '            currentPlayer.release()\n'
+        '            player = null\n'
+        '            currentPlayer = null\n'
+        '            released = true\n'
+        '            prepared = false\n'
+        '            playing = false\n'
+        '        }\n'
+        '        return if (released || currentPlayer == null) {\n'
+        '            createPlayer(nextSource).also {',
+    )
+    replace_one(
+        wrapped,
+        '    private fun createPlayer(): PlayerWrapper {\n'
+        '        return when (playerMode) {\n'
+        '            MEDIA_PLAYER -> MediaPlayerWrapper(this)',
+        '    private fun createPlayer(nextSource: Source? = source): PlayerWrapper {\n'
+        '        return when (playerMode) {\n'
+        '            MEDIA_PLAYER -> if (OdifyExoPlayerWrapper.accepts(nextSource))\n'
+        '                OdifyExoPlayerWrapper(this) else MediaPlayerWrapper(this)',
+    )
+    replace_one(
+        wrapped,
+        '    fun onError(what: Int, extra: Int): Boolean {',
+        '    fun onExoError(code: String, safeCause: String) {\n'
+        '        prepared = false\n'
+        '        playing = false\n'
+        '        focusManager.handleStop()\n'
+        '        handleError("AndroidAudioError", "Odify Media3 streaming failed",\n'
+        '            "EXO_" + code + " / " + safeCause)\n'
+        '    }\n\n'
+        '    fun onError(what: Int, extra: Int): Boolean {',
+    )
+    plugin_gradle = plugin_dir / 'build.gradle'
+    replace_one(plugin_gradle, '        minSdkVersion 19', '        minSdkVersion 23')
+    replace_one(
+        plugin_gradle,
+        '    implementation "androidx.core:core-ktx:1.19.1"',
+        '    implementation "androidx.core:core-ktx:1.19.1"\n'
+        '    implementation "androidx.media3:media3-exoplayer:1.9.4"\n'
+        '    implementation "androidx.media3:media3-datasource-okhttp:1.9.4"\n'
+        '    implementation "com.squareup.okhttp3:okhttp:4.12.0"',
     )
     # MediaStore tracks use the upstream legacy source, whose virtual URI is
     # not a real filesystem directory. Preserve visibility of this source and
