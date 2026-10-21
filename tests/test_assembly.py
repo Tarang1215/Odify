@@ -46,19 +46,19 @@ FIXTURES = {
         "    preferenceAdjustment: (track) => model.rankAdjustment(\n"
     ),
     'third_party/audioplayers_android/android/src/main/kotlin/xyz/luan/audioplayers/player/WrappedPlayer.kt': (
-        "                    val player = getOrCreatePlayer()\\n"
-        "    private fun getOrCreatePlayer(): PlayerWrapper {\\n"
-        "        val currentPlayer = player\\n"
-        "        return if (released || currentPlayer == null) {\\n"
-        "            createPlayer().also {\\n"
-        "    private fun createPlayer(): PlayerWrapper {\\n"
-        "        return when (playerMode) {\\n"
-        "            MEDIA_PLAYER -> MediaPlayerWrapper(this)\\n"
-        "    fun onError(what: Int, extra: Int): Boolean {\\n"
+        "                    val player = getOrCreatePlayer()\n"
+        "    private fun getOrCreatePlayer(): PlayerWrapper {\n"
+        "        val currentPlayer = player\n"
+        "        return if (released || currentPlayer == null) {\n"
+        "            createPlayer().also {\n"
+        "    private fun createPlayer(): PlayerWrapper {\n"
+        "        return when (playerMode) {\n"
+        "            MEDIA_PLAYER -> MediaPlayerWrapper(this)\n"
+        "    fun onError(what: Int, extra: Int): Boolean {\n"
     ),
     'third_party/audioplayers_android/android/build.gradle': (
-        "        minSdkVersion 19\\n"
-        "    implementation \\"androidx.core:core-ktx:1.19.1\\"\\n"
+        "        minSdkVersion 19\n"
+        "    implementation \"androidx.core:core-ktx:1.19.1\"\n"
     ),
     'android/app/src/main/kotlin/com/zarz/mornye/MainActivity.kt': (
         "            flutterEngine.plugins.add(MusicHapticsPlugin())\n        }\n"
