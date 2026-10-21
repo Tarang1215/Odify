@@ -45,10 +45,20 @@ FIXTURES = {
         "    limit,\n  ) = input;\n"
         "    preferenceAdjustment: (track) => model.rankAdjustment(\n"
     ),
-    'third_party/audioplayers_android/android/src/main/kotlin/xyz/luan/audioplayers/source/UrlSource.kt': (
-        "        } else {\n"
-        "            mediaPlayer.setDataSource(url)\n"
-        "        }\n"
+    'third_party/audioplayers_android/android/src/main/kotlin/xyz/luan/audioplayers/player/WrappedPlayer.kt': (
+        "                    val player = getOrCreatePlayer()\\n"
+        "    private fun getOrCreatePlayer(): PlayerWrapper {\\n"
+        "        val currentPlayer = player\\n"
+        "        return if (released || currentPlayer == null) {\\n"
+        "            createPlayer().also {\\n"
+        "    private fun createPlayer(): PlayerWrapper {\\n"
+        "        return when (playerMode) {\\n"
+        "            MEDIA_PLAYER -> MediaPlayerWrapper(this)\\n"
+        "    fun onError(what: Int, extra: Int): Boolean {\\n"
+    ),
+    'third_party/audioplayers_android/android/build.gradle': (
+        "        minSdkVersion 19\\n"
+        "    implementation \\"androidx.core:core-ktx:1.19.1\\"\\n"
     ),
     'android/app/src/main/kotlin/com/zarz/mornye/MainActivity.kt': (
         "            flutterEngine.plugins.add(MusicHapticsPlugin())\n        }\n"
@@ -117,13 +127,25 @@ class OdifyAssemblyTests(unittest.TestCase):
                 (target / 'android/app/src/main/kotlin/com/zarz/mornye/OdifyMediaStorePlugin.kt').is_file()
             )
             self.assertIn("'odify-youtube'", (target / 'lib/services/playable_media.dart').read_text())
-            native = (target / 'third_party/audioplayers_android/android/src/main/kotlin/xyz/luan/audioplayers/source/UrlSource.kt').read_text()
-            self.assertIn('mediaPlayer.setDataSource(odify.context, android.net.Uri.parse(odify.url), odify.headers)', native)
+            native = (target / 'third_party/audioplayers_android/android/src/main/kotlin/xyz/luan/audioplayers/player/WrappedPlayer.kt').read_text()
+            self.assertIn('OdifyExoPlayerWrapper.accepts(nextSource)', native)
+            self.assertIn('OdifyExoPlayerWrapper(this)', native)
+            self.assertIn('fun onExoError(', native)
+            media3_wrapper = (target / 'third_party/audioplayers_android/android/src/main/kotlin/xyz/luan/audioplayers/player/OdifyExoPlayerWrapper.kt').read_text()
+            self.assertIn('OkHttpDataSource.Factory(', media3_wrapper)
+            self.assertIn('player.setMediaItem(item)', media3_wrapper)
+            self.assertIn('wrappedPlayer.onPrepared()', media3_wrapper)
+            self.assertIn('wrappedPlayer.onExoError(', media3_wrapper)
+            self.assertIn('OdifyStreamRegistry.lookup(handle)', media3_wrapper)
+            plugin_gradle = (target / 'third_party/audioplayers_android/android/build.gradle').read_text()
+            self.assertIn('media3-exoplayer:1.9.4', plugin_gradle)
+            self.assertIn('media3-datasource-okhttp:1.9.4', plugin_gradle)
             self.assertTrue((target / 'third_party/audioplayers_android/android/src/main/kotlin/xyz/luan/audioplayers/source/OdifyStreamRegistry.kt').is_file())
             extractor = (target / 'android/app/src/main/kotlin/com/zarz/mornye/OdifyYtDlpPlugin.kt').read_text()
             self.assertIn('private suspend fun probeAndroidMediaPlayer', extractor)
             self.assertIn('player.prepareAsync()', extractor)
             self.assertNotIn('player.start()', extractor)
+            self.assertIn('OdifyStreamRegistry.register(context, url, headers, info.optString("ext"))', extractor)
             self.assertIn('"audioCodec" to audioCodec', extractor)
             self.assertIn('"androidErrorExtra" to extra', extractor)
             gradle = (target / 'android/app/build.gradle.kts').read_text()
