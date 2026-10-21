@@ -10,10 +10,10 @@ import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.HttpDataSource
-import androidx.media3.datasource.okhttp.OkHttpDataSource
+import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.datasource.DataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
-import okhttp3.OkHttpClient
 import xyz.luan.audioplayers.AudioContextAndroid
 import xyz.luan.audioplayers.source.OdifyStreamRegistry
 import xyz.luan.audioplayers.source.Source
@@ -42,12 +42,19 @@ class OdifyExoPlayerWrapper(private val wrappedPlayer: WrappedPlayer) : PlayerWr
     }
 
     private val appContext = wrappedPlayer.applicationContext
-    private val httpFactory = OkHttpDataSource.Factory(
-        OkHttpClient.Builder().followRedirects(true).followSslRedirects(true).build()
-    )
+    // Match the actual successful yt-dlp CDN probe: Android HttpURLConnection,
+    // identity encoding, finite 0-1023 Range, then sequential 256 KiB ranges.
+    // Media3 still demuxes/buffers/plays the continuous exposed byte stream.
+    private val httpFactory = DefaultHttpDataSource.Factory()
+        .setConnectTimeoutMs(6000)
+        .setReadTimeoutMs(12000)
+        .setAllowCrossProtocolRedirects(false)
+    private val media3DataSource = DataSource.Factory {
+        OdifyBoundedRangeDataSource(httpFactory)
+    }
     private val player = ExoPlayer.Builder(appContext)
         .setMediaSourceFactory(
-            DefaultMediaSourceFactory(appContext).setDataSourceFactory(httpFactory)
+            DefaultMediaSourceFactory(appContext).setDataSourceFactory(media3DataSource)
         ).build()
 
     private var released = false
@@ -143,7 +150,9 @@ class OdifyExoPlayerWrapper(private val wrappedPlayer: WrappedPlayer) : PlayerWr
         val session = if (OdifyStreamRegistry.isOdifySource(handle)) {
             OdifyStreamRegistry.lookup(handle) ?: error("Expired Odify CDN session")
         } else null
-        httpFactory.setDefaultRequestProperties(session?.headers ?: emptyMap())
+        httpFactory.setDefaultRequestProperties(
+            (session?.headers ?: emptyMap()) + ("accept-encoding" to "identity")
+        )
         val item = MediaItem.Builder()
             .setUri(session?.url ?: handle)
             .apply { session?.mimeType?.let { setMimeType(it) } }
