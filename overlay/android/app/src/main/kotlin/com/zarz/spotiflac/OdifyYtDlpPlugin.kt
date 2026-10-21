@@ -140,6 +140,20 @@ class OdifyYtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                     result.error("odify_yt_dlp_$code", "$userMessage [$code]",
                         mapOf("failureCode" to code, "operation" to call.method))
                 }
+            } catch (error: LinkageError) {
+                // ExceptionInInitializerError extends LinkageError (not
+                // Exception). Broken ZIP class initialization must not crash
+                // the entire foreground Flutter process or destroy its state.
+                // Do not include native exception messages: they may contain
+                // signed URLs or Python extractor internals.
+                android.util.Log.e("OdifyExtractor",
+                    "Native runtime initialization failed: ${error.javaClass.simpleName}")
+                withContext(Dispatchers.Main) {
+                    result.error("odify_native_runtime_failure",
+                        "음원 실행 환경 초기화에 실패했습니다. 앱 빌드를 업데이트해주세요.",
+                        mapOf("failureCode" to "NATIVE_RUNTIME_INIT_FAILURE",
+                              "operation" to call.method))
+                }
             }
         }
     }
