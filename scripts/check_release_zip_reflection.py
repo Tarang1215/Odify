@@ -35,7 +35,7 @@ def uleb(data, offset):
 
 
 def descriptors(data):
-    if not data.startswith(b"dex\\n"):
+    if not data.startswith(b"dex\n"):
         raise ValueError("Invalid DEX header")
     def fields(offset):
         return struct.unpack_from("<II", data, offset)
@@ -48,7 +48,7 @@ def descriptors(data):
     for i in range(strings_count):
         (at,) = struct.unpack_from("<I", data, strings_offset + i * 4)
         _, at = uleb(data, at)
-        end = data.index(b"\\0", at)
+        end = data.index(b"\0", at)
         strings.append(data[at:end].decode("utf-8", errors="replace"))
     types = [strings[struct.unpack_from("<I", data, types_offset + i * 4)[0]]
              for i in range(types_count)]
