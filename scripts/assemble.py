@@ -210,8 +210,8 @@ def assemble():
     proguard = TARGET / 'android/app/proguard-rules.pro'
     proguard_text = proguard.read_text(encoding='utf-8')
     zip_guard = (
-        '\\n# Odify: Apache Commons Compress ZIP registry uses reflection.\\n'
-        '-keep class org.apache.commons.compress.archivers.zip.** { *; }\\n'
+        '\n# Odify: Apache Commons Compress ZIP registry uses reflection.\n'
+        '-keep class org.apache.commons.compress.archivers.zip.** { *; }\n'
     )
     if 'org.apache.commons.compress.archivers.zip.**' in proguard_text:
         raise RuntimeError('Vendor ZIP optimizer rules changed; review before update')
