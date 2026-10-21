@@ -99,7 +99,7 @@ class OdifyDrivePilotStore {
           Map<String, dynamic>.from(entry),
         );
         // Only accept a generated digest basename and supported extension.
-        if (!RegExp(r'^[a-f0-9]{64}\\.(mp3|m4a|aac|flac|wav|ogg|opus)\$')
+        if (!RegExp(r'^[a-f0-9]{64}\.(mp3|m4a|aac|flac|wav|ogg|opus)$')
             .hasMatch(track.relativePath)) {
           continue;
         }
