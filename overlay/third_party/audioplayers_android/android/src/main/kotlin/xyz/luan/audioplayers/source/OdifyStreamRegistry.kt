@@ -7,14 +7,14 @@ import java.util.LinkedHashMap
 
 /**
  * Ephemeral in-process handoff for an extracted audio URL and its yt-dlp
- * request headers. MediaPlayer.setDataSource(url, headers) preserves the
- * original signed source without a loopback HTTP server or extra proxy hop.
+ * request headers and selected MIME format. Media3's OkHttpDataSource
+ * handles byte ranges, redirects and demux outside Android MediaPlayer.
  *
  * The registry lives alongside the pinned audioplayers_android source, not in
  * a system provider or an app-global persisted database. Never log URLs.
  */
 object OdifyStreamRegistry {
-    data class Stream(val context: Context, val url: String, val headers: Map<String, String>, val expiresAtMs: Long)
+    data class Stream(val context: Context, val url: String, val headers: Map<String, String>, val mimeType: String?, val expiresAtMs: Long)
 
     private val random = SecureRandom()
     private val sessions = LinkedHashMap<String, Stream>()
@@ -26,7 +26,7 @@ object OdifyStreamRegistry {
     private const val PREFIX = "odify-cdn://audio/"
 
     @Synchronized
-    fun register(context: Context, url: String, headers: Map<String, String>): String {
+    fun register(context: Context, url: String, headers: Map<String, String>, audioContainer: String = ""): String {
         val uri = URI(url)
         val hostname = uri.host?.lowercase() ?: ""
         require(uri.scheme == "https" && uri.userInfo == null &&
@@ -45,7 +45,12 @@ object OdifyStreamRegistry {
         val token = bytes.joinToString("") { "%02x".format(it.toInt() and 0xff) }
         val now = System.currentTimeMillis()
         sessions.entries.removeAll { it.value.expiresAtMs <= now }
-        sessions[token] = Stream(context.applicationContext, url, safe, now + TTL_MS)
+        val mimeType = when (audioContainer.lowercase()) {
+            "m4a", "mp4" -> "audio/mp4"
+            "webm", "opus" -> "audio/webm"
+            else -> null
+        }
+        sessions[token] = Stream(context.applicationContext, url, safe, mimeType, now + TTL_MS)
         while (sessions.size > MAX_SESSIONS) {
             sessions.remove(sessions.keys.first())
         }
