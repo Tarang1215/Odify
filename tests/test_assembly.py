@@ -100,7 +100,7 @@ class OdifyAssemblyTests(unittest.TestCase):
             )
             self.assertIn("'odify-youtube'", (target / 'lib/services/playable_media.dart').read_text())
             native = (target / 'third_party/audioplayers_android/android/src/main/kotlin/xyz/luan/audioplayers/source/UrlSource.kt').read_text()
-            self.assertIn('mediaPlayer.setDataSource(odify.url, odify.headers)', native)
+            self.assertIn('mediaPlayer.setDataSource(odify.context, android.net.Uri.parse(odify.url), odify.headers)', native)
             self.assertTrue((target / 'third_party/audioplayers_android/android/src/main/kotlin/xyz/luan/audioplayers/source/OdifyStreamRegistry.kt').is_file())
             gradle = (target / 'android/app/build.gradle.kts').read_text()
             manifest = (target / 'android/app/src/main/AndroidManifest.xml').read_text()
