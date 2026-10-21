@@ -188,6 +188,26 @@ def assemble():
                 '            flutterEngine.plugins.add(OdifyMediaStorePlugin())\n        }\n'
                 '        if (!flutterEngine.plugins.has(OdifyYtDlpPlugin::class.java)) {\n'
                 '            flutterEngine.plugins.add(OdifyYtDlpPlugin())\n        }')
+    # Odify network audio may bypass the Dart loopback relay: pass yt-dlp's
+    # bounded source headers directly to Android MediaPlayer. Only this
+    # reviewed network-source seam changes; SAF and MP3/FLAC are unchanged.
+    replace_one(
+        TARGET / 'third_party/audioplayers_android/android/src/main/kotlin/'
+                 'xyz/luan/audioplayers/source/UrlSource.kt',
+        '        } else {\n'
+        '            mediaPlayer.setDataSource(url)\n'
+        '        }',
+        '        } else {\n'
+        '            val odify = OdifyStreamRegistry.lookup(url)\n'
+        '            if (odify != null) {\n'
+        '                mediaPlayer.setDataSource(odify.url, odify.headers)\n'
+        '            } else if (OdifyStreamRegistry.isOdifySource(url)) {\n'
+        '                error("Expired Odify network audio session")\n'
+        '            } else {\n'
+        '                mediaPlayer.setDataSource(url)\n'
+        '            }\n'
+        '        }',
+    )
     # MediaStore tracks use the upstream legacy source, whose virtual URI is
     # not a real filesystem directory. Preserve visibility of this source and
     # never attempt a native folder scan against the virtual URI.
