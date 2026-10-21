@@ -116,6 +116,13 @@ def assemble():
                 "      extract: (source) async =>\n"
                 "          await OdifyDeviceArtwork.forSource(source) ??\n"
                 "          await DownloadedEmbeddedCoverResolver.resolveOrExtract(source),")
+    # Odify's transient CDN handle and persistent YouTube ID are network
+    # identities. Never ask ReplayGain's local-file analyzer to open them;
+    # otherwise every Play/Next can incur failed filesystem probing.
+    replace_one(TARGET / 'lib/services/music_player_service.dart',
+                "          'https',\n        }.contains(Uri.tryParse(path)?.scheme) ||",
+                "          'https',\n          'odify-cdn',\n"
+                "          'odify-youtube',\n        }.contains(Uri.tryParse(path)?.scheme) ||")
     # Re-resolve YouTube stream URLs when playback starts (IDs survive restarts).
     replace_one(TARGET / 'lib/services/music_player_service.dart',
                 "import 'package:spotiflac_android/services/music_player_runtime.dart';",
