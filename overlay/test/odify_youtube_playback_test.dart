@@ -82,4 +82,30 @@ void main() {
     expect(report, isNot(contains('sensitive URL')));
   });
 
+  test('prefetch and invalidate refer only to stable video ID', () async {
+    final methods = <String>[];
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+          methods.add(call.method);
+          expect(call.arguments, {'videoId': id});
+          return true;
+        });
+    await OdifyYouTube.prefetchAudioSource(source);
+    await OdifyYouTube.invalidateAudioSource(source);
+    expect(methods, ['prefetch', 'expire']);
+    expect(OdifyYouTube.idFromSource(source), id);
+  });
+
+  test('prefetch ignores local media paths', () async {
+    var calls = 0;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+          calls++;
+          return true;
+        });
+    await OdifyYouTube.prefetchAudioSource('/music/song.flac');
+    await OdifyYouTube.invalidateAudioSource('content://media/other');
+    expect(calls, 0);
+  });
+
 }
