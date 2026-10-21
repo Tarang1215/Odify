@@ -160,9 +160,11 @@ class OdifyYtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         val attempts = mutableListOf<String>()
         for (client in audioClients) {
             try {
-                extractAudio(id, client)
+                val validated = extractAudio(id, client)
                 report["playableCdnProbe"] = true
                 report["client"] = client
+                report["extractMs"] = validated["extractMs"] ?: -1
+                report["cdnProbeMs"] = validated["probeMs"] ?: -1
                 report["attempts"] = attempts
                 return report
             } catch (error: Exception) {
@@ -387,34 +389,40 @@ class OdifyYtDlpPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
                 "bytes" to finalFile.length())
         }
         var failure: Exception? = null
-        for (pass in 0..1) {
-            if (pass == 1 && !refreshExtractorOnce()) break
-            for (client in audioClients) {
-                try {
-                    val request = YoutubeDLRequest(videoUrl(id))
-                    request.addOption("--no-playlist")
-                    request.addOption("--no-warnings")
-                    request.addOption("--socket-timeout", "9")
-                    request.addOption("--retries", "1")
-                    request.addOption("--extractor-retries", "1")
-                    request.addOption("--extractor-args", "youtube:player_client=$client")
-                    request.addOption("-f", "bestaudio[ext=m4a]/bestaudio/best")
-                    request.addOption("-x")
-                    request.addOption("--audio-format", "mp3")
-                    request.addOption("--audio-quality", "2")
-                    request.addOption("--add-metadata")
-                    request.addOption("--no-overwrites")
-                    request.addOption("-o", File(directory, "$id.%(ext)s").absolutePath)
-                    YoutubeDL.getInstance().execute(request)
-                    if (finalFile.isFile && finalFile.length() > 0L) {
-                        return mapOf("path" to finalFile.absolutePath, "videoId" to id,
-                            "bytes" to finalFile.length())
-                    }
-                } catch (error: Exception) {
-                    failure = error
-                    android.util.Log.w("OdifyExtractor",
-                        "Download failed client=$client category=${failureCategory(error)}")
+        // Keep extraction updates out of the user-facing download operation;
+        // avoid running all clients twice if a GitHub NIGHTLY check is slow.
+        for (client in prioritizedClients()) {
+            val startMs = SystemClock.elapsedRealtime()
+            try {
+                val request = YoutubeDLRequest(videoUrl(id))
+                request.addOption("--no-playlist")
+                request.addOption("--no-warnings")
+                request.addOption("--socket-timeout", "9")
+                request.addOption("--retries", "1")
+                request.addOption("--extractor-retries", "1")
+                request.addOption("--extractor-args", "youtube:player_client=$client")
+                request.addOption("-f", "bestaudio[ext=m4a]/bestaudio/best")
+                request.addOption("-x")
+                request.addOption("--audio-format", "mp3")
+                request.addOption("--audio-quality", "2")
+                request.addOption("--add-metadata")
+                request.addOption("--no-overwrites")
+                request.addOption("-o", File(directory, "$id.%(ext)s").absolutePath)
+                YoutubeDL.getInstance().execute(request)
+                if (finalFile.isFile && finalFile.length() > 0L) {
+                    android.util.Log.i("OdifyExtractor",
+                        "MP3 ready client=$client elapsedMs=${SystemClock.elapsedRealtime() - startMs}")
+                    preferredAudioClient = client
+                    context.getSharedPreferences("odify_extractor", Context.MODE_PRIVATE)
+                        .edit().putString("working_client", client).apply()
+                    return mapOf("path" to finalFile.absolutePath, "videoId" to id,
+                        "bytes" to finalFile.length())
                 }
+                failure = IllegalStateException("No MP3 output after converter")
+            } catch (error: Exception) {
+                failure = error
+                android.util.Log.w("OdifyExtractor",
+                    "MP3 failed client=$client category=${failureCategory(error)} elapsedMs=${SystemClock.elapsedRealtime() - startMs}")
             }
         }
         android.util.Log.e("OdifyExtractor",
