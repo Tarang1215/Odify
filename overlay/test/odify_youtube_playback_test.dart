@@ -47,4 +47,39 @@ void main() {
     await OdifyAudioProxy.shared.dispose();
   });
 
+  test('diagnostics expose only stable timing and failure categories', () async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+          expect(call.method, 'diagnose');
+          expect(call.arguments, {'videoId': id});
+          return {
+            'ytDlpInitialized': true,
+            'playableCdnProbe': true,
+            'client': 'android',
+            'extractMs': 2450,
+            'cdnProbeMs': 95,
+            'attempts': <String>[],
+          };
+        });
+    final report = await OdifyYouTube.diagnoseVideo(id);
+    expect(report, contains('extractMs: 2450'));
+    expect(report, contains('cdnProbeMs: 95'));
+    expect(report, contains('client: android'));
+    expect(report, isNot(contains('googlevideo.com')));
+    expect(report, isNot(contains(id)));
+  });
+
+  test('diagnostic plugin failure returns only controlled error code', () async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+          throw PlatformException(
+            code: 'odify_yt_dlp_JS_CHALLENGE',
+            message: 'sensitive URL must be discarded',
+          );
+        });
+    final report = await OdifyYouTube.diagnoseVideo(id);
+    expect(report, contains('JS_CHALLENGE'));
+    expect(report, isNot(contains('sensitive URL')));
+  });
+
 }
