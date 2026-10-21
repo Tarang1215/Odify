@@ -145,7 +145,18 @@ jobs:
           [[ "$DEBUG_PACKAGE" == *"versionCode='2170' "* ]]
           python3 ../../scripts/verify_android_apk.py "$RELEASE" --mode release
           python3 ../../scripts/verify_android_apk.py "$DEBUG" --mode debug
+          # Protect against the on-device ZIP registry <clinit> crash that
+          # ordinary APK signature and Flutter tests cannot detect.
+          python3 ../../scripts/check_release_zip_reflection.py "$RELEASE"
           du -h "$RELEASE" "$DEBUG"
+      - name: Upload Release R8 mapping for crash retrace
+        uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: odify-521-release-r8-mapping
+          if-no-files-found: error
+          retention-days: 14
+          path: build/Odify/build/app/outputs/mapping/release/mapping.txt
       - name: Upload signed Release test APK
         uses: actions/upload-artifact@v4
         if: success()
