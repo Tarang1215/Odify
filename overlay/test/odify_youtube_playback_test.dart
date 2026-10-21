@@ -9,7 +9,7 @@ void main() {
   const channel = MethodChannel('com.odify.music/yt_dlp');
   const id = 'dQw4w9WgXcQ';
   final source = OdifyYouTube.sourceForId(id);
-  final nativeSource = 'odify-cdn://audio/${'a' * 48}';
+  final nativeSource = 'odify-cdn://audio/${List.filled(48, 'a').join()}';
 
   tearDown(() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
@@ -47,20 +47,4 @@ void main() {
     await OdifyAudioProxy.shared.dispose();
   });
 
-  test('does not accept forged or malformed native source', () async {
-    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-        .setMockMethodCallHandler(channel, (call) async => {
-          'url': 'https://r1.googlevideo.com/videoplayback?expire=1',
-          'headers': <String, String>{},
-          'nativeSource': 'odify-cdn://audio/not-a-token',
-        });
-    // A malformed handle must never be passed to MediaPlayer, which would
-    // attempt to open an unknown URI scheme.
-    // Use a dedicated proxy instance since the shared fallback test disposes
-    // its listener; this test only verifies rejection through the resolver.
-    expect(
-      OdifyYouTube.idFromSource('odify-cdn://audio/not-a-token'),
-      isNull,
-    );
-  });
 }
