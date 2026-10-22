@@ -2,7 +2,7 @@ package com.odify.nativeapp
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -71,7 +71,7 @@ fun OdifyQueueDialog(
                     Column(Modifier.weight(1f)) {
                         Text("다음 재생목록",color=Color.White,fontWeight=FontWeight.Bold,
                             fontSize=20.sp)
-                        Text("${ordered.size}곡 · 오른쪽 손잡이를 꾹 눌러 순서 변경",
+                        Text("${ordered.size}곡 · 오른쪽 손잡이를 바로 드래그해 순서 변경",
                             color=Color(0xFFADB0B8),fontSize=11.sp)
                     }
                     IconButton(onClick=onClose) {
@@ -119,7 +119,7 @@ fun OdifyQueueDialog(
                                 modifier=Modifier.size(42.dp)
                                     .padding(8.dp)
                                     .pointerInput(queued.key, rowHeight) {
-                                        detectDragGesturesAfterLongPress(
+                                        detectDragGestures(
                                             onDragStart={
                                                 dragging=queued.key
                                                 displacement=0f
@@ -128,7 +128,7 @@ fun OdifyQueueDialog(
                                             onDragCancel={ dragging=null;displacement=0f },
                                             onDrag={ change, movement ->
                                                 change.consume()
-                                                if(dragging != queued.key) return@detectDragGesturesAfterLongPress
+                                                if(dragging != queued.key) return@detectDragGestures
                                                 displacement+=movement.y
                                                 var from=ordered.indexOfFirst { it.key==queued.key }
                                                 while(displacement>=rowHeight && from < ordered.lastIndex) {
