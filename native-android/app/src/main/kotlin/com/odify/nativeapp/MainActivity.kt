@@ -162,6 +162,16 @@ private fun NativeOdify() {
                         androidx.media3.common.Player.REPEAT_MODE_OFF
                     else androidx.media3.common.Player.REPEAT_MODE_ONE
             },
+            onEdit = { song, title, artist, album ->
+                scope.launch {
+                    runCatching { library.updateMetadata(song, title, artist, album) }
+                        .onSuccess { songs = library.songs() }
+                        .onFailure {
+                            Toast.makeText(context, it.message ?: "정보 저장 실패",
+                                Toast.LENGTH_LONG).show()
+                        }
+                }
+            },
             onRemove = { track ->
                 scope.launch {
                     if (playback.mediaId == track.id) controller?.stop()
