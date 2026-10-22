@@ -22,6 +22,8 @@ object DriveAuth {
     }
 
     @Volatile private var accessToken: String? = null
+    @Volatile private var tokenObtainedAt: Long = 0L
+    private const val TOKEN_REFRESH_AFTER_MS = 40L * 60L * 1000L
     @Volatile var connected: Boolean = false
         private set
 
@@ -55,6 +57,7 @@ object DriveAuth {
 
     fun setToken(token: String) {
         accessToken = token
+        tokenObtainedAt = System.currentTimeMillis()
         connected = true
     }
 
@@ -64,6 +67,11 @@ object DriveAuth {
      * silently launched from background playback; missing consent is explicit.
      */
     fun tokenBlocking(context: Context): String {
+        val cached = accessToken
+        if (!cached.isNullOrBlank() &&
+            System.currentTimeMillis() - tokenObtainedAt < TOKEN_REFRESH_AFTER_MS) {
+            return cached
+        }
         val result = Tasks.await(
             Identity.getAuthorizationClient(context).authorize(request),
             20, TimeUnit.SECONDS
@@ -79,6 +87,7 @@ object DriveAuth {
 
     fun clear() {
         accessToken = null
+        tokenObtainedAt = 0L
         connected = false
     }
 }
