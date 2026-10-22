@@ -101,13 +101,19 @@ private fun NativeOdify() {
                 // A few covers become visible in Search/Home before first play.
                 // This runs after sync, off the UI thread, with daily retry caps.
                 scope.launch {
-                    runCatching {
-                        withContext(Dispatchers.IO) {
-                            val count = driveCatalog.prefetchMetadata(limit = 24)
-                            count to (library.songs() + driveCatalog.tracks())
-                        }
-                    }.onSuccess { (count, refreshed) ->
+                    // Hydrate incrementally: the first four names/covers become
+                    // visible quickly instead of waiting for every remote file.
+                    for (batch in 0 until 8) {
+                        val result = runCatching {
+                            withContext(Dispatchers.IO) {
+                                val count = driveCatalog.prefetchMetadata(limit = 4)
+                                count to (library.songs() + driveCatalog.tracks())
+                            }
+                        }.getOrNull() ?: break
+                        val (count, refreshed) = result
                         if (count > 0) songs = refreshed
+                        if (count < 4) break
+                        kotlinx.coroutines.yield()
                     }
                 }
             } catch (e: Exception) {
