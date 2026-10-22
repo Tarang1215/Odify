@@ -155,6 +155,45 @@ class DriveCatalog(private val context: Context) {
         prefs.edit().putStringSet("hidden", hidden).apply()
     }
 
+    /**
+     * MASTER Sheet is the canonical human-verified name source for files bearing
+     * its ODF track code (or an exact Drive ID). Never edits the original audio
+     * and never overwrites an explicit user correction.
+     */
+    fun applyMasterCorrections(master: List<MasterTrack>): Int {
+        val conn=db.writableDatabase
+        var updated=0
+        conn.beginTransaction()
+        try {
+            for (track in master) {
+                if (!Regex("ODF[0-9]{6}",RegexOption.IGNORE_CASE).matches(track.trackId)) continue
+                if (track.title.isBlank() || track.artist.isBlank()) continue
+                val searchId=track.driveId
+                val rows=ArrayList<Pair<String,String>>()
+                conn.rawQuery(
+                    "SELECT id,meta_source FROM tracks WHERE " +
+                        "(name LIKE ? OR id=?)",
+                    arrayOf(track.trackId + ".%", searchId)
+                ).use { c ->
+                    while(c.moveToNext()) rows += c.getString(0) to c.getString(1)
+                }
+                for((id,origin) in rows) {
+                    if(origin=="user") continue
+                    val cv=ContentValues().apply {
+                        put("title",track.title)
+                        put("artist",track.artist)
+                        put("album",track.album)
+                        put("meta_source","master")
+                    }
+                    updated+=conn.update("tracks",cv,"id=? AND meta_source!=?",
+                        arrayOf(id,"user"))
+                }
+            }
+            conn.setTransactionSuccessful()
+        } finally { conn.endTransaction() }
+        return updated
+    }
+
     fun updateMetadata(song: OdifySong, title: String, artist: String, album: String) {
         val id = song.id.removePrefix("gdrive:")
         require(title.isNotBlank())
@@ -284,7 +323,7 @@ class DriveCatalog(private val context: Context) {
                     if (c.moveToFirst()) (0..8).map { c.getString(it) } else null
                 }
                 val modified = file.optString("modifiedTime")
-                val hasTags = existing?.get(5) in setOf("tag", "user")
+                val hasTags = existing?.get(5) in setOf("tag", "user", "master")
                 val cv = ContentValues().apply {
                     put("id", id)
                     put("name", file.getString("name"))
@@ -387,7 +426,7 @@ class DriveCatalog(private val context: Context) {
         val hasText = listOf(tag.title, tag.artist, tag.album, tag.genre)
             .any { !it.isNullOrBlank() }
         val cv = ContentValues().apply {
-            if (origin != "user") {
+            if (origin != "user" && origin != "master") {
                 tag.title?.takeIf { it.isNotBlank() }?.let { put("title", it) }
                 tag.artist?.takeIf { it.isNotBlank() }?.let { put("artist", it) }
                 tag.album?.takeIf { it.isNotBlank() }?.let { put("album", it) }
