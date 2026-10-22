@@ -35,7 +35,11 @@ https://docs.google.com/spreadsheets/d/1T5b4z_db5IXUg0lMiy2nNJzed382bvkIiPZkiLmH
     py tools/music_catalog.py --root E:\Odify_Library status
     py tools/music_catalog.py --root E:\Odify_Library upload --remote mydrive:Odify_Music_Test
 
-An rclone remote named mydrive must first be configured by its own interactive config.
+For the existing Windows 152-track batch, use [the automated installer](../windows-collector/README.md).
+It imports the personal Desktop OAuth JSON once, configures an isolated `mydrive`
+remote, and reuses authorization on subsequent runs without interactive rclone questions.
+The batch launcher sets `RCLONE_CONFIG` to `%LOCALAPPDATA%\Odify\Collector\rclone.conf`;
+set the same environment variable when invoking the worker directly.
 Output: catalog.sqlite3 tracks/success/failures, Audio/ODFxxxxxx.m4a, Lyrics/ODFxxxxxx.lrc,
 and status.csv (importable into Sheets after manual verification).
 
