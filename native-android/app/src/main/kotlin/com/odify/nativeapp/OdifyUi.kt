@@ -800,7 +800,7 @@ private fun OdifyProfile(songCount: Int, onImport: () -> Unit, importing: Boolea
         OdifyInfoRow(Icons.Default.OfflinePin, "Offline library",
             "${songCount} files stored on this device")
         Spacer(Modifier.height(7.dp))
-        OdifyInfoRow(Icons.Default.InfoOutline, "About",
+        OdifyInfoRow(Icons.Default.Info, "About",
             "Odify Native · UI Preview 2")
     }
 }
