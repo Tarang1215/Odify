@@ -75,7 +75,9 @@ jobs:
         run: gradle -p native-android :app:assembleDebug --stacktrace --no-daemon
       - name: Show Android OAuth certificate SHA-1
         run: |
-          keytool -list -v -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey -keypass android | grep -E 'SHA1:|SHA256:'
+          APK=native-android/app/build/outputs/apk/debug/app-debug.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --print-certs "$APK" | tee /tmp/odify-cert-info.txt
+          echo "Register the SHA-1 certificate digest above for OAuth Android package com.odify.music.nativepreview.v8.debug."
       - name: Verify APK independent package
         run: |
           APK=native-android/app/build/outputs/apk/debug/app-debug.apk
