@@ -18,7 +18,7 @@ import java.nio.ByteOrder
 import java.util.ArrayDeque
 import java.util.Locale
 
-private const val MUSIC_ROOT_ID = "1rNYGC6P2TK9RpokkI--0jRfrmbLTteNW"
+private const val DEFAULT_FOLDER_NAME = "Odify_Music_Test"
 private const val FOLDER_MIME = "application/vnd.google-apps.folder"
 
 /** A SQLite index: deliberately NOT 50k rows of JSON in SharedPreferences. */
@@ -37,7 +37,7 @@ class DriveCatalog(private val context: Context) {
         }
         override fun onUpgrade(db: SQLiteDatabase, old: Int, newer: Int) {}
     }
-    val folderId: String get() = prefs.getString("folder", MUSIC_ROOT_ID) ?: MUSIC_ROOT_ID
+    val folderId: String get() = prefs.getString("folder", "") ?: ""
     var lastSync: Long
         get() = prefs.getLong("lastSync", 0)
         private set(v) { prefs.edit().putLong("lastSync", v).apply() }
@@ -95,7 +95,18 @@ class DriveCatalog(private val context: Context) {
      */
     suspend fun sync(onProgress: (Int) -> Unit = {}): Int = withContext(Dispatchers.IO) {
         val queue = ArrayDeque<Pair<String,String>>()
-        queue.add(folderId to "")
+        val initialFolder = folderId.ifBlank {
+            // Never publish the user's private folder ID inside an open-source APK.
+            // Locate the default folder by name in the authenticated account.
+            val q = "mimeType = '$FOLDER_MIME' and name = '$DEFAULT_FOLDER_NAME' and trashed = false"
+            val list = JSONObject(apiJson("files", mapOf(
+                "q" to q, "pageSize" to "100",
+                "fields" to "files(id,name),nextPageToken"
+            ))).getJSONArray("files")
+            if (list.length() == 0) error("Drive에서 $DEFAULT_FOLDER_NAME 폴더를 찾을 수 없습니다.")
+            list.getJSONObject(0).getString("id")
+        }
+        queue.add(initialFolder to "")
         val collected = LinkedHashMap<String, JSONObject>()
         var visitedFolders = 0
         while (queue.isNotEmpty()) {
