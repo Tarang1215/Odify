@@ -1,0 +1,2433 @@
+{
+  "snapshot_date": "2026-10-22",
+  "charts": {
+    "한국": {
+      "name": "Melon TOP100",
+      "date": "2026-10-22 17:00",
+      "source": "https://www.melon.com/chart/index.htm",
+      "tracks": [
+        {
+          "rank": 1,
+          "artist": "A2O, A2O LITE",
+          "title": "NEON",
+          "album": "NEON"
+        },
+        {
+          "rank": 2,
+          "artist": "소연 (SOYEON)",
+          "title": "퇴사할게여 (Narr. 기안84)",
+          "album": "끝내주는 인생"
+        },
+        {
+          "rank": 3,
+          "artist": "머무르",
+          "title": "꿈꾸던 어른이 되었나요?",
+          "album": "꿈꾸던 어른이 되었나요?"
+        },
+        {
+          "rank": 4,
+          "artist": "RESCENE (리센느)",
+          "title": "LOVE ATTACK",
+          "album": "SCENEDROME"
+        },
+        {
+          "rank": 5,
+          "artist": "RESCENE (리센느)",
+          "title": "Deja Vu",
+          "album": "Dearest"
+        },
+        {
+          "rank": 6,
+          "artist": "아이오아이 (I.O.I)",
+          "title": "갑자기",
+          "album": "I.O.I 3rd MINI ALBUM [I.O.I : LOOP]"
+        },
+        {
+          "rank": 7,
+          "artist": "RESCENE (리센느)",
+          "title": "Pretty Girl",
+          "album": "Pretty Girl - Special Single"
+        },
+        {
+          "rank": 8,
+          "artist": "CORTIS (코르티스)",
+          "title": "REDRED",
+          "album": "GREENGREEN"
+        },
+        {
+          "rank": 9,
+          "artist": "태연 (TAEYEON)",
+          "title": "만찬가",
+          "album": "J-POP REMAKE Vol.1"
+        },
+        {
+          "rank": 10,
+          "artist": "PLAVE",
+          "title": "이 밤을 빌려 말해요",
+          "album": "이 밤을 빌려 말해요 (오늘 밤, 세계에서 이 사랑이 사라진다 해도 X PLAVE)"
+        },
+        {
+          "rank": 11,
+          "artist": "ATEEZ(에이티즈)",
+          "title": "BAD",
+          "album": "GOLDEN HOUR : Part.5"
+        },
+        {
+          "rank": 12,
+          "artist": "최유리",
+          "title": "생각을 멈추다 보면",
+          "album": "생각을 멈추다 보면"
+        },
+        {
+          "rank": 13,
+          "artist": "WOODZ",
+          "title": "Drowning",
+          "album": "OO-LI"
+        },
+        {
+          "rank": 14,
+          "artist": "aespa",
+          "title": "LEMONADE",
+          "album": "LEMONADE - The 2nd Album"
+        },
+        {
+          "rank": 15,
+          "artist": "한로로",
+          "title": "사랑하게 될 거야",
+          "album": "이상비행"
+        },
+        {
+          "rank": 16,
+          "artist": "아일릿(ILLIT)",
+          "title": "It′s Me",
+          "album": "MAMIHLAPINATAPAI"
+        },
+        {
+          "rank": 17,
+          "artist": "화사 (HWASA)",
+          "title": "Good Goodbye",
+          "album": "Good Goodbye"
+        },
+        {
+          "rank": 18,
+          "artist": "PLAVE",
+          "title": "Star Trace",
+          "album": "HYPERDRIVE"
+        },
+        {
+          "rank": 19,
+          "artist": "BIGBANG (빅뱅)",
+          "title": "BiiiG",
+          "album": "BiiiG"
+        },
+        {
+          "rank": 20,
+          "artist": "BIG Naughty (서동현)",
+          "title": "노스탈지아",
+          "album": "노스탈지아"
+        },
+        {
+          "rank": 21,
+          "artist": "AKMU (악뮤)",
+          "title": "어떻게 이별까지 사랑하겠어, 널 사랑하는 거지",
+          "album": "항해"
+        },
+        {
+          "rank": 22,
+          "artist": "도경수(D.O.)",
+          "title": "Popcorn",
+          "album": "성장 - THE 3RD MINI ALBUM"
+        },
+        {
+          "rank": 23,
+          "artist": "YENA (최예나)",
+          "title": "캐치 캐치",
+          "album": "LOVE CATCHER"
+        },
+        {
+          "rank": 24,
+          "artist": "Hearts2Hearts (하츠투하츠)",
+          "title": "RUDE!",
+          "album": "RUDE!"
+        },
+        {
+          "rank": 25,
+          "artist": "NCT WISH",
+          "title": "I SPY",
+          "album": "I SPY - The 4th Mini Album"
+        },
+        {
+          "rank": 26,
+          "artist": "PLAVE",
+          "title": "푸른 하늘에 단비",
+          "album": "HYPERDRIVE"
+        },
+        {
+          "rank": 27,
+          "artist": "한로로",
+          "title": "0+0",
+          "album": "자몽살구클럽"
+        },
+        {
+          "rank": 28,
+          "artist": "성시경",
+          "title": "너의 모든 순간",
+          "album": "별에서 온 그대 OST Part.7"
+        },
+        {
+          "rank": 29,
+          "artist": "NMIXX",
+          "title": "Blue Valentine",
+          "album": "Blue Valentine"
+        },
+        {
+          "rank": 30,
+          "artist": "다비치",
+          "title": "타임캡슐",
+          "album": "타임캡슐"
+        },
+        {
+          "rank": 31,
+          "artist": "ALLDAY PROJECT",
+          "title": "CRASH",
+          "album": "CRASH"
+        },
+        {
+          "rank": 32,
+          "artist": "AKMU (악뮤)",
+          "title": "기쁨, 슬픔, 아름다운 마음",
+          "album": "개화"
+        },
+        {
+          "rank": 33,
+          "artist": "PLAVE",
+          "title": "꾼",
+          "album": "HYPERDRIVE"
+        },
+        {
+          "rank": 34,
+          "artist": "NMIXX",
+          "title": "Heavy Serenade",
+          "album": "Heavy Serenade"
+        },
+        {
+          "rank": 35,
+          "artist": "로이킴",
+          "title": "내게 사랑이 뭐냐고 물어본다면",
+          "album": "내게 사랑이 뭐냐고 물어본다면"
+        },
+        {
+          "rank": 36,
+          "artist": "아이유",
+          "title": "Dear my crazy soulmate",
+          "album": "이 별로부터"
+        },
+        {
+          "rank": 37,
+          "artist": "우디 (Woody)",
+          "title": "어제보다 슬픈 오늘",
+          "album": "어제보다 슬픈 오늘"
+        },
+        {
+          "rank": 38,
+          "artist": "PLAVE",
+          "title": "The Answer Is Yes",
+          "album": "HYPERDRIVE"
+        },
+        {
+          "rank": 39,
+          "artist": "김나영",
+          "title": "봄 내음보다 너를",
+          "album": "봄 내음보다 너를"
+        },
+        {
+          "rank": 40,
+          "artist": "PLAVE",
+          "title": "Rewind",
+          "album": "HYPERDRIVE"
+        },
+        {
+          "rank": 41,
+          "artist": "IVE (아이브)",
+          "title": "Looks Can Kill",
+          "album": "Looks Can Kill"
+        },
+        {
+          "rank": 42,
+          "artist": "Crush",
+          "title": "삐그덕 (Feat. 아이유)",
+          "album": "삐그덕 (Feat. 아이유)"
+        },
+        {
+          "rank": 43,
+          "artist": "G-DRAGON",
+          "title": "HOME SWEET HOME (feat. 태양, 대성)",
+          "album": "HOME SWEET HOME (feat. 태양, 대성)"
+        },
+        {
+          "rank": 44,
+          "artist": "AKMU (악뮤)",
+          "title": "소문의 낙원",
+          "album": "개화"
+        },
+        {
+          "rank": 45,
+          "artist": "소녀시대-효리수 (Girls' Generation-HRS)",
+          "title": "Skibidi",
+          "album": "Skibidi"
+        },
+        {
+          "rank": 46,
+          "artist": "이창섭",
+          "title": "천상연",
+          "album": "천상연 (웹툰 '선녀외전' X 이창섭 (LEE CHANGSUB))"
+        },
+        {
+          "rank": 47,
+          "artist": "임영웅",
+          "title": "사랑은 늘 도망가",
+          "album": "신사와 아가씨 OST Part.2"
+        },
+        {
+          "rank": 48,
+          "artist": "KiiiKiii (키키)",
+          "title": "Pop Off Pop Off",
+          "album": "WhyKiiiKiii"
+        },
+        {
+          "rank": 49,
+          "artist": "너드커넥션 (Nerd Connection)",
+          "title": "그대만 있다면 (여름날 우리 X 너드커넥션 (Nerd Connection))",
+          "album": "그대만 있다면 (여름날 우리 X 너드커넥션 (Nerd Connection))"
+        },
+        {
+          "rank": 50,
+          "artist": "RESCENE (리센느)",
+          "title": "Runaway",
+          "album": "Runaway"
+        },
+        {
+          "rank": 51,
+          "artist": "폴킴",
+          "title": "모든 날, 모든 순간 (Every day, Every Moment)",
+          "album": "'키스 먼저 할까요?' OST Part.3"
+        },
+        {
+          "rank": 52,
+          "artist": "IVE (아이브)",
+          "title": "BANG BANG",
+          "album": "REVIVE+"
+        },
+        {
+          "rank": 53,
+          "artist": "로제 (ROSÉ)",
+          "title": "toxic till the end",
+          "album": "rosie"
+        },
+        {
+          "rank": 54,
+          "artist": "이찬혁",
+          "title": "멸종위기사랑",
+          "album": "EROS"
+        },
+        {
+          "rank": 55,
+          "artist": "NMIXX",
+          "title": "긴 소원 (Birthday Wish)",
+          "album": "Strange Muse"
+        },
+        {
+          "rank": 56,
+          "artist": "아이유",
+          "title": "이 별로부터",
+          "album": "이 별로부터"
+        },
+        {
+          "rank": 57,
+          "artist": "볼빨간사춘기",
+          "title": "여름아 부탁해",
+          "album": "여름아 부탁해"
+        },
+        {
+          "rank": 58,
+          "artist": "조째즈",
+          "title": "모르시나요(PROD.로코베리)",
+          "album": "모르시나요"
+        },
+        {
+          "rank": 59,
+          "artist": "KiiiKiii (키키)",
+          "title": "404 (New Era)",
+          "album": "Delulu Pack"
+        },
+        {
+          "rank": 60,
+          "artist": "잔나비",
+          "title": "주저하는 연인들을 위해",
+          "album": "전설"
+        },
+        {
+          "rank": 61,
+          "artist": "Hearts2Hearts (하츠투하츠)",
+          "title": "Lemon Tang",
+          "album": "Lemon Tang - The 2nd Mini Album"
+        },
+        {
+          "rank": 62,
+          "artist": "10CM",
+          "title": "너에게 닿기를",
+          "album": "너에게 닿기를"
+        },
+        {
+          "rank": 63,
+          "artist": "이클립스 (ECLIPSE)",
+          "title": "소나기",
+          "album": "선재 업고 튀어 OST Part 1"
+        },
+        {
+          "rank": 64,
+          "artist": "DAY6 (데이식스)",
+          "title": "한 페이지가 될 수 있게",
+          "album": "The Book of Us : Gravity"
+        },
+        {
+          "rank": 65,
+          "artist": "이무진",
+          "title": "청춘만화",
+          "album": "만화 (滿花)"
+        },
+        {
+          "rank": 66,
+          "artist": "aespa",
+          "title": "Whiplash",
+          "album": "Whiplash - The 5th Mini Album"
+        },
+        {
+          "rank": 67,
+          "artist": "박재정",
+          "title": "헤어지자 말해요",
+          "album": "1집 Alone"
+        },
+        {
+          "rank": 68,
+          "artist": "카더가든",
+          "title": "그대 작은 나의 세상이 되어",
+          "album": "부재"
+        },
+        {
+          "rank": 69,
+          "artist": "베스티",
+          "title": "연애의 조건 (Love Options)",
+          "album": "연애의 조건"
+        },
+        {
+          "rank": 70,
+          "artist": "BLACKPINK",
+          "title": "뛰어(JUMP)",
+          "album": "뛰어(JUMP)"
+        },
+        {
+          "rank": 71,
+          "artist": "DAY6 (데이식스)",
+          "title": "HAPPY",
+          "album": "Fourever"
+        },
+        {
+          "rank": 72,
+          "artist": "RESCENE (리센느)",
+          "title": "Pinball",
+          "album": "SCENEDROME"
+        },
+        {
+          "rank": 73,
+          "artist": "황가람",
+          "title": "나는 반딧불",
+          "album": "나는 반딧불"
+        },
+        {
+          "rank": 74,
+          "artist": "BOYNEXTDOOR",
+          "title": "오늘만 I LOVE YOU",
+          "album": "오늘만 I LOVE YOU"
+        },
+        {
+          "rank": 75,
+          "artist": "DAY6 (데이식스)",
+          "title": "예뻤어",
+          "album": "Every DAY6 February"
+        },
+        {
+          "rank": 76,
+          "artist": "HUNTR/X, EJAE, AUDREY NUNA, REI AMI, KPop Demon Hunters Cast",
+          "title": "Golden",
+          "album": "KPop Demon Hunters (Soundtrack from the Netflix Film)"
+        },
+        {
+          "rank": 77,
+          "artist": "이무진",
+          "title": "청혼하지 않을 이유를 못 찾았어",
+          "album": "청혼하지 않을 이유를 못 찾았어"
+        },
+        {
+          "rank": 78,
+          "artist": "멜로망스",
+          "title": "사랑인가 봐",
+          "album": "사랑인가 봐 (사내맞선 OST 스페셜 트랙)"
+        },
+        {
+          "rank": 79,
+          "artist": "Lady Gaga, Bruno Mars",
+          "title": "Die With A Smile",
+          "album": "Die With A Smile"
+        },
+        {
+          "rank": 80,
+          "artist": "아이유",
+          "title": "Love wins all",
+          "album": "The Winning"
+        },
+        {
+          "rank": 81,
+          "artist": "정국",
+          "title": "Seven (feat. Latto) - Clean Ver.",
+          "album": "Seven (feat. Latto) - Clean Ver."
+        },
+        {
+          "rank": 82,
+          "artist": "한로로",
+          "title": "입춘",
+          "album": "입춘"
+        },
+        {
+          "rank": 83,
+          "artist": "경서예지, 전건호",
+          "title": "다정히 내 이름을 부르면",
+          "album": "다정히 내 이름을 부르면 (경서예지 x 전건호)"
+        },
+        {
+          "rank": 84,
+          "artist": "제니 (JENNIE)",
+          "title": "like JENNIE",
+          "album": "Ruby"
+        },
+        {
+          "rank": 85,
+          "artist": "도경수(D.O.)",
+          "title": "Guitarist",
+          "album": "DOPAMINE - The 4th Mini Album"
+        },
+        {
+          "rank": 86,
+          "artist": "DAY6 (데이식스)",
+          "title": "Welcome to the Show",
+          "album": "Fourever"
+        },
+        {
+          "rank": 87,
+          "artist": "로제 (ROSÉ), Bruno Mars",
+          "title": "APT.",
+          "album": "APT."
+        },
+        {
+          "rank": 88,
+          "artist": "방탄소년단",
+          "title": "봄날",
+          "album": "YOU NEVER WALK ALONE"
+        },
+        {
+          "rank": 89,
+          "artist": "방탄소년단",
+          "title": "Dynamite",
+          "album": "Dynamite (DayTime Version)"
+        },
+        {
+          "rank": 90,
+          "artist": "방탄소년단",
+          "title": "SWIM",
+          "album": "ARIRANG"
+        },
+        {
+          "rank": 91,
+          "artist": "임영웅",
+          "title": "우리들의 블루스",
+          "album": "IM HERO"
+        },
+        {
+          "rank": 92,
+          "artist": "TWS (투어스)",
+          "title": "첫 만남은 계획대로 되지 않아",
+          "album": "Sparkling Blue"
+        },
+        {
+          "rank": 93,
+          "artist": "NCT WISH",
+          "title": "꿈결 (Like A Dream)",
+          "album": "I SPY - The 4th Mini Album"
+        },
+        {
+          "rank": 94,
+          "artist": "에픽하이 (EPIK HIGH)",
+          "title": "Love Love Love (Feat. Yoong Jin Of Casker)",
+          "album": "Remapping The Human Soul"
+        },
+        {
+          "rank": 95,
+          "artist": "에픽하이 (EPIK HIGH), 다비치",
+          "title": "미장센",
+          "album": "미장센"
+        },
+        {
+          "rank": 96,
+          "artist": "NCT WISH",
+          "title": "We Own This Street",
+          "album": "I SPY - The 4th Mini Album"
+        },
+        {
+          "rank": 97,
+          "artist": "임영웅",
+          "title": "또또",
+          "album": "IM HERO 10"
+        },
+        {
+          "rank": 98,
+          "artist": "임영웅",
+          "title": "순간을 영원처럼",
+          "album": "IM HERO 2"
+        },
+        {
+          "rank": 99,
+          "artist": "NCT WISH",
+          "title": "UPGRADE",
+          "album": "I SPY - The 4th Mini Album"
+        },
+        {
+          "rank": 100,
+          "artist": "NewJeans",
+          "title": "Hype Boy",
+          "album": "NewJeans 1st EP 'New Jeans'"
+        }
+      ]
+    },
+    "일본": {
+      "name": "Spotify Japan Daily Top100 (Kworb mirror)",
+      "date": "2026-10-20",
+      "source": "https://kworb.net/spotify/country/jp_daily.html",
+      "tracks": [
+        {
+          "rank": 1,
+          "artist": "Vaundy",
+          "title": "しわあわせ",
+          "album": ""
+        },
+        {
+          "rank": 2,
+          "artist": "Ayumu Imazu",
+          "title": "結び",
+          "album": ""
+        },
+        {
+          "rank": 3,
+          "artist": "EBiDAN (恵比寿学園男子部)",
+          "title": "Yes! 東京 (w/ chotokkyu , M!LK , GNJB , SUPER★DRAGON , Sakurashimeji , ONE N' ONLY , BUDDiiS , ICEx , Lienel )",
+          "album": ""
+        },
+        {
+          "rank": 4,
+          "artist": "back number",
+          "title": "ブルーアンバー",
+          "album": ""
+        },
+        {
+          "rank": 5,
+          "artist": "Macaroni Empitsu",
+          "title": "運命さがし",
+          "album": ""
+        },
+        {
+          "rank": 6,
+          "artist": "Mrs. GREEN APPLE",
+          "title": "Brand New",
+          "album": ""
+        },
+        {
+          "rank": 7,
+          "artist": "back number",
+          "title": "花束",
+          "album": ""
+        },
+        {
+          "rank": 8,
+          "artist": "back number",
+          "title": "高嶺の花子さん",
+          "album": ""
+        },
+        {
+          "rank": 9,
+          "artist": "back number",
+          "title": "ハッピーエンド",
+          "album": ""
+        },
+        {
+          "rank": 10,
+          "artist": "A2O",
+          "title": "NEON (w/ A2O LITE )",
+          "album": ""
+        },
+        {
+          "rank": 11,
+          "artist": "ILLIT",
+          "title": "It's Me",
+          "album": ""
+        },
+        {
+          "rank": 12,
+          "artist": "M!LK",
+          "title": "好きすぎて滅！",
+          "album": ""
+        },
+        {
+          "rank": 13,
+          "artist": "Mrs. GREEN APPLE",
+          "title": "点描の唄 (w/ Sonoko Inoue )",
+          "album": ""
+        },
+        {
+          "rank": 14,
+          "artist": "YAO",
+          "title": "ありふれた世界の果てに (w/ Awich , CHICO CARLITO , ONE OK ROCK , Paledusk )",
+          "album": ""
+        },
+        {
+          "rank": 15,
+          "artist": "back number",
+          "title": "水平線",
+          "album": ""
+        },
+        {
+          "rank": 16,
+          "artist": "Mrs. GREEN APPLE",
+          "title": "Soranji",
+          "album": ""
+        },
+        {
+          "rank": 17,
+          "artist": "back number",
+          "title": "幸せ",
+          "album": ""
+        },
+        {
+          "rank": 18,
+          "artist": "back number",
+          "title": "HAPPY BIRTHDAY",
+          "album": ""
+        },
+        {
+          "rank": 19,
+          "artist": "Aimyon",
+          "title": "マリーゴールド",
+          "album": ""
+        },
+        {
+          "rank": 20,
+          "artist": "Mrs. GREEN APPLE",
+          "title": "共犯",
+          "album": ""
+        },
+        {
+          "rank": 21,
+          "artist": "Mrs. GREEN APPLE",
+          "title": "lulu.",
+          "album": ""
+        },
+        {
+          "rank": 22,
+          "artist": "Mrs. GREEN APPLE",
+          "title": "ライラック",
+          "album": ""
+        },
+        {
+          "rank": 23,
+          "artist": "Mrs. GREEN APPLE",
+          "title": "青と夏",
+          "album": ""
+        },
+        {
+          "rank": 24,
+          "artist": "Kenshi Yonezu",
+          "title": "IRIS OUT",
+          "album": ""
+        },
+        {
+          "rank": 25,
+          "artist": "BE:FIRST",
+          "title": "夢中",
+          "album": ""
+        },
+        {
+          "rank": 26,
+          "artist": "M!LK",
+          "title": "爆裂愛してる",
+          "album": ""
+        },
+        {
+          "rank": 27,
+          "artist": "back number",
+          "title": "恋",
+          "album": ""
+        },
+        {
+          "rank": 28,
+          "artist": "Vaundy",
+          "title": "怪獣の花唄",
+          "album": ""
+        },
+        {
+          "rank": 29,
+          "artist": "Number_i",
+          "title": "BUGS LIFE",
+          "album": ""
+        },
+        {
+          "rank": 30,
+          "artist": "SPITZ",
+          "title": "見知らぬ糸",
+          "album": ""
+        },
+        {
+          "rank": 31,
+          "artist": "Aimyon",
+          "title": "君はロックを聴かない",
+          "album": ""
+        },
+        {
+          "rank": 32,
+          "artist": "back number",
+          "title": "君の恋人になったら",
+          "album": ""
+        },
+        {
+          "rank": 33,
+          "artist": "back number",
+          "title": "ヒロイン",
+          "album": ""
+        },
+        {
+          "rank": 34,
+          "artist": "Superfly",
+          "title": "愛をこめて花束を",
+          "album": ""
+        },
+        {
+          "rank": 35,
+          "artist": "Mrs. GREEN APPLE",
+          "title": "ダーリン",
+          "album": ""
+        },
+        {
+          "rank": 36,
+          "artist": "M!LK",
+          "title": "時空超えてユニバース",
+          "album": ""
+        },
+        {
+          "rank": 37,
+          "artist": "Sukima Switch",
+          "title": "奏(かなで)",
+          "album": ""
+        },
+        {
+          "rank": 38,
+          "artist": "RADWIMPS",
+          "title": "夕星-ゆうづつ-",
+          "album": ""
+        },
+        {
+          "rank": 39,
+          "artist": "Macaroni Empitsu",
+          "title": "恋人ごっこ",
+          "album": ""
+        },
+        {
+          "rank": 40,
+          "artist": "Aimyon",
+          "title": "愛を伝えたいだとか",
+          "album": ""
+        },
+        {
+          "rank": 41,
+          "artist": "HANA",
+          "title": "Blue Jeans",
+          "album": ""
+        },
+        {
+          "rank": 42,
+          "artist": "Mrs. GREEN APPLE",
+          "title": "ケセラセラ",
+          "album": ""
+        },
+        {
+          "rank": 43,
+          "artist": "SPITZ",
+          "title": "チェリー",
+          "album": ""
+        },
+        {
+          "rank": 44,
+          "artist": "sakanaction",
+          "title": "夜の踊り子",
+          "album": ""
+        },
+        {
+          "rank": 45,
+          "artist": "back number",
+          "title": "オールドファッション",
+          "album": ""
+        },
+        {
+          "rank": 46,
+          "artist": "SixTONES",
+          "title": "マイオンリー",
+          "album": ""
+        },
+        {
+          "rank": 47,
+          "artist": "Number_i",
+          "title": "DIGITAL GIRL",
+          "album": ""
+        },
+        {
+          "rank": 48,
+          "artist": "Mrs. GREEN APPLE",
+          "title": "シンデレラ",
+          "album": ""
+        },
+        {
+          "rank": 49,
+          "artist": "MAZZEL",
+          "title": "Touch",
+          "album": ""
+        },
+        {
+          "rank": 50,
+          "artist": "Mrs. GREEN APPLE",
+          "title": "ア・ポステリオリ",
+          "album": ""
+        },
+        {
+          "rank": 51,
+          "artist": "Mrs. GREEN APPLE",
+          "title": "本と彗星",
+          "album": ""
+        },
+        {
+          "rank": 52,
+          "artist": "Fujii Kaze",
+          "title": "きらり",
+          "album": ""
+        },
+        {
+          "rank": 53,
+          "artist": "Macaroni Empitsu",
+          "title": "なんでもないよ、",
+          "album": ""
+        },
+        {
+          "rank": 54,
+          "artist": "back number",
+          "title": "日曜日",
+          "album": ""
+        },
+        {
+          "rank": 55,
+          "artist": "back number",
+          "title": "瞬き",
+          "album": ""
+        },
+        {
+          "rank": 56,
+          "artist": "OFFICIAL HIGE DANDISM",
+          "title": "Pretender",
+          "album": ""
+        },
+        {
+          "rank": 57,
+          "artist": "OFFICIAL HIGE DANDISM",
+          "title": "115万キロのフィルム",
+          "album": ""
+        },
+        {
+          "rank": 58,
+          "artist": "RADWIMPS",
+          "title": "正解",
+          "album": ""
+        },
+        {
+          "rank": 59,
+          "artist": "Aimyon",
+          "title": "裸の心",
+          "album": ""
+        },
+        {
+          "rank": 60,
+          "artist": "Aimyon",
+          "title": "ハルノヒ",
+          "album": ""
+        },
+        {
+          "rank": 61,
+          "artist": "Mrs. GREEN APPLE",
+          "title": "僕のこと",
+          "album": ""
+        },
+        {
+          "rank": 62,
+          "artist": "AiNA THE END",
+          "title": "革命道中 - On The Way",
+          "album": ""
+        },
+        {
+          "rank": 63,
+          "artist": "Yorushika",
+          "title": "ただ君に晴れ",
+          "album": ""
+        },
+        {
+          "rank": 64,
+          "artist": "=LOVE",
+          "title": "恋、はじめました。",
+          "album": ""
+        },
+        {
+          "rank": 65,
+          "artist": "Macaroni Empitsu",
+          "title": "ブルーベリー・ナイツ",
+          "album": ""
+        },
+        {
+          "rank": 66,
+          "artist": "Number_i",
+          "title": "REBON",
+          "album": ""
+        },
+        {
+          "rank": 67,
+          "artist": "Macaroni Empitsu",
+          "title": "愛のレンタル",
+          "album": ""
+        },
+        {
+          "rank": 68,
+          "artist": "Jimin",
+          "title": "Who",
+          "album": ""
+        },
+        {
+          "rank": 69,
+          "artist": "Yorushika",
+          "title": "雲を抜け風下へ私だけ",
+          "album": ""
+        },
+        {
+          "rank": 70,
+          "artist": "M!LK",
+          "title": "アイドルパワー",
+          "album": ""
+        },
+        {
+          "rank": 71,
+          "artist": "Yuuri",
+          "title": "ドライフラワー",
+          "album": ""
+        },
+        {
+          "rank": 72,
+          "artist": "Kenshi Yonezu",
+          "title": "烏 - Raven",
+          "album": ""
+        },
+        {
+          "rank": 73,
+          "artist": "OFFICIAL HIGE DANDISM",
+          "title": "Subtitle",
+          "album": ""
+        },
+        {
+          "rank": 74,
+          "artist": "Fujii Kaze",
+          "title": "ガーデン",
+          "album": ""
+        },
+        {
+          "rank": 75,
+          "artist": "=LOVE",
+          "title": "とくべチュ、して",
+          "album": ""
+        },
+        {
+          "rank": 76,
+          "artist": "GReeeeN",
+          "title": "キセキ",
+          "album": ""
+        },
+        {
+          "rank": 77,
+          "artist": "back number",
+          "title": "わたがし",
+          "album": ""
+        },
+        {
+          "rank": 78,
+          "artist": "Aimyon",
+          "title": "今夜このまま",
+          "album": ""
+        },
+        {
+          "rank": 79,
+          "artist": "Ed Sheeran",
+          "title": "Shape of You",
+          "album": ""
+        },
+        {
+          "rank": 80,
+          "artist": "SPITZ",
+          "title": "楓",
+          "album": ""
+        },
+        {
+          "rank": 81,
+          "artist": "Number_i",
+          "title": "3XL",
+          "album": ""
+        },
+        {
+          "rank": 82,
+          "artist": "Kvi Baba",
+          "title": "BPM (w/ KREVA )",
+          "album": ""
+        },
+        {
+          "rank": 83,
+          "artist": "Novelbright",
+          "title": "ツキミソウ",
+          "album": ""
+        },
+        {
+          "rank": 84,
+          "artist": "Kenshi Yonezu",
+          "title": "アイネクライネ",
+          "album": ""
+        },
+        {
+          "rank": 85,
+          "artist": "sakanaction",
+          "title": "怪獣",
+          "album": ""
+        },
+        {
+          "rank": 86,
+          "artist": "back number",
+          "title": "どうしてもどうしても",
+          "album": ""
+        },
+        {
+          "rank": 87,
+          "artist": "RADWIMPS",
+          "title": "me me she",
+          "album": ""
+        },
+        {
+          "rank": 88,
+          "artist": "HANA",
+          "title": "ROSE",
+          "album": ""
+        },
+        {
+          "rank": 89,
+          "artist": "Omoinotake",
+          "title": "幾億光年",
+          "album": ""
+        },
+        {
+          "rank": 90,
+          "artist": "Fujii Kaze",
+          "title": "旅路",
+          "album": ""
+        },
+        {
+          "rank": 91,
+          "artist": "Mrs. GREEN APPLE",
+          "title": "インフェルノ",
+          "album": ""
+        },
+        {
+          "rank": 92,
+          "artist": "Mr.Children",
+          "title": "HANABI",
+          "album": ""
+        },
+        {
+          "rank": 93,
+          "artist": "CHANMINA",
+          "title": "SAD SONG",
+          "album": ""
+        },
+        {
+          "rank": 94,
+          "artist": "Vaundy",
+          "title": "不可幸力",
+          "album": ""
+        },
+        {
+          "rank": 95,
+          "artist": "back number",
+          "title": "怪盗",
+          "album": ""
+        },
+        {
+          "rank": 96,
+          "artist": "M!LK",
+          "title": "You!Joy!Parade!",
+          "album": ""
+        },
+        {
+          "rank": 97,
+          "artist": "back number",
+          "title": "クリスマスソング",
+          "album": ""
+        },
+        {
+          "rank": 98,
+          "artist": "RADWIMPS",
+          "title": "スパークル",
+          "album": ""
+        },
+        {
+          "rank": 99,
+          "artist": "OFFICIAL HIGE DANDISM",
+          "title": "I LOVE...",
+          "album": ""
+        },
+        {
+          "rank": 100,
+          "artist": "Kenshi Yonezu",
+          "title": "JANE DOE (w/ Hikaru Utada )",
+          "album": ""
+        }
+      ]
+    },
+    "미국": {
+      "name": "Spotify US Daily Top100 (Kworb mirror)",
+      "date": "2026-10-20",
+      "source": "https://kworb.net/spotify/country/us_daily.html",
+      "tracks": [
+        {
+          "rank": 1,
+          "artist": "Tate McRae",
+          "title": "Housewife",
+          "album": ""
+        },
+        {
+          "rank": 2,
+          "artist": "ADÉLA",
+          "title": "Nicole Kidman",
+          "album": ""
+        },
+        {
+          "rank": 3,
+          "artist": "Olivia Rodrigo",
+          "title": "expectations (w/ Chappell Roan )",
+          "album": ""
+        },
+        {
+          "rank": 4,
+          "artist": "Ella Langley",
+          "title": "Choosin' Texas",
+          "album": ""
+        },
+        {
+          "rank": 5,
+          "artist": "Zach Bryan",
+          "title": "Lies (w/ Lana Del Rey )",
+          "album": ""
+        },
+        {
+          "rank": 6,
+          "artist": "Olivia Rodrigo",
+          "title": "stupid song",
+          "album": ""
+        },
+        {
+          "rank": 7,
+          "artist": "Olivia Rodrigo",
+          "title": "the cure",
+          "album": ""
+        },
+        {
+          "rank": 8,
+          "artist": "Malcolm Todd",
+          "title": "Earrings",
+          "album": ""
+        },
+        {
+          "rank": 9,
+          "artist": "KAROL G",
+          "title": "BbY WOW (w/ Judeline , rusowsky )",
+          "album": ""
+        },
+        {
+          "rank": 10,
+          "artist": "The Killers",
+          "title": "Mr. Brightside",
+          "album": ""
+        },
+        {
+          "rank": 11,
+          "artist": "Whiskey Myers",
+          "title": "Broken Window Serenade",
+          "album": ""
+        },
+        {
+          "rank": 12,
+          "artist": "Olivia Dean",
+          "title": "Man I Need",
+          "album": ""
+        },
+        {
+          "rank": 13,
+          "artist": "Ashe",
+          "title": "Stop The Wedding!",
+          "album": ""
+        },
+        {
+          "rank": 14,
+          "artist": "ADÉLA",
+          "title": "Ain't In LA",
+          "album": ""
+        },
+        {
+          "rank": 15,
+          "artist": "Taylor Swift",
+          "title": "Patient Zero",
+          "album": ""
+        },
+        {
+          "rank": 16,
+          "artist": "The Neighbourhood",
+          "title": "Sweater Weather",
+          "album": ""
+        },
+        {
+          "rank": 17,
+          "artist": "Steve Lacy",
+          "title": "oh yeah?",
+          "album": ""
+        },
+        {
+          "rank": 18,
+          "artist": "Zach Bryan",
+          "title": "Lodi When",
+          "album": ""
+        },
+        {
+          "rank": 19,
+          "artist": "Arctic Monkeys",
+          "title": "505",
+          "album": ""
+        },
+        {
+          "rank": 20,
+          "artist": "Steve Lacy",
+          "title": "the feeling",
+          "album": ""
+        },
+        {
+          "rank": 21,
+          "artist": "Mac Miller",
+          "title": "Cinderella (w/ Ty Dolla $ign )",
+          "album": ""
+        },
+        {
+          "rank": 22,
+          "artist": "Noah Kahan",
+          "title": "Orbiter",
+          "album": ""
+        },
+        {
+          "rank": 23,
+          "artist": "The Goo Goo Dolls",
+          "title": "Iris",
+          "album": ""
+        },
+        {
+          "rank": 24,
+          "artist": "STELLA LEFTY",
+          "title": "Boston",
+          "album": ""
+        },
+        {
+          "rank": 25,
+          "artist": "Steve Lacy",
+          "title": "nothing",
+          "album": ""
+        },
+        {
+          "rank": 26,
+          "artist": "Ella Langley",
+          "title": "weren't for the wind",
+          "album": ""
+        },
+        {
+          "rank": 27,
+          "artist": "Tame Impala",
+          "title": "Loser",
+          "album": ""
+        },
+        {
+          "rank": 28,
+          "artist": "Fleetwood Mac",
+          "title": "Dreams - 2001 Remaster",
+          "album": ""
+        },
+        {
+          "rank": 29,
+          "artist": "Noah Kahan",
+          "title": "Willing and Able",
+          "album": ""
+        },
+        {
+          "rank": 30,
+          "artist": "Ella Langley",
+          "title": "Be Her",
+          "album": ""
+        },
+        {
+          "rank": 31,
+          "artist": "Dominic Fike",
+          "title": "Babydoll",
+          "album": ""
+        },
+        {
+          "rank": 32,
+          "artist": "sombr",
+          "title": "back to friends",
+          "album": ""
+        },
+        {
+          "rank": 33,
+          "artist": "Dexter and The Moonrocks",
+          "title": "Freakin’ Out",
+          "album": ""
+        },
+        {
+          "rank": 34,
+          "artist": "Morgan Wallen",
+          "title": "Been By Now",
+          "album": ""
+        },
+        {
+          "rank": 35,
+          "artist": "Radiohead",
+          "title": "Creep",
+          "album": ""
+        },
+        {
+          "rank": 36,
+          "artist": "Olivia Rodrigo",
+          "title": "drop dead",
+          "album": ""
+        },
+        {
+          "rank": 37,
+          "artist": "Noah Kahan",
+          "title": "Stick Season",
+          "album": ""
+        },
+        {
+          "rank": 38,
+          "artist": "Olivia Rodrigo",
+          "title": "expectations",
+          "album": ""
+        },
+        {
+          "rank": 39,
+          "artist": "Foo Fighters",
+          "title": "Everlong",
+          "album": ""
+        },
+        {
+          "rank": 40,
+          "artist": "Sam Fender",
+          "title": "Rein Me In (w/ Olivia Dean )",
+          "album": ""
+        },
+        {
+          "rank": 41,
+          "artist": "girl in red",
+          "title": "we fell in love in october",
+          "album": ""
+        },
+        {
+          "rank": 42,
+          "artist": "Drake",
+          "title": "Janice STFU",
+          "album": ""
+        },
+        {
+          "rank": 43,
+          "artist": "Olivia Dean",
+          "title": "So Easy (To Fall In Love)",
+          "album": ""
+        },
+        {
+          "rank": 44,
+          "artist": "F3miii",
+          "title": "NOBLE",
+          "album": ""
+        },
+        {
+          "rank": 45,
+          "artist": "The Cranberries",
+          "title": "Linger - Remastered 2026",
+          "album": ""
+        },
+        {
+          "rank": 46,
+          "artist": "Mazzy Star",
+          "title": "Fade Into You",
+          "album": ""
+        },
+        {
+          "rank": 47,
+          "artist": "Gigi Perez",
+          "title": "Sailor Song",
+          "album": ""
+        },
+        {
+          "rank": 48,
+          "artist": "Miguel",
+          "title": "Sure Thing",
+          "album": ""
+        },
+        {
+          "rank": 49,
+          "artist": "SIENNA SPIRO",
+          "title": "Great Expectation",
+          "album": ""
+        },
+        {
+          "rank": 50,
+          "artist": "Justice",
+          "title": "Flower In A Hurricane (w/ Tame Impala , SZA , Grand Theft Auto VI , King Gizzard & The Lizard Wizard )",
+          "album": ""
+        },
+        {
+          "rank": 51,
+          "artist": "Nelly Furtado",
+          "title": "Promiscuous (w/ Timbaland )",
+          "album": ""
+        },
+        {
+          "rank": 52,
+          "artist": "Alyssa Grace",
+          "title": "bloodstream",
+          "album": ""
+        },
+        {
+          "rank": 53,
+          "artist": "Morgan Wallen",
+          "title": "I Got Better",
+          "album": ""
+        },
+        {
+          "rank": 54,
+          "artist": "sombr",
+          "title": "Homewrecker",
+          "album": ""
+        },
+        {
+          "rank": 55,
+          "artist": "Ariana Grande",
+          "title": "hate that i made you love me",
+          "album": ""
+        },
+        {
+          "rank": 56,
+          "artist": "Childish Gambino",
+          "title": "Les",
+          "album": ""
+        },
+        {
+          "rank": 57,
+          "artist": "Lady Gaga",
+          "title": "Die With A Smile (w/ Bruno Mars )",
+          "album": ""
+        },
+        {
+          "rank": 58,
+          "artist": "Omar Apollo",
+          "title": "Evergreen",
+          "album": ""
+        },
+        {
+          "rank": 59,
+          "artist": "Evanescence",
+          "title": "Bring Me To Life",
+          "album": ""
+        },
+        {
+          "rank": 60,
+          "artist": "Alex Warren",
+          "title": "Ordinary",
+          "album": ""
+        },
+        {
+          "rank": 61,
+          "artist": "TLC",
+          "title": "No Scrubs",
+          "album": ""
+        },
+        {
+          "rank": 62,
+          "artist": "bôa",
+          "title": "Duvet",
+          "album": ""
+        },
+        {
+          "rank": 63,
+          "artist": "Katy Perry",
+          "title": "The One That Got Away",
+          "album": ""
+        },
+        {
+          "rank": 64,
+          "artist": "PinkPantheress",
+          "title": "Stateside + Zara Larsson (w/ Zara Larsson )",
+          "album": ""
+        },
+        {
+          "rank": 65,
+          "artist": "Harry Styles",
+          "title": "Sign of the Times",
+          "album": ""
+        },
+        {
+          "rank": 66,
+          "artist": "J. Cole",
+          "title": "No Role Modelz",
+          "album": ""
+        },
+        {
+          "rank": 67,
+          "artist": "Michael Jackson",
+          "title": "Billie Jean",
+          "album": ""
+        },
+        {
+          "rank": 68,
+          "artist": "Zach Bryan",
+          "title": "Something in the Orange",
+          "album": ""
+        },
+        {
+          "rank": 69,
+          "artist": "Tate McRae",
+          "title": "Sports car",
+          "album": ""
+        },
+        {
+          "rank": 70,
+          "artist": "Justin Bieber",
+          "title": "Beauty And A Beat (w/ Nicki Minaj )",
+          "album": ""
+        },
+        {
+          "rank": 71,
+          "artist": "Billie Eilish",
+          "title": "BIRDS OF A FEATHER",
+          "album": ""
+        },
+        {
+          "rank": 72,
+          "artist": "Riley Green",
+          "title": "Worst Way",
+          "album": ""
+        },
+        {
+          "rank": 73,
+          "artist": "Ella Langley",
+          "title": "I Can't Love You Anymore (w/ Morgan Wallen )",
+          "album": ""
+        },
+        {
+          "rank": 74,
+          "artist": "P!nk",
+          "title": "Just Give Me a Reason (w/ Nate Ruess )",
+          "album": ""
+        },
+        {
+          "rank": 75,
+          "artist": "Ravyn Lenae",
+          "title": "Love Me Not",
+          "album": ""
+        },
+        {
+          "rank": 76,
+          "artist": "Tove Lo",
+          "title": "Talking Body",
+          "album": ""
+        },
+        {
+          "rank": 77,
+          "artist": "Zach Bryan",
+          "title": "I Remember Everything (w/ Kacey Musgraves )",
+          "album": ""
+        },
+        {
+          "rank": 78,
+          "artist": "Temper City",
+          "title": "Self Aware",
+          "album": ""
+        },
+        {
+          "rank": 79,
+          "artist": "Drake",
+          "title": "Solar Eclipse (w/ Don Toliver )",
+          "album": ""
+        },
+        {
+          "rank": 80,
+          "artist": "Kanye West",
+          "title": "Flashing Lights (w/ Dwele )",
+          "album": ""
+        },
+        {
+          "rank": 81,
+          "artist": "Taylor Swift",
+          "title": "The Fate of Ophelia",
+          "album": ""
+        },
+        {
+          "rank": 82,
+          "artist": "Nirvana",
+          "title": "Smells Like Teen Spirit - Remastered",
+          "album": ""
+        },
+        {
+          "rank": 83,
+          "artist": "Noah Kahan",
+          "title": "Draw You Out (w/ The Hunger Games )",
+          "album": ""
+        },
+        {
+          "rank": 84,
+          "artist": "Chris Stapleton",
+          "title": "Tennessee Whiskey",
+          "album": ""
+        },
+        {
+          "rank": 85,
+          "artist": "Zach Bryan",
+          "title": "Robot Killed The Working Man",
+          "album": ""
+        },
+        {
+          "rank": 86,
+          "artist": "Waka Flocka Flame",
+          "title": "No Hands (w/ Roscoe Dash , Wale )",
+          "album": ""
+        },
+        {
+          "rank": 87,
+          "artist": "Rihanna",
+          "title": "Don't Stop The Music",
+          "album": ""
+        },
+        {
+          "rank": 88,
+          "artist": "Zach Bryan",
+          "title": "Plainsman (w/ Turnpike Troubadours )",
+          "album": ""
+        },
+        {
+          "rank": 89,
+          "artist": "Paramore",
+          "title": "The Only Exception",
+          "album": ""
+        },
+        {
+          "rank": 90,
+          "artist": "Drake",
+          "title": "Headlines",
+          "album": ""
+        },
+        {
+          "rank": 91,
+          "artist": "Olivia Rodrigo",
+          "title": "maggots for brains",
+          "album": ""
+        },
+        {
+          "rank": 92,
+          "artist": "sombr",
+          "title": "12 to 12",
+          "album": ""
+        },
+        {
+          "rank": 93,
+          "artist": "The Marías",
+          "title": "No One Noticed",
+          "album": ""
+        },
+        {
+          "rank": 94,
+          "artist": "Treaty Oak Revival",
+          "title": "Missed Call",
+          "album": ""
+        },
+        {
+          "rank": 95,
+          "artist": "Drake",
+          "title": "Hold On, We're Going Home (w/ Majid Jordan )",
+          "album": ""
+        },
+        {
+          "rank": 96,
+          "artist": "Post Malone",
+          "title": "Circles",
+          "album": ""
+        },
+        {
+          "rank": 97,
+          "artist": "Rihanna",
+          "title": "Kiss It Better",
+          "album": ""
+        },
+        {
+          "rank": 98,
+          "artist": "Olivia Rodrigo",
+          "title": "honeybee",
+          "album": ""
+        },
+        {
+          "rank": 99,
+          "artist": "Olivia Rodrigo",
+          "title": "deja vu",
+          "album": ""
+        },
+        {
+          "rank": 100,
+          "artist": "Brooks & Dunn",
+          "title": "Neon Moon",
+          "album": ""
+        }
+      ]
+    },
+    "글로벌": {
+      "name": "Spotify Global Daily Top100 (Kworb mirror)",
+      "date": "2026-10-20",
+      "source": "https://kworb.net/spotify/country/global_daily.html",
+      "tracks": [
+        {
+          "rank": 1,
+          "artist": "Tate McRae",
+          "title": "Housewife",
+          "album": ""
+        },
+        {
+          "rank": 2,
+          "artist": "KAROL G",
+          "title": "BbY WOW (w/ Judeline , rusowsky )",
+          "album": ""
+        },
+        {
+          "rank": 3,
+          "artist": "ADÉLA",
+          "title": "Nicole Kidman",
+          "album": ""
+        },
+        {
+          "rank": 4,
+          "artist": "ADÉLA",
+          "title": "Ain't In LA",
+          "album": ""
+        },
+        {
+          "rank": 5,
+          "artist": "Olivia Rodrigo",
+          "title": "the cure",
+          "album": ""
+        },
+        {
+          "rank": 6,
+          "artist": "Olivia Rodrigo",
+          "title": "expectations (w/ Chappell Roan )",
+          "album": ""
+        },
+        {
+          "rank": 7,
+          "artist": "Ashe",
+          "title": "Stop The Wedding!",
+          "album": ""
+        },
+        {
+          "rank": 8,
+          "artist": "Katy Perry",
+          "title": "The One That Got Away",
+          "album": ""
+        },
+        {
+          "rank": 9,
+          "artist": "Lady Gaga",
+          "title": "Die With A Smile (w/ Bruno Mars )",
+          "album": ""
+        },
+        {
+          "rank": 10,
+          "artist": "Malcolm Todd",
+          "title": "Earrings",
+          "album": ""
+        },
+        {
+          "rank": 11,
+          "artist": "Olivia Rodrigo",
+          "title": "stupid song",
+          "album": ""
+        },
+        {
+          "rank": 12,
+          "artist": "sombr",
+          "title": "back to friends",
+          "album": ""
+        },
+        {
+          "rank": 13,
+          "artist": "Justin Bieber",
+          "title": "Beauty And A Beat (w/ Nicki Minaj )",
+          "album": ""
+        },
+        {
+          "rank": 14,
+          "artist": "The Goo Goo Dolls",
+          "title": "Iris",
+          "album": ""
+        },
+        {
+          "rank": 15,
+          "artist": "Olivia Dean",
+          "title": "Man I Need",
+          "album": ""
+        },
+        {
+          "rank": 16,
+          "artist": "The Neighbourhood",
+          "title": "Sweater Weather",
+          "album": ""
+        },
+        {
+          "rank": 17,
+          "artist": "Ravyn Lenae",
+          "title": "Love Me Not",
+          "album": ""
+        },
+        {
+          "rank": 18,
+          "artist": "SIENNA SPIRO",
+          "title": "Great Expectation",
+          "album": ""
+        },
+        {
+          "rank": 19,
+          "artist": "Temper City",
+          "title": "Self Aware",
+          "album": ""
+        },
+        {
+          "rank": 20,
+          "artist": "Tame Impala",
+          "title": "Loser",
+          "album": ""
+        },
+        {
+          "rank": 21,
+          "artist": "P!nk",
+          "title": "Just Give Me a Reason (w/ Nate Ruess )",
+          "album": ""
+        },
+        {
+          "rank": 22,
+          "artist": "Felipe e Rodrigo",
+          "title": "Pós - Ao Vivo",
+          "album": ""
+        },
+        {
+          "rank": 23,
+          "artist": "Shawn Mendes",
+          "title": "Treat You Better",
+          "album": ""
+        },
+        {
+          "rank": 24,
+          "artist": "BTS",
+          "title": "SWIM",
+          "album": ""
+        },
+        {
+          "rank": 25,
+          "artist": "Ella Langley",
+          "title": "Choosin' Texas",
+          "album": ""
+        },
+        {
+          "rank": 26,
+          "artist": "Dominic Fike",
+          "title": "Babydoll",
+          "album": ""
+        },
+        {
+          "rank": 27,
+          "artist": "Billie Eilish",
+          "title": "BIRDS OF A FEATHER",
+          "album": ""
+        },
+        {
+          "rank": 28,
+          "artist": "The Killers",
+          "title": "Mr. Brightside",
+          "album": ""
+        },
+        {
+          "rank": 29,
+          "artist": "Bruno Mars",
+          "title": "Locked out of Heaven",
+          "album": ""
+        },
+        {
+          "rank": 30,
+          "artist": "The Weeknd",
+          "title": "One Of The Girls (w/ JENNIE , Lily-Rose Depp )",
+          "album": ""
+        },
+        {
+          "rank": 31,
+          "artist": "Harry Styles",
+          "title": "Sign of the Times",
+          "album": ""
+        },
+        {
+          "rank": 32,
+          "artist": "Michael Jackson",
+          "title": "Billie Jean",
+          "album": ""
+        },
+        {
+          "rank": 33,
+          "artist": "Gigi Perez",
+          "title": "Sailor Song",
+          "album": ""
+        },
+        {
+          "rank": 34,
+          "artist": "Taylor Swift",
+          "title": "Patient Zero",
+          "album": ""
+        },
+        {
+          "rank": 35,
+          "artist": "Djo",
+          "title": "End of Beginning",
+          "album": ""
+        },
+        {
+          "rank": 36,
+          "artist": "Mac Miller",
+          "title": "Cinderella (w/ Ty Dolla $ign )",
+          "album": ""
+        },
+        {
+          "rank": 37,
+          "artist": "K/DA",
+          "title": "FIRESTARTER (w/ League of Legends , i-dle , Mimi Webb , Sophie Powers , MIYEON , SOYEON )",
+          "album": ""
+        },
+        {
+          "rank": 38,
+          "artist": "Ariana Grande",
+          "title": "hate that i made you love me",
+          "album": ""
+        },
+        {
+          "rank": 39,
+          "artist": "Radiohead",
+          "title": "Creep",
+          "album": ""
+        },
+        {
+          "rank": 40,
+          "artist": "Alex Warren",
+          "title": "Ordinary",
+          "album": ""
+        },
+        {
+          "rank": 41,
+          "artist": "The Weeknd",
+          "title": "Starboy (w/ Daft Punk )",
+          "album": ""
+        },
+        {
+          "rank": 42,
+          "artist": "Zach Bryan",
+          "title": "Lies (w/ Lana Del Rey )",
+          "album": ""
+        },
+        {
+          "rank": 43,
+          "artist": "Oasis",
+          "title": "Wonderwall - Remastered",
+          "album": ""
+        },
+        {
+          "rank": 44,
+          "artist": "Taylor Swift",
+          "title": "The Fate of Ophelia",
+          "album": ""
+        },
+        {
+          "rank": 45,
+          "artist": "Olivia Rodrigo",
+          "title": "drop dead",
+          "album": ""
+        },
+        {
+          "rank": 46,
+          "artist": "The Police",
+          "title": "Every Breath You Take",
+          "album": ""
+        },
+        {
+          "rank": 47,
+          "artist": "Dua Lipa",
+          "title": "Training Season",
+          "album": ""
+        },
+        {
+          "rank": 48,
+          "artist": "Dave",
+          "title": "Raindance (w/ Tems )",
+          "album": ""
+        },
+        {
+          "rank": 49,
+          "artist": "Billie Eilish",
+          "title": "WILDFLOWER",
+          "album": ""
+        },
+        {
+          "rank": 50,
+          "artist": "Coldplay",
+          "title": "Yellow",
+          "album": ""
+        },
+        {
+          "rank": 51,
+          "artist": "Shakira",
+          "title": "Dai Dai (w/ Burna Boy )",
+          "album": ""
+        },
+        {
+          "rank": 52,
+          "artist": "Arctic Monkeys",
+          "title": "505",
+          "album": ""
+        },
+        {
+          "rank": 53,
+          "artist": "Arctic Monkeys",
+          "title": "I Wanna Be Yours",
+          "album": ""
+        },
+        {
+          "rank": 54,
+          "artist": "Olivia Dean",
+          "title": "So Easy (To Fall In Love)",
+          "album": ""
+        },
+        {
+          "rank": 55,
+          "artist": "Bruno Mars",
+          "title": "Risk It All",
+          "album": ""
+        },
+        {
+          "rank": 56,
+          "artist": "Miguel",
+          "title": "Sure Thing",
+          "album": ""
+        },
+        {
+          "rank": 57,
+          "artist": "Evanescence",
+          "title": "Bring Me To Life",
+          "album": ""
+        },
+        {
+          "rank": 58,
+          "artist": "Lord Huron",
+          "title": "The Night We Met",
+          "album": ""
+        },
+        {
+          "rank": 59,
+          "artist": "Vance Joy",
+          "title": "Riptide",
+          "album": ""
+        },
+        {
+          "rank": 60,
+          "artist": "Steve Lacy",
+          "title": "oh yeah?",
+          "album": ""
+        },
+        {
+          "rank": 61,
+          "artist": "Linkin Park",
+          "title": "In the End",
+          "album": ""
+        },
+        {
+          "rank": 62,
+          "artist": "Drake",
+          "title": "One Dance (w/ Wizkid , Kyla )",
+          "album": ""
+        },
+        {
+          "rank": 63,
+          "artist": "Sam Fender",
+          "title": "Rein Me In (w/ Olivia Dean )",
+          "album": ""
+        },
+        {
+          "rank": 64,
+          "artist": "KATSEYE",
+          "title": "Animal",
+          "album": ""
+        },
+        {
+          "rank": 65,
+          "artist": "Rihanna",
+          "title": "Umbrella (w/ JAŸ-Z )",
+          "album": ""
+        },
+        {
+          "rank": 66,
+          "artist": "Bruno Mars",
+          "title": "Just the Way You Are",
+          "album": ""
+        },
+        {
+          "rank": 67,
+          "artist": "Harry Styles",
+          "title": "As It Was",
+          "album": ""
+        },
+        {
+          "rank": 68,
+          "artist": "The Neighbourhood",
+          "title": "Reflections",
+          "album": ""
+        },
+        {
+          "rank": 69,
+          "artist": "Cigarettes After Sex",
+          "title": "Apocalypse",
+          "album": ""
+        },
+        {
+          "rank": 70,
+          "artist": "Michael Jackson",
+          "title": "Beat It",
+          "album": ""
+        },
+        {
+          "rank": 71,
+          "artist": "El Bogueto",
+          "title": "Cuando No Era Cantante RMX - Remix (w/ Anuel AA , Fuerza Regida , Yung Beef )",
+          "album": ""
+        },
+        {
+          "rank": 72,
+          "artist": "SIENNA SPIRO",
+          "title": "Die On This Hill",
+          "album": ""
+        },
+        {
+          "rank": 73,
+          "artist": "Bad Bunny",
+          "title": "DtMF",
+          "album": ""
+        },
+        {
+          "rank": 74,
+          "artist": "Coldplay",
+          "title": "Viva La Vida",
+          "album": ""
+        },
+        {
+          "rank": 75,
+          "artist": "Gracie Abrams",
+          "title": "That’s So True",
+          "album": ""
+        },
+        {
+          "rank": 76,
+          "artist": "Nirvana",
+          "title": "Smells Like Teen Spirit - Remastered",
+          "album": ""
+        },
+        {
+          "rank": 77,
+          "artist": "João Gustavo e Murilo",
+          "title": "Postinho de Gasolina (w/ Grelo )",
+          "album": ""
+        },
+        {
+          "rank": 78,
+          "artist": "Tove Lo",
+          "title": "Talking Body",
+          "album": ""
+        },
+        {
+          "rank": 79,
+          "artist": "Fleetwood Mac",
+          "title": "Dreams - 2001 Remaster",
+          "album": ""
+        },
+        {
+          "rank": 80,
+          "artist": "sombr",
+          "title": "Homewrecker",
+          "album": ""
+        },
+        {
+          "rank": 81,
+          "artist": "Olivia Rodrigo",
+          "title": "honeybee",
+          "album": ""
+        },
+        {
+          "rank": 82,
+          "artist": "TLC",
+          "title": "No Scrubs",
+          "album": ""
+        },
+        {
+          "rank": 83,
+          "artist": "RAYE",
+          "title": "WHERE IS MY HUSBAND!",
+          "album": ""
+        },
+        {
+          "rank": 84,
+          "artist": "Keane",
+          "title": "Somewhere Only We Know",
+          "album": ""
+        },
+        {
+          "rank": 85,
+          "artist": "Rihanna",
+          "title": "Only Girl (In The World)",
+          "album": ""
+        },
+        {
+          "rank": 86,
+          "artist": "The Weeknd",
+          "title": "Die For You",
+          "album": ""
+        },
+        {
+          "rank": 87,
+          "artist": "Ed Sheeran",
+          "title": "Shape of You",
+          "album": ""
+        },
+        {
+          "rank": 88,
+          "artist": "Bruno Mars",
+          "title": "That's What I Like",
+          "album": ""
+        },
+        {
+          "rank": 89,
+          "artist": "Rihanna",
+          "title": "Kiss It Better",
+          "album": ""
+        },
+        {
+          "rank": 90,
+          "artist": "Jennifer Lopez",
+          "title": "On The Floor (w/ Pitbull )",
+          "album": ""
+        },
+        {
+          "rank": 91,
+          "artist": "Rihanna",
+          "title": "Don't Stop The Music",
+          "album": ""
+        },
+        {
+          "rank": 92,
+          "artist": "Justice",
+          "title": "Flower In A Hurricane (w/ Tame Impala , SZA , Grand Theft Auto VI , King Gizzard & The Lizard Wizard )",
+          "album": ""
+        },
+        {
+          "rank": 93,
+          "artist": "Nelly Furtado",
+          "title": "Promiscuous (w/ Timbaland )",
+          "album": ""
+        },
+        {
+          "rank": 94,
+          "artist": "Bad Bunny",
+          "title": "BAILE INoLVIDABLE",
+          "album": ""
+        },
+        {
+          "rank": 95,
+          "artist": "Jamie Miller",
+          "title": "Babydoll",
+          "album": ""
+        },
+        {
+          "rank": 96,
+          "artist": "Faouzia",
+          "title": "UNETHICAL",
+          "album": ""
+        },
+        {
+          "rank": 97,
+          "artist": "Benson Boone",
+          "title": "Beautiful Things",
+          "album": ""
+        },
+        {
+          "rank": 98,
+          "artist": "OneRepublic",
+          "title": "Counting Stars",
+          "album": ""
+        },
+        {
+          "rank": 99,
+          "artist": "Post Malone",
+          "title": "Sunflower - Spider-Man: Into the Spider-Verse (w/ Swae Lee )",
+          "album": ""
+        },
+        {
+          "rank": 100,
+          "artist": "girl in red",
+          "title": "we fell in love in october",
+          "album": ""
+        }
+      ]
+    }
+  }
+}
