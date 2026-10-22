@@ -135,6 +135,7 @@ fun OdifyRoot(
     expanded: Boolean,
     onExpandedChange: (Boolean) -> Unit,
     onImport: () -> Unit,
+    onImportOffline: () -> Unit,
     onPlay: (List<OdifySong>, Int) -> Unit,
     onTogglePlayback: () -> Unit,
     onPrevious: () -> Unit,
@@ -194,15 +195,20 @@ fun OdifyRoot(
     }
     LaunchedEffect(selectedTab) { navVisible = true }
 
-    val barHeight = 66.dp
+    // Extend rounded nav background behind the Android gesture indicator.
+    val gestureInset = WindowInsets.navigationBars.asPaddingValues()
+        .calculateBottomPadding()
+    val barHeight = 66.dp + gestureInset
     val barHeightPx = with(androidx.compose.ui.platform.LocalDensity.current) {
         barHeight.toPx()
+    }
+    val gestureInsetPx = with(androidx.compose.ui.platform.LocalDensity.current) {
+        gestureInset.toPx()
     }
     Box(Modifier.fillMaxSize().background(white)) {
         // Only the light screens are inset. Fullscreen player must retain
         // status-bar background and apply its own insets exactly once.
-        Box(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()
-            .clipToBounds()) {
+        Box(Modifier.fillMaxSize().statusBarsPadding().clipToBounds()) {
         Box(
             Modifier.fillMaxSize()
                 // Scroll content fills the screen: no fixed opaque 135dp bottom slab.
@@ -243,7 +249,7 @@ fun OdifyRoot(
                 OdifyTab.Library -> OdifyLibraryScreen(
                     songs, liked, ::playList, onImport, onRemove, onEdit
                 )
-                OdifyTab.Profile -> OdifyProfile(songs.size, onImport, importing)
+                OdifyTab.Profile -> OdifyProfile(songs, onImport, onImportOffline, importing)
             }
         }
 
@@ -257,7 +263,7 @@ fun OdifyRoot(
                     alpha = navFraction
                 }
         ) {
-            OdifyBottomBar(selectedTab) {
+            OdifyBottomBar(selectedTab, gestureInset) {
                 selectedTab = it
                 navVisible = true
                 interaction++
@@ -267,7 +273,8 @@ fun OdifyRoot(
             Box(
                 Modifier.align(Alignment.BottomCenter)
                     .graphicsLayer {
-                        translationY = -navFraction * barHeightPx
+                        translationY = -gestureInsetPx -
+                            navFraction * (barHeightPx - gestureInsetPx)
                     }
             ) {
                 OdifyMiniPlayer(active, playback.isPlaying, active.id in liked,
@@ -400,7 +407,7 @@ private fun OdifyHome(
                     Column(Modifier.weight(1f)) {
                         Text("Google Drive 음악 가져오기", fontWeight = FontWeight.SemiBold,
                             fontSize = 14.sp, color = ink)
-                        Text("${songs.size}곡 저장됨 · MP3 / M4A / FLAC",
+                        Text("${songs.size}곡 · Drive 연결 또는 오프라인 저장",
                             color = grey, fontSize = 11.sp)
                     }
                     Icon(Icons.Default.ChevronRight, null, tint = grey)
@@ -507,17 +514,21 @@ private fun EmptyMusicPrompt(onImport: () -> Unit, importing: Boolean) {
 }
 
 @Composable
-private fun OdifyBottomBar(selected: OdifyTab, onSelected: (OdifyTab) -> Unit) {
+private fun OdifyBottomBar(
+    selected: OdifyTab,
+    bottomInset: androidx.compose.ui.unit.Dp,
+    onSelected: (OdifyTab) -> Unit
+) {
     val navShape = RoundedCornerShape(topStart = 23.dp, topEnd = 23.dp)
     Row(Modifier.fillMaxWidth()
-        .height(66.dp)
+        .height(66.dp + bottomInset)
         .shadow(10.dp, navShape, clip = false)
         .clip(navShape)
         .background(Brush.verticalGradient(listOf(
             Color(0xF9FFFFFF), Color(0xF4F6F6F8)
         )))
         .border(0.7.dp, Color(0xFFE9E9EB), navShape)
-        .padding(horizontal = 12.dp),
+        .padding(start = 12.dp, end = 12.dp, bottom = bottomInset),
         verticalAlignment = Alignment.CenterVertically
     ) {
         val icons = mapOf(
@@ -797,24 +808,33 @@ private fun OdifySongRow(
 }
 
 @Composable
-private fun OdifyProfile(songCount: Int, onImport: () -> Unit, importing: Boolean) {
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())
-        .padding(start = 21.dp, end = 21.dp, bottom = 158.dp)) {
+private fun OdifyProfile(
+    songs: List<OdifySong>,
+    onImport: () -> Unit,
+    onImportOffline: () -> Unit,
+    importing: Boolean
+) {
+    val cloudCount = songs.count { it.isCloud }
+    val offlineCount = songs.size - cloudCount
+    Column(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState())
+            .padding(start = 21.dp, end = 21.dp, bottom = 170.dp)
+    ) {
         Spacer(Modifier.height(24.dp))
         Text("Your Space", fontSize = 25.sp, fontWeight = FontWeight.Bold,
             color = ink, letterSpacing = (-0.6).sp)
         Spacer(Modifier.height(4.dp))
         Text("Music for a calmer you.", fontSize = 12.sp, color = grey)
-
         Spacer(Modifier.height(27.dp))
-        Row(Modifier.fillMaxWidth()
-            .clip(RoundedCornerShape(17.dp))
-            .background(pale)
-            .padding(horizontal = 19.dp, vertical = 20.dp),
+        Row(
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(17.dp))
+                .background(pale).padding(horizontal = 19.dp, vertical = 20.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Box(Modifier.size(49.dp).clip(RoundedCornerShape(15.dp))
-                .background(ink), contentAlignment = Alignment.Center) {
+            Box(
+                Modifier.size(49.dp).clip(RoundedCornerShape(15.dp))
+                    .background(ink), contentAlignment = Alignment.Center
+            ) {
                 Icon(Icons.Default.MusicNote, null, tint = white,
                     modifier = Modifier.size(27.dp))
             }
@@ -823,49 +843,78 @@ private fun OdifyProfile(songCount: Int, onImport: () -> Unit, importing: Boolea
                 Text("My Music", color = ink, fontSize = 16.sp,
                     fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(4.dp))
-                Text("${songCount}곡 · 오프라인에서 재생 가능", color = grey, fontSize = 11.sp)
+                Text("${songs.size}곡 · Drive ${cloudCount}곡 · 오프라인 ${offlineCount}곡",
+                    color = grey, fontSize = 11.sp)
             }
         }
-
         Spacer(Modifier.height(33.dp))
         Text("Music sources", color = ink, fontSize = 14.sp,
             fontWeight = FontWeight.SemiBold)
-        Spacer(Modifier.height(11.dp))
-        Row(
-            Modifier.fillMaxWidth()
-                .clip(RoundedCornerShape(13.dp))
-                .clickable(enabled = !importing, onClick = onImport)
-                .padding(vertical = 13.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(Modifier.size(37.dp).clip(RoundedCornerShape(11.dp))
-                .background(pale), contentAlignment = Alignment.Center) {
-                Icon(Icons.Default.CloudDownload, null, tint = ink,
-                    modifier = Modifier.size(20.dp))
-            }
-            Spacer(Modifier.width(14.dp))
-            Column(Modifier.weight(1f)) {
-                Text("Google Drive", fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold, color = ink)
-                Text(if (importing) "음악을 가져오는 중…" else "음원 선택 및 보관",
-                    fontSize = 11.sp, color = grey)
-            }
-            Icon(Icons.Default.ChevronRight, null, tint = grey)
-        }
+        Spacer(Modifier.height(13.dp))
+        OdifySourceRow(
+            icon = Icons.Default.CloudQueue,
+            title = "Google Drive · 연결",
+            subtitle = "음원을 복사하지 않고 파일 공급자에서 열기",
+            enabled = !importing, onClick = onImport
+        )
         HorizontalDivider(color = Color(0xFFF1F1F3))
-        Spacer(Modifier.height(30.dp))
-
+        OdifySourceRow(
+            icon = Icons.Default.FileDownload,
+            title = "오프라인 음악 저장",
+            subtitle = "선택한 음원을 휴대폰에 복사하여 보관",
+            enabled = !importing, onClick = onImportOffline
+        )
+        Spacer(Modifier.height(11.dp))
+        Text(
+            "Drive 앱이 데이터를 내부적으로 임시 다운로드할 수 있습니다. " +
+                "인터넷 연결이나 Drive 앱 로그인 상태에 따라 재생이 제한될 수 있습니다.",
+            color = grey, fontSize = 11.sp, lineHeight = 16.sp
+        )
+        Spacer(Modifier.height(28.dp))
         Text("Playback & storage", color = ink, fontSize = 14.sp,
             fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.height(15.dp))
         OdifyInfoRow(Icons.Default.Headphones, "Audio engine",
             "Android Media3 · background playback")
         Spacer(Modifier.height(7.dp))
-        OdifyInfoRow(Icons.Default.OfflinePin, "Offline library",
-            "${songCount} files stored on this device")
+        OdifyInfoRow(Icons.Default.CloudDone, "Smart stream cache",
+            "최근 재생 데이터 자동 캐시 · 최대 192MB")
         Spacer(Modifier.height(7.dp))
         OdifyInfoRow(Icons.Default.Info, "About",
-            "Odify Native · UI Preview 2")
+            "Odify Native · UI Preview 6")
+    }
+}
+
+@Composable
+private fun OdifySourceRow(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    title: String,
+    subtitle: String,
+    enabled: Boolean,
+    onClick: () -> Unit
+) {
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(13.dp))
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            Modifier.size(38.dp).clip(RoundedCornerShape(11.dp))
+                .background(pale),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(icon, null, tint = ink, modifier = Modifier.size(20.dp))
+        }
+        Spacer(Modifier.width(13.dp))
+        Column(Modifier.weight(1f)) {
+            Text(title, fontSize = 13.sp, color = ink,
+                fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(3.dp))
+            Text(subtitle, fontSize = 11.sp, color = grey)
+        }
+        Icon(Icons.Default.ChevronRight, null, tint = grey,
+            modifier = Modifier.size(20.dp))
     }
 }
 
