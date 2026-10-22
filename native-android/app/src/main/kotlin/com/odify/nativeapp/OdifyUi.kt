@@ -494,99 +494,120 @@ private fun OdifyHome(
     onImport: () -> Unit,
     importing: Boolean,
     onSearch: () -> Unit,
-    onPlay: (List<OdifySong>, Int) -> Unit
+    onProfile: () -> Unit,
+    onLibrary: () -> Unit,
+    onPlay: (List<OdifySong>, Int) -> Unit,
+    playlists: List<OdifyPlaylist>,
+    onPlaylistPlay: (OdifyPlaylist) -> Unit
 ) {
+    // Home shows only actual songs and user-created playlists. Drive accounts,
+    // permissions, diagnostics and syncing belong under Profile / Settings.
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 20.dp, end = 0.dp, top = 17.dp, bottom = 156.dp),
+        contentPadding = PaddingValues(start = 20.dp, end = 20.dp,
+            top = 16.dp, bottom = 158.dp),
         verticalArrangement = Arrangement.spacedBy(0.dp)
     ) {
         item {
-            Row(Modifier.fillMaxWidth().padding(end = 20.dp),
-                verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text("Good evening,", color = grey, fontSize = 13.sp)
-                    Text("Music feels\nbetter here.", fontSize = 27.sp,
-                        lineHeight = 29.sp, fontWeight = FontWeight.Bold,
-                        letterSpacing = (-0.9).sp, color = ink)
+                    Text("ODIFY", color = ink, fontSize = 24.sp,
+                        fontWeight = FontWeight.Bold, letterSpacing = (-0.7).sp)
+                    Text("오늘은 어떤 음악을 들을까요?", color = grey, fontSize = 12.sp)
                 }
-                Box(Modifier.size(38.dp).clip(RoundedCornerShape(50)).background(pale),
-                    contentAlignment = Alignment.Center) {
-                    Icon(Icons.Default.PersonOutline, contentDescription = "프로필",
-                        tint = ink, modifier = Modifier.size(22.dp))
-                }
-            }
-            Spacer(Modifier.height(17.dp))
-            SearchHint(Modifier.padding(end = 20.dp), onSearch)
-            Spacer(Modifier.height(12.dp))
-            HorizontalChips(listOf("All", "For You", "Chill", "J-Pop", "K-Pop"))
-            Spacer(Modifier.height(25.dp))
-            SectionTitle("Made for You")
-            Spacer(Modifier.height(12.dp))
-        }
-        item {
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(9.dp),
-                contentPadding = PaddingValues(end = 20.dp)) {
-                val cards = listOf("Your Mix", "Chill\nAfternoons", "J-Pop Mix", "Late Night")
-                items(cards.size) { index ->
-                    OdifyMixCard(cards[index], songs.getOrNull(index), index) {
-                        if (songs.isNotEmpty()) onPlay(songs, index % songs.size) else onImport()
-                    }
+                IconButton(onClick = onProfile,
+                    modifier = Modifier.size(48.dp)
+                        .clip(RoundedCornerShape(50)).background(pale)) {
+                    Icon(Icons.Default.PersonOutline, "프로필 및 설정",
+                        tint = ink, modifier = Modifier.size(25.dp))
                 }
             }
-            Spacer(Modifier.height(25.dp))
-            SectionTitle(if (hasHistory) "Recently Played" else "Recently Added")
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(21.dp))
+            SearchHint(onTap = onSearch)
+            Spacer(Modifier.height(23.dp))
+            Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(17.dp))
+                .background(pale).clickable(onClick = onLibrary)
+                .padding(horizontal = 17.dp, vertical = 16.dp),
+                verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.LibraryMusic, null, tint = ink,
+                    modifier = Modifier.size(26.dp))
+                Spacer(Modifier.width(14.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("내 음악 라이브러리", color = ink, fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold)
+                    Text("${songs.size}곡 · 플레이리스트 ${playlists.size}개",
+                        color = grey, fontSize = 11.sp)
+                }
+                Icon(Icons.Default.ChevronRight, "라이브러리 열기", tint = grey)
+            }
+            Spacer(Modifier.height(29.dp))
+            SectionTitle(if (hasHistory) "최근 들은 음악" else "최근 추가된 음악")
+            Spacer(Modifier.height(13.dp))
         }
         if (recent.isEmpty()) {
-            item { EmptyMusicPrompt(onImport, importing) }
+            item {
+                EmptyMusicPrompt(onImport, importing)
+                Spacer(Modifier.height(25.dp))
+            }
         } else {
             item {
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    contentPadding = PaddingValues(end = 20.dp)) {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(13.dp)) {
                     items(recent.take(12), key = { it.id }) { song ->
-                        val index = recent.indexOf(song)
-                        Column(Modifier.width(83.dp).clickable { onPlay(recent, index) }) {
-                            AlbumArt(song, Modifier.size(83.dp),
+                        val index = recent.indexOfFirst { it.id == song.id }
+                        Column(Modifier.width(102.dp)
+                            .clickable { if (index >= 0) onPlay(recent, index) }) {
+                            AlbumArt(song, Modifier.size(102.dp),
                                 fallbackKey = song.id.hashCode())
-                            Spacer(Modifier.height(6.dp))
-                            Text(song.title, fontSize = 11.sp, fontWeight = FontWeight.SemiBold,
+                            Spacer(Modifier.height(8.dp))
+                            Text(song.title, fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
                                 maxLines = 1, overflow = TextOverflow.Ellipsis, color = ink)
-                            if (song.artist.isNotBlank()) {
-                                Text(song.artist, fontSize = 10.sp,
-                                    maxLines = 1, overflow = TextOverflow.Ellipsis, color = grey)
-                            }
+                            Text(song.artist.ifBlank { "아티스트 미상" },
+                                fontSize = 10.sp, maxLines = 1,
+                                overflow = TextOverflow.Ellipsis, color = grey)
                         }
                     }
                 }
+                Spacer(Modifier.height(29.dp))
             }
         }
         item {
-            Spacer(Modifier.height(24.dp))
-            SectionTitle("Your Music, Your Way")
-            Spacer(Modifier.height(12.dp))
-            Box(
-                Modifier.fillMaxWidth().padding(end = 20.dp)
-                    .clip(RoundedCornerShape(17.dp))
-                    .background(Color(0xFFF2F3F5))
-                    .clickable(onClick = onImport)
-                    .padding(18.dp)
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.CloudDownload, null, tint = ink,
-                        modifier = Modifier.size(25.dp))
-                    Spacer(Modifier.width(14.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text("Google Drive 음악 가져오기", fontWeight = FontWeight.SemiBold,
-                            fontSize = 14.sp, color = ink)
-                        Text("${songs.size}곡 · Drive 연결 또는 오프라인 저장",
-                            color = grey, fontSize = 11.sp)
-                    }
-                    Icon(Icons.Default.ChevronRight, null, tint = grey)
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.weight(1f)) { SectionTitle("내 플레이리스트") }
+                TextButton(onClick = onLibrary) {
+                    Text("라이브러리", color = grey, fontSize = 12.sp)
                 }
             }
-            Spacer(Modifier.height(35.dp))
+            Spacer(Modifier.height(8.dp))
         }
+        if (playlists.isEmpty()) {
+            item {
+                Text("재생 화면의 ⋮ 메뉴에서 나만의 플레이리스트를 만들 수 있습니다.",
+                    fontSize = 12.sp, color = grey,
+                    modifier = Modifier.padding(vertical = 12.dp))
+            }
+        } else {
+            items(playlists.take(5), key = { it.id }) { list ->
+                Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
+                    .clickable { onPlaylistPlay(list) }
+                    .padding(vertical = 10.dp, horizontal = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(48.dp).clip(RoundedCornerShape(12.dp))
+                        .background(pale), contentAlignment = Alignment.Center) {
+                        Icon(Icons.Default.QueueMusic, null, tint = ink)
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(list.name, color = ink, fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold, maxLines = 1,
+                            overflow = TextOverflow.Ellipsis)
+                        Text("${list.songIds.size}곡", color = grey, fontSize = 11.sp)
+                    }
+                    Icon(Icons.Default.PlayArrow, "플레이리스트 재생", tint = ink)
+                }
+            }
+        }
+        item { Spacer(Modifier.height(22.dp)) }
     }
 }
 
@@ -679,7 +700,7 @@ private fun EmptyMusicPrompt(onImport: () -> Unit, importing: Boolean) {
             Text(if (importing) "음악을 가져오는 중…" else "음악을 추가해 보세요",
                 fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(5.dp))
-            Text("Google Drive에서 음악을 선택하면 이곳에 표시됩니다.",
+            Text("내 음악을 추가하세요. Drive 계정·폴더 연결은 프로필에서 관리합니다.",
                 color = grey, fontSize = 11.sp)
         }
     }
