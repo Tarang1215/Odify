@@ -42,9 +42,11 @@ jobs:
               for index,tr in enumerate(soup.select('tr.lst50, tr.lst100'),1):
                 title_el=tr.select_one('.ellipsis.rank01 a')
                 artist_el=tr.select_one('.ellipsis.rank02 a')
+                artist_els=tr.select('.ellipsis.rank02 a')
                 album_el=tr.select_one('.ellipsis.rank03 a')
                 if not title_el or not artist_el: continue
-                rows.append({"rank":index,"artist":artist_el.get_text(" ",strip=True),
+                artists=list(dict.fromkeys(e.get_text(" ",strip=True) for e in artist_els if e.get_text(" ",strip=True)))
+                rows.append({"rank":index,"artist":", ".join(artists) if artists else artist_el.get_text(" ",strip=True),
                   "title":title_el.get_text(" ",strip=True),
                   "album":album_el.get_text(" ",strip=True) if album_el else ""})
             elif region in ("일본","글로벌"):
@@ -91,6 +93,7 @@ jobs:
                 if actual and canon(actual)!=canon(item['title']):
                   print("RANK_CONFLICT",item['rank'],repr(actual),repr(item['title']),flush=True)
                   raise ValueError(f"Billboard Hot100 rank conflict: {item['rank']}")
+            rows=[r for r in rows if r['rank']<=100]
             good={x["rank"] for x in rows}
             print("COUNT",region,len(rows),"UNIQUE_RANKS",len(good),"FIRST",rows[:2],"LAST",rows[-2:],flush=True)
             if len(rows)<100 or good != set(range(1,101)):
