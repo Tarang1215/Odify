@@ -207,6 +207,10 @@ class DriveCatalog(private val context: Context) {
                         put("title",track.title)
                         put("artist",track.artist)
                         put("album",track.album)
+                        // Prefer the canonical MASTER genre over guessed folder
+                        // paths, but never replace a known genre with 미분류.
+                        if (track.genre.isNotBlank() && track.genre != "미분류")
+                            put("genre", track.genre)
                         put("meta_source","master")
                     }
                     updated+=conn.update("tracks",cv,"id=? AND meta_source!=?",
