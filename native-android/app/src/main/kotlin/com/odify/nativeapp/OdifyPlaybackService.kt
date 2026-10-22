@@ -5,6 +5,7 @@ import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.datasource.ResolvingDataSource
 import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
 import androidx.media3.datasource.cache.SimpleCache
@@ -37,8 +38,13 @@ class OdifyPlaybackService : MediaSessionService() {
                 provider
             )
             cache = diskCache
+            val httpFactory = DefaultHttpDataSource.Factory()
+                .setUserAgent("Odify-Native/9 Android")
+                .setConnectTimeoutMs(10_000)
+                .setReadTimeoutMs(20_000)
+                .setAllowCrossProtocolRedirects(false)
             val authenticatedUpstream = ResolvingDataSource.Factory(
-                DefaultDataSource.Factory(this),
+                DefaultDataSource.Factory(this, httpFactory),
                 ResolvingDataSource.Resolver { spec ->
                     val uri = spec.uri
                     if (uri.scheme == "https" &&
