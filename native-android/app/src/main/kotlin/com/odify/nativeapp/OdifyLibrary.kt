@@ -27,7 +27,8 @@ data class OdifySong(
     val artworkPath: String? = null,
     val durationMs: Long = 0L,
     val sourceUri: String? = null,
-    val genre: String = ""
+    val genre: String = "",
+    val lyrics: String = ""
 ) {
     val isCloud: Boolean get() = !sourceUri.isNullOrEmpty()
     fun mediaItem(): MediaItem = MediaItem.Builder()
@@ -72,7 +73,8 @@ class OdifyLibrary(private val context: Context) {
                     artworkPath = value.optString("artworkPath").takeIf { it.isNotEmpty() },
                     durationMs = value.optLong("durationMs"),
                     sourceUri = cloudUri,
-                    genre = value.optString("genre")
+                    genre = value.optString("genre"),
+                    lyrics = value.optString("lyrics")
                 )
             }
         } catch (_: Exception) { emptyList() }
@@ -91,6 +93,7 @@ class OdifyLibrary(private val context: Context) {
                 put("durationMs", song.durationMs)
                 put("sourceUri", song.sourceUri ?: "")
                 put("genre", song.genre)
+                put("lyrics", song.lyrics)
             })
         }
         prefs.edit().putString("songs", json.toString()).apply()

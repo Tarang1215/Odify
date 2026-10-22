@@ -101,13 +101,19 @@ private fun NativeOdify() {
                 // A few covers become visible in Search/Home before first play.
                 // This runs after sync, off the UI thread, with daily retry caps.
                 scope.launch {
-                    runCatching {
-                        withContext(Dispatchers.IO) {
-                            val count = driveCatalog.prefetchArtwork(limit = 4)
-                            count to (library.songs() + driveCatalog.tracks())
-                        }
-                    }.onSuccess { (count, refreshed) ->
+                    // Hydrate incrementally: the first four names/covers become
+                    // visible quickly instead of waiting for every remote file.
+                    for (batch in 0 until 8) {
+                        val result = runCatching {
+                            withContext(Dispatchers.IO) {
+                                val count = driveCatalog.prefetchMetadata(limit = 4)
+                                count to (library.songs() + driveCatalog.tracks())
+                            }
+                        }.getOrNull() ?: break
+                        val (count, refreshed) = result
                         if (count > 0) songs = refreshed
+                        if (count < 4) break
+                        kotlinx.coroutines.yield()
                     }
                 }
             } catch (e: Exception) {
@@ -172,14 +178,15 @@ private fun NativeOdify() {
     }
     LaunchedEffect(playback.mediaId) {
         val track = songs.firstOrNull { it.id == playback.mediaId }
-        if (track != null && track.id.startsWith("gdrive:") &&
-            track.artworkPath == null && driveConnected) {
-            val found = runCatching { driveCatalog.ensureCover(track) }.getOrDefault(false)
-            if (found) {
-                val reloaded = withContext(Dispatchers.IO) { driveCatalog.tracks() }
-                val art = reloaded.firstOrNull { it.id == track.id }?.artworkPath
-                if (art != null) songs = songs.map {
-                    if (it.id == track.id) it.copy(artworkPath = art) else it
+        if (track != null && track.id.startsWith("gdrive:") && driveConnected) {
+            // Fast path for a tapped song; metadata is saved in the SQLite
+            // catalog, while full audio remains in the Drive account.
+            val changed = runCatching {
+                driveCatalog.ensureMetadata(track)
+            }.getOrDefault(false)
+            if (changed) {
+                songs = withContext(Dispatchers.IO) {
+                    library.songs() + driveCatalog.tracks()
                 }
             }
         }

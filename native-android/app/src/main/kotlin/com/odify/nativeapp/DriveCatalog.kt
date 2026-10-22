@@ -24,18 +24,25 @@ private const val FOLDER_MIME = "application/vnd.google-apps.folder"
 /** A SQLite index: deliberately NOT 50k rows of JSON in SharedPreferences. */
 class DriveCatalog(private val context: Context) {
     private val prefs = context.getSharedPreferences("odify_drive_catalog_v1", 0)
-    private val db = object : SQLiteOpenHelper(context, "odify_drive_catalog.db", null, 1) {
+    private val db = object : SQLiteOpenHelper(context, "odify_drive_catalog.db", null, 2) {
         override fun onCreate(db: SQLiteDatabase) {
             db.execSQL("""CREATE TABLE tracks (
                 id TEXT PRIMARY KEY, name TEXT NOT NULL, title TEXT NOT NULL,
                 artist TEXT NOT NULL DEFAULT '', album TEXT NOT NULL DEFAULT '',
                 genre TEXT NOT NULL DEFAULT '', mime TEXT NOT NULL,
                 modified TEXT NOT NULL DEFAULT '', cover TEXT NOT NULL DEFAULT '',
-                lyrics TEXT NOT NULL DEFAULT ''
+                lyrics TEXT NOT NULL DEFAULT '',
+                meta_source TEXT NOT NULL DEFAULT 'filename',
+                meta_checked_modified TEXT NOT NULL DEFAULT ''
             )""")
             db.execSQL("CREATE INDEX tracks_search ON tracks(title, artist, genre)")
         }
-        override fun onUpgrade(db: SQLiteDatabase, old: Int, newer: Int) {}
+        override fun onUpgrade(db: SQLiteDatabase, old: Int, newer: Int) {
+            if (old < 2) {
+                db.execSQL("ALTER TABLE tracks ADD COLUMN meta_source TEXT NOT NULL DEFAULT 'filename'")
+                db.execSQL("ALTER TABLE tracks ADD COLUMN meta_checked_modified TEXT NOT NULL DEFAULT ''")
+            }
+        }
     }
     val folderId: String get() = prefs.getString("folder", "") ?: ""
     var lastSync: Long
@@ -61,7 +68,7 @@ class DriveCatalog(private val context: Context) {
         require(title.isNotBlank())
         val cv = ContentValues().apply {
             put("title", title.trim()); put("artist", artist.trim())
-            put("album", album.trim())
+            put("album", album.trim()); put("meta_source", "user")
         }
         db.writableDatabase.update("tracks", cv, "id=?", arrayOf(id))
     }
@@ -70,7 +77,7 @@ class DriveCatalog(private val context: Context) {
         val result = ArrayList<OdifySong>()
         val hidden = prefs.getStringSet("hidden", emptySet()) ?: emptySet()
         db.readableDatabase.rawQuery(
-            "SELECT id,name,title,artist,album,genre,cover FROM tracks ORDER BY modified DESC,name LIMIT 100000",
+            "SELECT id,name,title,artist,album,genre,cover,lyrics FROM tracks ORDER BY modified DESC,name LIMIT 100000",
             null
         ).use { cursor ->
             while (cursor.moveToNext()) {
@@ -81,7 +88,8 @@ class DriveCatalog(private val context: Context) {
                     artist = cursor.getString(3), album = cursor.getString(4),
                     filePath = "", artworkPath = cursor.getString(6).takeIf { it.isNotBlank() },
                     sourceUri = "https://www.googleapis.com/drive/v3/files/$fileId?alt=media",
-                    genre = cursor.getString(5)
+                    genre = cursor.getString(5),
+                    lyrics = cursor.getString(7).orEmpty().take(20000)
                 )
             }
         }
@@ -150,27 +158,31 @@ class DriveCatalog(private val context: Context) {
             dbConn.execSQL("CREATE TEMP TABLE IF NOT EXISTS odify_seen (id TEXT PRIMARY KEY)")
             dbConn.delete("odify_seen", null, null)
             for ((id, file) in collected) {
-                val filename = file.getString("name").substringBeforeLast('.')
-                val split = filename.split(" - ", limit = 2)
-                val genre = file.optString("odifyGenre")
+                val (fallbackTitle, fallbackArtist) =
+                    DriveTagReader.fallbackFromName(file.getString("name"))
+                val genre = DriveTagReader.recognizableGenre(file.optString("odifyGenre"))
                 val existing = dbConn.rawQuery(
-                    "SELECT title,artist,album,cover,modified FROM tracks WHERE id=?",
+                    "SELECT title,artist,album,cover,modified,meta_source,meta_checked_modified,lyrics,genre FROM tracks WHERE id=?",
                     arrayOf(id)
                 ).use { c ->
-                    if (c.moveToFirst()) (0..4).map { c.getString(it) } else null
+                    if (c.moveToFirst()) (0..8).map { c.getString(it) } else null
                 }
                 val modified = file.optString("modifiedTime")
+                val hasTags = existing?.get(5) in setOf("tag", "user")
                 val cv = ContentValues().apply {
                     put("id", id)
                     put("name", file.getString("name"))
-                    put("title", if (existing == null) split.last() else existing[0])
-                    put("artist", if (existing == null && split.size == 2) split[0]
-                        else existing?.get(1) ?: "")
-                    put("album", existing?.get(2) ?: "")
-                    put("genre", genre)
+                    put("title", if (hasTags) existing!![0] else fallbackTitle)
+                    put("artist", if (hasTags) existing!![1] else fallbackArtist)
+                    put("album", if (hasTags) existing!![2] else "")
+                    put("genre", if (hasTags && !existing!![8].isNullOrBlank()) existing[8] else genre)
                     put("mime", file.optString("mimeType"))
                     put("modified", modified)
                     put("cover", if (existing?.get(4) == modified) existing[3] else "")
+                    put("meta_source", existing?.get(5) ?: "filename")
+                    put("meta_checked_modified", if (existing?.get(4) == modified)
+                        existing[6] else "")
+                    put("lyrics", existing?.get(7) ?: "")
                 }
                 dbConn.insertWithOnConflict("tracks", null, cv, SQLiteDatabase.CONFLICT_REPLACE)
                 val seen = ContentValues().apply { put("id", id) }
@@ -184,68 +196,127 @@ class DriveCatalog(private val context: Context) {
     }
 
     /**
-     * Warm only a few MP3 covers after catalog sync, so Home/Search can show
-     * thumbnails without playing each song. Failed cover requests are not
-     * repeated for 24 hours: protects the free 15GB pilot and phone battery.
+     * Read actual ID3/MP4 tags in bounded Drive byte ranges, never downloading
+     * the entire song just to discover artwork, title or artist.
+     * The catalog keeps a modified-time fingerprint to avoid redundant calls.
      */
-    suspend fun prefetchArtwork(limit: Int = 4): Int = withContext(Dispatchers.IO) {
+    suspend fun prefetchMetadata(limit: Int = 16): Int = withContext(Dispatchers.IO) {
         val candidates = ArrayList<OdifySong>()
         db.readableDatabase.rawQuery(
-            "SELECT id,title,artist FROM tracks WHERE cover='' AND LOWER(name) LIKE '%.mp3' ORDER BY modified DESC LIMIT 20",
+            "SELECT id,name,title,artist,album FROM tracks " +
+                "WHERE meta_checked_modified != modified " +
+                "ORDER BY modified DESC LIMIT ${limit.coerceIn(1, 40)}",
             null
         ).use { cursor ->
             while (cursor.moveToNext()) {
                 val id = cursor.getString(0)
-                val lastTry = prefs.getLong("coverChecked:$id", 0L)
-                if (System.currentTimeMillis() - lastTry < 24L * 60L * 60L * 1000L) continue
+                val retryAfter = prefs.getLong("metaRetry:$id", 0L)
+                if (retryAfter > System.currentTimeMillis()) continue
                 candidates += OdifySong(
-                    id = "gdrive:$id", title = cursor.getString(1),
-                    artist = cursor.getString(2), album = "",
-                    filePath = "", sourceUri =
-                        "https://www.googleapis.com/drive/v3/files/$id?alt=media"
+                    id = "gdrive:$id", title = cursor.getString(2),
+                    artist = cursor.getString(3), album = cursor.getString(4),
+                    filePath = "",
+                    sourceUri = "https://www.googleapis.com/drive/v3/files/$id?alt=media"
                 )
-                if (candidates.size >= limit.coerceIn(1, 8)) break
             }
         }
-        var found = 0
         for (song in candidates) {
+            val parsed = ensureMetadata(song)
             val id = song.id.removePrefix("gdrive:")
-            prefs.edit().putLong("coverChecked:$id", System.currentTimeMillis()).apply()
-            if (ensureCover(song)) found++
+            val marked = db.readableDatabase.rawQuery(
+                "SELECT modified,meta_checked_modified FROM tracks WHERE id=?",
+                arrayOf(id)
+            ).use { c ->
+                c.moveToFirst() && c.getString(0) == c.getString(1)
+            }
+            if (!marked) {
+                // Network/auth failure: defer this one file rather than
+                // retrying it in every batch and starving other tracks.
+                prefs.edit().putLong("metaRetry:$id",
+                    System.currentTimeMillis() + 10L * 60L * 1000L).apply()
+            }
         }
-        found
+        candidates.size
     }
 
-    /** Album art is embedded in MP3 ID3v2 frames; pull ONLY first up to 1MiB. */
-    suspend fun ensureCover(song: OdifySong): Boolean = withContext(Dispatchers.IO) {
+    /** Refresh title, artist, album, lyrics and cover for a single Drive file. */
+    suspend fun ensureMetadata(song: OdifySong): Boolean = withContext(Dispatchers.IO) {
+        if (!song.id.startsWith("gdrive:")) return@withContext false
         val driveId = song.id.removePrefix("gdrive:")
-        if (driveId == song.id || !Regex("[A-Za-z0-9_-]{10,150}").matches(driveId)) {
-            return@withContext false
-        }
-        val coverDir = File(context.filesDir, "drive_art").apply { mkdirs() }
-        val target = File(coverDir, "$driveId.jpg")
-        if (target.isFile && target.length() > 0) return@withContext true
+        if (!Regex("[A-Za-z0-9_-]{10,150}").matches(driveId)) return@withContext false
+        val record = db.readableDatabase.rawQuery(
+            "SELECT name,mime,modified,meta_checked_modified,meta_source FROM tracks WHERE id=?",
+            arrayOf(driveId)
+        ).use { c -> if (c.moveToFirst()) (0..4).map { c.getString(it) } else null }
+            ?: return@withContext false
+        val (name, mime, modified, checked, origin) = record
+        if (modified == checked) return@withContext false
+        val ext = name.substringAfterLast('.', "").lowercase(Locale.ROOT)
         val url = "https://www.googleapis.com/drive/v3/files/$driveId?alt=media"
-        val bytes = try { getRange(url, 1024 * 1024) } catch (_: Exception) { return@withContext false }
-        val picture = findApic(bytes) ?: return@withContext false
+        val bytes = try {
+            if (ext == "m4a" || ext == "mp4" || mime == "audio/mp4") {
+                // MP4 'moov/ilst' lives at the end for many encoders.
+                val endBytes = getRange(url, 512 * 1024, suffix = true)
+                val parsed = DriveTagReader.parse(endBytes, "m4a")
+                if (parsed.hasAnyTag) endBytes else getRange(url, 512 * 1024)
+            } else getRange(url, 1024 * 1024)
+        } catch (_: Exception) { return@withContext false }
+        if (bytes.isEmpty()) return@withContext false
+        val tag = DriveTagReader.parse(bytes, ext)
+        val coverPath = tag.coverBytes?.let { art ->
+            if (art.size > 900_000) null else saveCover(driveId, art)
+        }
+        val hasText = listOf(tag.title, tag.artist, tag.album, tag.genre)
+            .any { !it.isNullOrBlank() }
+        val cv = ContentValues().apply {
+            if (origin != "user") {
+                tag.title?.takeIf { it.isNotBlank() }?.let { put("title", it) }
+                tag.artist?.takeIf { it.isNotBlank() }?.let { put("artist", it) }
+                tag.album?.takeIf { it.isNotBlank() }?.let { put("album", it) }
+                if (hasText) put("meta_source", "tag")
+            }
+            tag.genre?.takeIf { it.isNotBlank() }?.let { put("genre", it) }
+            tag.lyrics?.takeIf { it.isNotBlank() }?.let { put("lyrics", it) }
+            coverPath?.let { put("cover", it) }
+            put("meta_checked_modified", modified)
+        }
+        val updated = db.writableDatabase.update(
+            "tracks", cv, "id=? AND modified=?", arrayOf(driveId, modified)
+        )
+        updated > 0 && (tag.hasAnyTag || coverPath != null)
+    }
+
+    private fun saveCover(driveId: String, bytes: ByteArray): String? {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        BitmapFactory.decodeByteArray(picture, 0, picture.size, bounds)
-        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@withContext false
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
         var sample = 1
         while (bounds.outWidth / sample > 768 || bounds.outHeight / sample > 768) sample *= 2
         val bitmap = BitmapFactory.decodeByteArray(
-            picture, 0, picture.size,
+            bytes, 0, bytes.size,
             BitmapFactory.Options().apply {
                 inSampleSize = sample
                 inPreferredConfig = Bitmap.Config.RGB_565
             }
-        ) ?: return@withContext false
-        try {
-            target.outputStream().use { bitmap.compress(Bitmap.CompressFormat.JPEG, 85, it) }
-        } finally { bitmap.recycle() }
-        val cv = ContentValues().apply { put("cover", target.absolutePath) }
-        db.writableDatabase.update("tracks", cv, "id=?", arrayOf(driveId))
-        true
+        ) ?: return null
+        val target = File(File(context.filesDir, "drive_art").apply { mkdirs() },
+            "$driveId.jpg")
+        return try {
+            target.outputStream().use {
+                if (!bitmap.compress(Bitmap.CompressFormat.JPEG, 86, it))
+                    error("이미지 저장 실패")
+            }
+            target.absolutePath
+        } catch (_: Exception) { null }
+        finally { bitmap.recycle() }
+    }
+
+    suspend fun lyrics(song: OdifySong): String = withContext(Dispatchers.IO) {
+        val id = song.id.removePrefix("gdrive:")
+        db.readableDatabase.rawQuery("SELECT lyrics FROM tracks WHERE id=?",
+            arrayOf(id)).use {
+            if (it.moveToFirst()) it.getString(0).orEmpty() else ""
+        }
     }
 
     private fun isAudio(name: String, mime: String): Boolean {
@@ -269,18 +340,20 @@ class DriveCatalog(private val context: Context) {
             return conn.inputStream.bufferedReader().use { it.readText() }
         } finally { conn.disconnect() }
     }
-    private fun getRange(uri: String, size: Int): ByteArray {
+    private fun getRange(uri: String, size: Int, suffix: Boolean = false): ByteArray {
         val conn = URL(uri).openConnection() as HttpURLConnection
         try {
-            conn.connectTimeout = 12000; conn.readTimeout = 18000
+            conn.connectTimeout = 12_000
+            conn.readTimeout = 18_000
             conn.setRequestProperty("Authorization", "Bearer ${DriveAuth.tokenBlocking(context)}")
-            conn.setRequestProperty("Range", "bytes=0-${size-1}")
-            if (conn.responseCode != 206) return byteArrayOf() // Do not load full MP3
+            conn.setRequestProperty("Range",
+                if (suffix) "bytes=-$size" else "bytes=0-${size-1}")
+            if (conn.responseCode != 206) return byteArrayOf()
             return conn.inputStream.use { input ->
                 val data = ByteArray(size)
                 var total = 0
                 while (total < size) {
-                    val n = input.read(data, total, size - total)
+                    val n = input.read(data, total, size-total)
                     if (n <= 0) break
                     total += n
                 }
@@ -291,40 +364,4 @@ class DriveCatalog(private val context: Context) {
 
     private fun enc(s: String) = URLEncoder.encode(s, "UTF-8")
 
-    private fun findApic(bytes: ByteArray): ByteArray? {
-        if (bytes.size < 10 || String(bytes, 0, 3, Charsets.ISO_8859_1) != "ID3") return null
-        val version = bytes[3].toInt() and 0xff
-        if (version !in 3..4) return null
-        fun synchsafe(pos: Int): Int {
-            var num = 0
-            for (i in pos until pos + 4) num = (num shl 7) or (bytes[i].toInt() and 127)
-            return num
-        }
-        val total = (10 + synchsafe(6)).coerceAtMost(bytes.size)
-        var off = 10
-        while (off + 10 <= total) {
-            val name = String(bytes, off, 4, Charsets.ISO_8859_1)
-            if (!name.all { it.isLetterOrDigit() }) break
-            val len = if (version == 4) synchsafe(off + 4)
-                else ByteBuffer.wrap(bytes, off + 4, 4).order(ByteOrder.BIG_ENDIAN).int
-            if (len <= 0 || off + 10 + len > total) break
-            if (name == "APIC") {
-                val start = off + 10
-                var p = start + 1 // encoding
-                while (p < start + len && bytes[p] != 0.toByte()) p++ // mime
-                p += 2 // terminator + picture type
-                if (p >= start + len) break
-                val encoding = bytes[start].toInt() and 255
-                val sep = if (encoding in 1..2) 2 else 1
-                while (p + sep <= start + len) {
-                    if (bytes[p] == 0.toByte() && (sep == 1 ||
-                        bytes[p + 1] == 0.toByte())) { p += sep; break }
-                    p += sep
-                }
-                if (p < start + len) return bytes.copyOfRange(p, start + len)
-            }
-            off += 10 + len
-        }
-        return null
-    }
 }
