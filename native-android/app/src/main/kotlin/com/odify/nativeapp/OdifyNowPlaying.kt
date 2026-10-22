@@ -142,8 +142,12 @@ fun OdifyNowPlaying(
             val artSize = minOf(maxWidth - 62.dp, maxHeight * 0.39f).coerceAtLeast(80.dp)
             Column(
                 Modifier.fillMaxWidth()
+                    // The scroll container owns the viewport while its child
+                    // respects the viewport minimum height; reversed modifier
+                    // order created empty bottom space on tall Galaxy screens.
+                    .verticalScroll(rememberScrollState())
                     .heightIn(min = maxHeight)
-                    .verticalScroll(rememberScrollState()).padding(horizontal = 25.dp),
+                    .padding(horizontal = 25.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 // Consume tall-device spare height between controls rather
                 // than leaving one large empty slab below the final button.
