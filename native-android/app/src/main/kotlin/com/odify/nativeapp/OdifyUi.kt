@@ -474,10 +474,13 @@ fun OdifyRoot(
             OdifyPlaylistPicker(
                 song = target, playlists = playlists,
                 onCreateAndAdd = { name, songId ->
-                    val newList = runCatching { playlistStore.create(name) }
-                        .getOrElse { return@OdifyPlaylistPicker it.message ?: "생성 실패" }
-                    playlistVersion++
-                    addToPlaylist(newList.id, songId)
+                    runCatching { playlistStore.create(name) }.fold(
+                        onSuccess = { list ->
+                            playlistVersion++
+                            addToPlaylist(list.id, songId)
+                        },
+                        onFailure = { it.message ?: "생성 실패" }
+                    )
                 },
                 onAdd = ::addToPlaylist,
                 onDismiss = { playlistDialogTrack = null }
