@@ -23,21 +23,35 @@ import kotlin.math.max
 object OdifyWaveformRepository {
     private const val BAR_COUNT = 96
     private const val DECODE_TIMEOUT_US = 10_000L
+    private val memory = java.util.concurrent.ConcurrentHashMap<String, List<Float>>()
+
+    /** Synchronous in-memory read only; never blocks Compose on filesystem I/O. */
+    fun peek(id: String): List<Float> = memory[id] ?: emptyList()
+
+    private fun remember(id: String, result: List<Float>) {
+        if (result.size != BAR_COUNT) return
+        if (memory.size > 256) memory.clear()
+        memory[id] = result
+    }
 
     suspend fun load(context: Context, song: OdifySong): List<Float> =
         withContext(Dispatchers.IO) {
+            memory[song.id]?.let { return@withContext it }
             val cacheDir = File(context.filesDir, "odify_waveforms_v1").apply { mkdirs() }
             val cache = File(cacheDir, "${song.id}.json")
             try {
                 if (cache.exists()) {
                     val json = JSONArray(cache.readText())
                     if (json.length() == BAR_COUNT) {
-                        return@withContext (0 until json.length()).map { i ->
+                        val cached = (0 until json.length()).map { i ->
                             json.optDouble(i).toFloat().coerceIn(0f, 1f)
                         }
+                        remember(song.id, cached)
+                        return@withContext cached
                     }
                 }
                 val values = analyze(song)
+                remember(song.id, values)
                 if (values.size == BAR_COUNT) {
                     val payload = JSONArray()
                     values.forEach { payload.put(it.toDouble()) }
