@@ -168,6 +168,7 @@ fun OdifyRoot(
     onDriveConnect: () -> Unit,
     onDriveSync: () -> Unit,
     onDriveFolderChange: (String) -> Unit,
+    onMasterUpdated: (List<MasterTrack>) -> Unit,
     importing: Boolean,
     expanded: Boolean,
     onExpandedChange: (Boolean) -> Unit,
@@ -291,7 +292,8 @@ fun OdifyRoot(
                 OdifyTab.Profile -> OdifyProfile(
                     songs, onImport, onImportOffline, importing,
                     driveConnected, driveBusy, driveStatus, driveFolder,
-                    onDriveConnect, onDriveSync, onDriveFolderChange
+                    onDriveConnect, onDriveSync, onDriveFolderChange,
+                    onMasterUpdated
                 )
             }
         }
@@ -938,8 +940,10 @@ private fun OdifyProfile(
     driveFolder: String,
     onDriveConnect: () -> Unit,
     onDriveSync: () -> Unit,
-    onDriveFolderChange: (String) -> Unit
+    onDriveFolderChange: (String) -> Unit,
+    onMasterUpdated: (List<MasterTrack>) -> Unit
 ) {
+    var showMaster by remember { mutableStateOf(false) }
     val cloudCount = songs.count { it.isCloud }
     val offlineCount = songs.size - cloudCount
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -1014,6 +1018,13 @@ private fun OdifyProfile(
         )
         Spacer(Modifier.height(7.dp))
         OdifySourceRow(
+            icon = Icons.Default.TableChart,
+            title = "음악 마스터 DB 조회 및 다운로드",
+            subtitle = "Google Sheets MASTER · 중복곡 검토 · CSV 백업",
+            enabled = true, onClick = { showMaster = true }
+        )
+        Spacer(Modifier.height(7.dp))
+        OdifySourceRow(
             icon = Icons.Default.CloudDownload,
             title = "Drive 파일 개별 추가 (기존 방식)",
             subtitle = "파일 선택기를 통한 재생도 지원",
@@ -1083,6 +1094,13 @@ private fun OdifyProfile(
         Spacer(Modifier.height(7.dp))
         OdifyInfoRow(Icons.Default.Info, "About",
             "Odify Native · 15GB Pilot Preview 9")
+    }
+    if (showMaster) {
+        OdifyMasterScreen(
+            songs = songs, connected = driveConnected,
+            onClose = { showMaster = false },
+            onUpdated = onMasterUpdated
+        )
     }
     if (showFolderEditor) {
         AlertDialog(
