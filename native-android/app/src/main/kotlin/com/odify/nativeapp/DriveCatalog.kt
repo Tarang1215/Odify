@@ -118,17 +118,33 @@ class DriveCatalog(private val context: Context) {
         if (!Regex("ODF[0-9]{6}", RegexOption.IGNORE_CASE).matches(code))
             return false
         return db.readableDatabase.rawQuery(
-            "SELECT 1 FROM tracks WHERE UPPER(name) LIKE ? LIMIT 1",
-            arrayOf(code.uppercase(Locale.ROOT) + ".%")
-        ).use { it.moveToFirst() }
+            "SELECT name FROM tracks WHERE UPPER(name) LIKE ?",
+            arrayOf(code.uppercase(Locale.ROOT) + "%")
+        ).use { cursor ->
+            val prefix = code.uppercase(Locale.ROOT)
+            while(cursor.moveToNext()) {
+                val text = cursor.getString(0).uppercase(Locale.ROOT)
+                if (text.length > prefix.length &&
+                    text.substring(prefix.length, prefix.length + 1) in
+                        listOf(".", " ", "-", "_")) return@use true
+            }
+            false
+        }
     }
 
-    /** Track metadata duplicates are not treated as exact bytes. */
+    /** Avoid materializing all artwork/lyrics when checking another upload. */
     fun hasMatchingSong(title: String, artist: String, album: String): Boolean {
         if (title.isBlank() || artist.isBlank() || album.isBlank()) return false
         val wanted = listOf(title, artist, album).map(MasterDuplicateDetector::norm)
-        return tracks().any {
-            listOf(it.title, it.artist, it.album).map(MasterDuplicateDetector::norm) == wanted
+        return db.readableDatabase.rawQuery(
+            "SELECT title,artist,album FROM tracks", null
+        ).use { cursor ->
+            while(cursor.moveToNext()) {
+                if (listOf(cursor.getString(0),cursor.getString(1),
+                        cursor.getString(2)).map(MasterDuplicateDetector::norm) == wanted)
+                    return@use true
+            }
+            false
         }
     }
 
