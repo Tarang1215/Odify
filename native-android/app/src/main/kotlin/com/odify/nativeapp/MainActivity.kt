@@ -103,7 +103,7 @@ private fun NativeOdify() {
                 scope.launch {
                     runCatching {
                         withContext(Dispatchers.IO) {
-                            val count = driveCatalog.prefetchArtwork(limit = 4)
+                            val count = driveCatalog.prefetchMetadata(limit = 24)
                             count to (library.songs() + driveCatalog.tracks())
                         }
                     }.onSuccess { (count, refreshed) ->
@@ -172,14 +172,15 @@ private fun NativeOdify() {
     }
     LaunchedEffect(playback.mediaId) {
         val track = songs.firstOrNull { it.id == playback.mediaId }
-        if (track != null && track.id.startsWith("gdrive:") &&
-            track.artworkPath == null && driveConnected) {
-            val found = runCatching { driveCatalog.ensureCover(track) }.getOrDefault(false)
-            if (found) {
-                val reloaded = withContext(Dispatchers.IO) { driveCatalog.tracks() }
-                val art = reloaded.firstOrNull { it.id == track.id }?.artworkPath
-                if (art != null) songs = songs.map {
-                    if (it.id == track.id) it.copy(artworkPath = art) else it
+        if (track != null && track.id.startsWith("gdrive:") && driveConnected) {
+            // Fast path for a tapped song; metadata is saved in the SQLite
+            // catalog, while full audio remains in the Drive account.
+            val changed = runCatching {
+                driveCatalog.ensureMetadata(track)
+            }.getOrDefault(false)
+            if (changed) {
+                songs = withContext(Dispatchers.IO) {
+                    library.songs() + driveCatalog.tracks()
                 }
             }
         }
