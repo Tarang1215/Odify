@@ -1,6 +1,7 @@
 package com.odify.nativeapp
 
 import android.graphics.BitmapFactory
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.animateFloatAsState
@@ -168,6 +169,9 @@ fun OdifyRoot(
     onDriveConnect: () -> Unit,
     onDriveSync: () -> Unit,
     onDriveFolderChange: (String) -> Unit,
+    phoneFolderStatus: String,
+    onChoosePhoneFolder: () -> Unit,
+    onRefreshPhoneFolder: () -> Unit,
     onMasterUpdated: (List<MasterTrack>) -> Unit,
     uploadingToDrive: Boolean,
     uploadStatus: String,
@@ -178,6 +182,8 @@ fun OdifyRoot(
     onImport: () -> Unit,
     onImportOffline: () -> Unit,
     onPlay: (List<OdifySong>, Int) -> Unit,
+    onMoveQueue: (Int, Int) -> Unit,
+    onSelectQueue: (Int) -> Unit,
     onTogglePlayback: () -> Unit,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
@@ -191,6 +197,14 @@ fun OdifyRoot(
     val context = androidx.compose.ui.platform.LocalContext.current
     val prefs = remember { context.getSharedPreferences("odify_native_ui", 0) }
     var selectedTab by remember { mutableStateOf(OdifyTab.Home) }
+    var queueOpen by remember { mutableStateOf(false) }
+    BackHandler(enabled = queueOpen || expanded || selectedTab != OdifyTab.Home) {
+        when {
+            queueOpen -> queueOpen = false
+            expanded -> onExpandedChange(false)
+            else -> selectedTab = OdifyTab.Home
+        }
+    }
     var liked by remember {
         mutableStateOf(prefs.getStringSet("likes", emptySet())?.toSet() ?: emptySet())
     }
@@ -296,6 +310,7 @@ fun OdifyRoot(
                     songs, onImport, onImportOffline, importing,
                     driveConnected, driveBusy, driveStatus, driveFolder,
                     onDriveConnect, onDriveSync, onDriveFolderChange,
+                    phoneFolderStatus, onChoosePhoneFolder, onRefreshPhoneFolder,
                     onMasterUpdated, uploadingToDrive, uploadStatus, onUploadToDrive
                 )
             }
@@ -378,9 +393,19 @@ fun OdifyRoot(
                     onSeek = onSeek,
                     onLike = { toggleLike(active.id) },
                     onShuffle = onShuffle,
-                    onRepeat = onRepeat
+                    onRepeat = onRepeat,
+                    onShowQueue = { queueOpen = true }
                 )
             }
+        }
+        if (queueOpen) {
+            OdifyQueueDialog(
+                items=playback.queueIds.mapNotNull { id -> songs.firstOrNull { it.id == id } },
+                currentIndex=playback.currentQueueIndex,
+                onMove=onMoveQueue,
+                onSelect={ index -> onSelectQueue(index); queueOpen=false },
+                onClose={ queueOpen=false }
+            )
         }
     }
 }
@@ -944,6 +969,9 @@ private fun OdifyProfile(
     onDriveConnect: () -> Unit,
     onDriveSync: () -> Unit,
     onDriveFolderChange: (String) -> Unit,
+    phoneFolderStatus: String,
+    onChoosePhoneFolder: () -> Unit,
+    onRefreshPhoneFolder: () -> Unit,
     onMasterUpdated: (List<MasterTrack>) -> Unit,
     uploadingToDrive: Boolean,
     uploadStatus: String,
@@ -1021,6 +1049,23 @@ private fun OdifyProfile(
             subtitle = "Odify_Music_Test · 하위 폴더 포함",
             enabled = !driveBusy,
             onClick = { showFolderEditor = true }
+        )
+        Spacer(Modifier.height(7.dp))
+        OdifySourceRow(
+            icon = Icons.Default.Folder,
+            title = "휴대폰 로컬 음악 폴더 선택",
+            subtitle = if (phoneFolderStatus.isBlank())
+                "Drive 업로드 없이 선택한 폴더의 음악을 직접 재생" else phoneFolderStatus,
+            enabled = !importing,
+            onClick = onChoosePhoneFolder
+        )
+        Spacer(Modifier.height(7.dp))
+        OdifySourceRow(
+            icon = Icons.Default.Refresh,
+            title = "휴대폰 음악 폴더 다시 스캔",
+            subtitle = "새로 복사한 음악도 로컬 라이브러리에 추가",
+            enabled = !importing,
+            onClick = onRefreshPhoneFolder
         )
         Spacer(Modifier.height(7.dp))
         OdifySourceRow(
