@@ -79,11 +79,18 @@ private fun NativeOdify() {
     // track and cap work to protect large music libraries/battery.
     LaunchedEffect(songs, playback.mediaId) {
         val active = songs.firstOrNull { it.id == playback.mediaId }
-        val candidates = (listOfNotNull(active) +
-            songs.filter { it.id != active?.id }).filterNot { it.isCloud }.take(8)
-        for (track in candidates) {
-            OdifyWaveformRepository.load(context.applicationContext, track)
-            kotlinx.coroutines.yield()
+        // Never prefetch the entire remote collection. Only analyze the one
+        // currently requested Drive track, and keep that expensive read off UI.
+        if (active?.isCloud == true) {
+            kotlinx.coroutines.delay(1250L)
+            OdifyWaveformRepository.load(context.applicationContext, active)
+        } else {
+            val candidates = (listOfNotNull(active) +
+                songs.filterNot { it.isCloud || it.id == active?.id }).take(8)
+            for (track in candidates) {
+                OdifyWaveformRepository.load(context.applicationContext, track)
+                kotlinx.coroutines.yield()
+            }
         }
     }
 
@@ -161,7 +168,10 @@ private fun NativeOdify() {
         startup = false
     }
 
-    SideEffect {
+    LaunchedEffect(expanded) {
+        // Match the window bars to the mid-point of the player morph instead
+        // of flipping from white to black on its very first animation frame.
+        delay(if (expanded) 210L else 200L)
         @Suppress("DEPRECATION")
         activity.window.statusBarColor =
             if (expanded) android.graphics.Color.rgb(16, 18, 22) else android.graphics.Color.WHITE
