@@ -30,10 +30,11 @@ data class OdifySong(
     val genre: String = "",
     val lyrics: String = ""
 ) {
-    val isCloud: Boolean get() = !sourceUri.isNullOrEmpty()
+    val isCloud: Boolean get() = !sourceUri.isNullOrEmpty() && !id.startsWith("localfolder:")
+    val isPhoneFolder: Boolean get() = id.startsWith("localfolder:")
     fun mediaItem(): MediaItem = MediaItem.Builder()
         .setMediaId(id)
-        .setUri(if (isCloud) Uri.parse(sourceUri) else Uri.fromFile(File(filePath)))
+        .setUri(if (!sourceUri.isNullOrBlank()) Uri.parse(sourceUri) else Uri.fromFile(File(filePath)))
         .setMediaMetadata(
             MediaMetadata.Builder()
                 .setTitle(title)
