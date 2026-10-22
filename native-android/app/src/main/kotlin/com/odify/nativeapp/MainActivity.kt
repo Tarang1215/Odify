@@ -28,6 +28,7 @@ class MainActivity : ComponentActivity() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
         setContent {
             MaterialTheme(
+                typography = OdifyTypography,
                 colorScheme = lightColorScheme(
                     primary = Color(0xFF111215),
                     onPrimary = Color.White,
