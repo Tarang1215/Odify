@@ -24,6 +24,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.ColorMatrix
@@ -166,15 +168,15 @@ fun OdifyRoot(
     }
 
     // User gesture drives hiding, not a heavy constantly-running animation.
-    val scrollConnection = remember(playback.isPlaying) {
+    val scrollConnection = remember(active?.id) {
         object : NestedScrollConnection {
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
                 if (source == NestedScrollSource.UserInput) {
                     scrollDistance += available.y
                     if (abs(scrollDistance) >= 18f) {
                         interaction++
-                        if (playback.isPlaying) {
-                            navVisible = scrollDistance > 0f // finger down = content up
+                        if (active != null) {
+                            navVisible = scrollDistance > 0f // finger down = show
                         } else navVisible = true
                         scrollDistance = 0f
                     }
@@ -183,16 +185,47 @@ fun OdifyRoot(
             }
         }
     }
-    LaunchedEffect(playback.isPlaying, interaction, selectedTab) {
-        if (playback.isPlaying) {
-            delay(4700)
+    // Idle navigation applies whenever a song is loaded, even when paused.
+    LaunchedEffect(active?.id, interaction, selectedTab) {
+        if (active != null) {
+            delay(3300)
             navVisible = false
-        } else navVisible = true
+        } else {
+            navVisible = true
+        }
     }
     LaunchedEffect(selectedTab) { navVisible = true }
 
     Box(Modifier.fillMaxSize().background(white)) {
-        Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().nestedScroll(scrollConnection)) {
+        Column(
+            Modifier.fillMaxSize()
+                .statusBarsPadding().navigationBarsPadding()
+                .nestedScroll(scrollConnection)
+                // Observe gestures without consuming them. Works even when a 5-song
+                // library is too short to scroll or LazyColumn hits its boundary.
+                .pointerInput(active?.id, selectedTab) {
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        var previousY = down.position.y
+                        var deltaY = 0f
+                        while (true) {
+                            val event = awaitPointerEvent(PointerEventPass.Initial)
+                            val current = event.changes.firstOrNull { it.id == down.id }
+                                ?: break
+                            if (!current.pressed) break
+                            deltaY += current.position.y - previousY
+                            previousY = current.position.y
+                            if (kotlin.math.abs(deltaY) > 22.dp.toPx()) {
+                                if (active != null) {
+                                    navVisible = deltaY > 0f // swipe down => reveal
+                                    interaction++
+                                }
+                                deltaY = 0f
+                            }
+                        }
+                    }
+                }
+        ) {
             Box(Modifier.weight(1f)) {
                 when (selectedTab) {
                     OdifyTab.Home -> OdifyHome(
@@ -214,7 +247,7 @@ fun OdifyRoot(
                     onLike = { toggleLike(active.id) })
             }
             AnimatedVisibility(
-                visible = navVisible || !playback.isPlaying,
+                visible = navVisible || active == null,
                 enter = slideInVertically(tween(250)) { it } + fadeIn(tween(250)),
                 exit = slideOutVertically(tween(220)) { it } + fadeOut(tween(220))
             ) {
