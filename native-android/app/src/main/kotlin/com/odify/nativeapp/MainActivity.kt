@@ -625,8 +625,19 @@ private fun NativeOdify() {
             onPlay = { list, index -> playFrom(list, index) },
             onMoveQueue = { from, to ->
                 controller?.let { player ->
-                    if (from in 0 until player.mediaItemCount && to in 0 until player.mediaItemCount && from != to)
-                        player.moveMediaItem(from,to)
+                    if (from in 0 until player.mediaItemCount &&
+                        to in 0 until player.mediaItemCount && from != to) {
+                        // A manually sorted Media3 queue must be the actual
+                        // upcoming playback order, even if shuffle was on.
+                        // Otherwise moveMediaItem changes only list position
+                        // while shuffle still picks a different next track.
+                        if (player.shuffleModeEnabled) {
+                            player.shuffleModeEnabled = false
+                            Toast.makeText(context, "수동 순서 변경으로 셔플을 껐습니다.",
+                                Toast.LENGTH_SHORT).show()
+                        }
+                        player.moveMediaItem(from, to)
+                    }
                 }
             },
             onPlayYoutubeMatched = { matchedQueue,index -> playFrom(matchedQueue,index) },
