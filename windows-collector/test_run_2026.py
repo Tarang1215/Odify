@@ -73,6 +73,7 @@ class BatchTests(TestCase):
                  patch.object(runner,'probe_youtube_access',return_value=None),\
                  patch.object(runner,'run',side_effect=fake_run),\
                  patch.object(runner.shutil,'which',return_value='fake'),\
+                 patch.object(runner.importlib.util,'find_spec',return_value=object()),\
                  patch.object(sys,'argv',['run_2026.py','--root',tmp,'--skip-cover-repair']):
                 with contextlib.redirect_stdout(io.StringIO()):
                     rc=runner.main()

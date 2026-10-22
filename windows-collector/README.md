@@ -13,7 +13,34 @@ downloads Python source dynamically.
    an explicit path can also be passed to `setup_drive.ps1 -OAuthClientJson`.
 3. Approve Google access yourself in the browser. No interactive `rclone config`
    questions are needed. Do not send passwords or tokens in chat.
-4. Use `run_first_2026.bat` for subsequent collection/resume runs.
+4. Use `run_master_all.bat` for collection/resume runs. The old
+   `run_first_2026.bat` now forwards to the same full-MASTER flow.
+
+## Full MASTER collection
+
+Each run refreshes the named MASTER tab from the existing Google spreadsheet
+using the authorized Drive export API. It does not need a Sheets API key,
+another OAuth approval, a manually exported CSV, or a 152-track limit.
+The source spreadsheet is read-only. New links and results stay in local
+`Music/Odify_Library/MASTER/MASTER.csv`, SQLite, `master_status.csv`, and
+`master_report.json` rather than overwriting the live Sheet.
+
+The runner inventories actual audio across Drive and checks recorded Drive
+file IDs. It skips existing tracks and exact artist/title duplicates. Missing
+links are searched through yt-dlp; matching artist/title, duration, version and
+official audio evidence are required. Ambiguous results stay `needs_review`.
+Successfully downloaded files are uploaded individually and marked complete
+only after a remote MD5 comparison. Network failures and source blocks remain
+visible; a bot challenge or five consecutive failures stops the run for review.
+The next launch resumes from existing Drive audio and validated local files.
+
+Windows launchers use the real Python executable rather than the Microsoft
+Store `py` execution alias, avoiding AppData path virtualization. yt-dlp runs
+as `python -m yt_dlp`, so a missing `yt-dlp.exe` PATH entry is harmless.
+Only one MASTER collection can run against a library folder at a time.
+`run_collector.ps1 -DryRun` refreshes the source and inventories Drive without
+collecting audio; `-Limit 1` collects a single missing track. For the old fixed
+snapshot only, use `run_collector.ps1 -Mode 2026`.
 
 The batch repairs existing Drive MP3 artwork, requiring the `drive` scope.
 Upload-only `drive.file` cannot see files uploaded by the previous client.

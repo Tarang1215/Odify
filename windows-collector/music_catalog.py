@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import csv
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -57,6 +58,11 @@ def validate_video_url(value: str) -> bool:
 
 def normalize(value: str) -> str:
     return re.sub(r"[^\w]+", "", value.casefold())
+
+
+def recording_title(value: str) -> str:
+    return re.split(r'\s*(?:\((?:feat\.?|prod\.?|w/)|\bfeat\.)', value,
+                    maxsplit=1, flags=re.I)[0].strip()
 
 
 def try_youtube_thumbnail(video_url: str) -> bytes | None:
@@ -273,7 +279,7 @@ def inspect_audio_video(url: str, title: str,
                         accept_lyric_or_mv: bool = False) -> None:
     """Validate a single track; accept lyric/MV only when explicitly selected."""
     process = subprocess.run(
-        ["yt-dlp", "--dump-single-json", "--skip-download",
+        [sys.executable, "-m", "yt_dlp", "--dump-single-json", "--skip-download",
          "--no-playlist", "--", url],
         capture_output=True, text=True, timeout=120)
     if process.returncode:
@@ -298,7 +304,7 @@ def inspect_audio_video(url: str, title: str,
     if (not accept_lyric_or_mv) and (any(term in lower for term in blocked)
             or re.search(r"(?<!\\w)mv(?!\\w)", lower)):
         raise ValueError("Music video or performance instead of studio audio")
-    known_song = normalize(title)
+    known_song = normalize(recording_title(title))
     metadata_track = normalize(str(info.get("track") or ""))
     title_match = known_song in normalize(video_title) or (
         bool(metadata_track) and known_song == metadata_track)
@@ -307,7 +313,7 @@ def inspect_audio_video(url: str, title: str,
     if accept_lyric_or_mv:
         banned = ("karaoke", "nightcore", "slowed", "sped up", "sped-up",
                   "instrumental", "dance practice", "fancam", "remix")
-        if any(term in lower for term in banned):
+        if any(term in lower and term not in title.casefold() for term in banned):
             raise ValueError("Likely altered or non-original version")
         visual_markers = ("lyrics", "lyric video", "가사", "歌詞",
                           "music video", "official mv", "뮤직비디오")
@@ -332,7 +338,7 @@ def download_one(db: sqlite3.Connection, row: tuple, root: Path,
     folder = root / "Audio"
     folder.mkdir(parents=True, exist_ok=True)
     output = folder / f"{track_id}.%(ext)s"
-    cmd = ["yt-dlp", "--no-playlist", "--no-progress", "--restrict-filenames",
+    cmd = [sys.executable, "-m", "yt_dlp", "--no-playlist", "--no-progress", "--restrict-filenames",
            "--format", "bestaudio[ext=m4a]/bestaudio",
            "--extract-audio", "--audio-format", audio_format,
            "--output", str(output)]
@@ -394,8 +400,8 @@ def run_worker(args: argparse.Namespace) -> None:
         total, duplicates = ingest(db, args.csv, default_year=args.year)
         print(f"CSV loaded: {total}; duplicate candidates: {duplicates}")
     elif args.command == "run":
-        if not shutil.which("yt-dlp") or not shutil.which("ffmpeg"):
-            raise RuntimeError("Install yt-dlp and ffmpeg, then add them to PATH")
+        if importlib.util.find_spec('yt_dlp') is None or not shutil.which("ffmpeg"):
+            raise RuntimeError("Install yt-dlp in this Python environment and add ffmpeg to PATH")
         blocked = {r[0] for r in db.execute("SELECT track_id FROM duplicate_candidates")}
         sql = """SELECT id,artist,title,album,genre,video_url
           FROM tracks WHERE verified='검증완료' AND

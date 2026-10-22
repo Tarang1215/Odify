@@ -76,7 +76,7 @@ def probe_youtube_access(records: list[dict[str, str]], existing: dict[str, str]
                       and row["링크검증"] == "검증완료"), None)
     if candidate is None:
         return
-    command = ["yt-dlp", "--no-playlist", "--skip-download", "--dump-single-json",
+    command = [sys.executable, "-m", "yt_dlp", "--no-playlist", "--skip-download", "--dump-single-json",
                "--socket-timeout", "25", candidate["YouTube 오디오 URL"]]
     try:
         proc = subprocess.run(command, capture_output=True, text=True,
@@ -182,7 +182,9 @@ def main() -> int:
         return 0
     if args.limit < 1 or args.limit > 152:
         parser.error("--limit must be between 1 and 152")
-    for executable in ("yt-dlp", "ffmpeg", "rclone"):
+    if importlib.util.find_spec('yt_dlp') is None:
+        parser.error('yt-dlp is not installed in the selected Python environment.')
+    for executable in ("ffmpeg", "rclone"):
         if not shutil.which(executable):
             parser.error(f"Missing {executable}. Install it first and reopen PowerShell.")
     root = args.root.expanduser().resolve() / "2026"
