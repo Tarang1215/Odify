@@ -201,12 +201,23 @@ fun OdifyRoot(
     val context = androidx.compose.ui.platform.LocalContext.current
     val prefs = remember { context.getSharedPreferences("odify_native_ui", 0) }
     var selectedTab by remember { mutableStateOf(OdifyTab.Home) }
+    val tabHistory = remember { mutableStateListOf<OdifyTab>() }
+    fun navigateTo(tab: OdifyTab) {
+        if (tab != selectedTab) {
+            tabHistory.add(selectedTab)
+            if (tabHistory.size > 20) tabHistory.removeAt(0)
+            selectedTab = tab
+        }
+    }
     var queueOpen by remember { mutableStateOf(false) }
     var youtubeOpen by remember { mutableStateOf(false) }
-    BackHandler(enabled = queueOpen || expanded || selectedTab != OdifyTab.Home) {
+    BackHandler(enabled = queueOpen || expanded ||
+        selectedTab != OdifyTab.Home || tabHistory.isNotEmpty()) {
         when {
             queueOpen -> queueOpen = false
             expanded -> onExpandedChange(false)
+            tabHistory.isNotEmpty() ->
+                selectedTab = tabHistory.removeAt(tabHistory.lastIndex)
             else -> selectedTab = OdifyTab.Home
         }
     }
@@ -303,7 +314,7 @@ fun OdifyRoot(
             when (selectedTab) {
                 OdifyTab.Home -> OdifyHome(
                     songs, displayed, recent.isNotEmpty(), onImport, importing,
-                    onSearch = { selectedTab = OdifyTab.Search },
+                    onSearch = { navigateTo(OdifyTab.Search) },
                     onPlay = ::playList
                 )
                 OdifyTab.Search -> OdifySearch(songs, onImport, ::playList)
@@ -334,7 +345,7 @@ fun OdifyRoot(
                 }
         ) {
             OdifyBottomBar(selectedTab, gestureInset) {
-                selectedTab = it
+                navigateTo(it)
                 navVisible = true
                 interaction++
             }
