@@ -538,6 +538,22 @@ private fun OdifyHome(
     playlists: List<OdifyPlaylist>,
     onPlaylistPlay: (OdifyPlaylist) -> Unit
 ) {
+    // Lightweight, explainable, on-device discovery. Real genre metadata
+    // drives each mix; no remote recommendations, opaque claims or fake tracks.
+    val vibeMixes = remember(songs, recent) {
+        fun tagged(vararg tags: String): List<OdifySong> =
+            songs.filter { track ->
+                tags.any { t -> track.genre.contains(t, ignoreCase = true) }
+            }.distinctBy { it.id }.take(40)
+        listOf(
+            "잔잔한 밤" to tagged("발라드", "r&b", "재즈", "jazz", "포크", "acoustic", "lo-fi"),
+            "에너지 충전" to tagged("록", "rock", "힙합", "hip-hop", "dance", "edm"),
+            "팝 플레이리스트" to tagged("k-pop", "j-pop", "pop")
+        ).filter { it.second.size >= 2 } +
+            listOfNotNull(
+                recent.take(25).takeIf { it.size >= 2 }?.let { "최근 취향 다시 듣기" to it }
+            )
+    }
     // Home shows only actual songs and user-created playlists. Drive accounts,
     // permissions, diagnostics and syncing belong under Profile / Settings.
     LazyColumn(
@@ -607,6 +623,25 @@ private fun OdifyHome(
                     }
                 }
                 Spacer(Modifier.height(29.dp))
+            }
+        }
+        if (vibeMixes.isNotEmpty()) {
+            item {
+                SectionTitle("Vibe Mix · 라이브러리 탐색")
+                Spacer(Modifier.height(4.dp))
+                Text("보유곡 장르 태그 기반 · 추천 알고리즘은 준비 중",
+                    color = grey, fontSize = 11.sp)
+                Spacer(Modifier.height(13.dp))
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    items(vibeMixes, key = { it.first }) { (label, tracks) ->
+                        OdifyMixCard(
+                            label = label, coverSong = tracks.firstOrNull(),
+                            index = label.hashCode(),
+                            onTap = { if (tracks.isNotEmpty()) onPlay(tracks, 0) }
+                        )
+                    }
+                }
+                Spacer(Modifier.height(26.dp))
             }
         }
         item {
@@ -714,7 +749,7 @@ private fun OdifyMixCard(
             Text(label, color = white, fontSize = 13.sp,
                 fontWeight = FontWeight.SemiBold, lineHeight = 15.sp)
             Spacer(Modifier.height(3.dp))
-            Text(if (coverSong != null) "Made for you" else "Add your music",
+            Text("내 라이브러리 · 장르 기반",
                 color = white.copy(alpha = .78f), fontSize = 9.sp)
         }
         Box(Modifier.align(Alignment.BottomEnd).padding(10.dp)
