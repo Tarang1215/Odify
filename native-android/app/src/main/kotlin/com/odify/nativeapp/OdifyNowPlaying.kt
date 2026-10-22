@@ -85,9 +85,13 @@ fun OdifyNowPlaying(
         albumSettling = false
     }
     val waveform by produceState<List<Float>>(
-        initialValue = OdifyWaveformRepository.peek(song.id), song.id
+        initialValue = if (song.isCloud) emptyList()
+            else OdifyWaveformRepository.peek(song.id), song.id
     ) {
-        value = OdifyWaveformRepository.load(context = context, song = song)
+        // Never decode a remote Drive file merely to draw a waveform: that
+        // defeats range-streaming and can burn through the free-tier data plan.
+        value = if (song.isCloud) emptyList()
+            else OdifyWaveformRepository.load(context = context, song = song)
     }
     val dragState = rememberDraggableState { delta ->
         // Direct state update follows the finger at display refresh rate.
