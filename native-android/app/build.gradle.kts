@@ -9,11 +9,11 @@ android {
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.odify.music.nativepreview.v7"
+        applicationId = "com.odify.music.nativepreview.v8"
         minSdk = 26
         targetSdk = 35
-        versionCode = 7
-        versionName = "1.0.0-preview7"
+        versionCode = 8
+        versionName = "1.0.0-preview8"
     }
     buildTypes {
         release { isMinifyEnabled = false }
@@ -43,5 +43,7 @@ dependencies {
     implementation("androidx.media3:media3-datasource:1.9.4")
     implementation("androidx.media3:media3-database:1.9.4")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+    implementation("com.google.android.gms:play-services-auth:21.6.0")
+    implementation("androidx.work:work-runtime-ktx:2.10.1")
     debugImplementation("androidx.compose.ui:ui-tooling")
 }

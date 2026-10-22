@@ -10,6 +10,7 @@ on:
       - feature/odify-native-ui-v5-floating-controls
       - feature/odify-native-v6-drive-stream
       - feature/odify-native-v7-player-polish
+      - feature/odify-v8-drive-index
     paths:
       - 'native-android/**'
       - '.github/workflows/odify-native-preview.yml'
@@ -61,18 +62,32 @@ jobs:
           curl --fail --location --retry 3 \
             https://raw.githubusercontent.com/orioncactus/pretendard/main/LICENSE \
             --output native-android/licenses/Pretendard-OFL.txt
+      - name: Install stable debug signing key when configured
+        env:
+          ODIFY_DEBUG_KEYSTORE_BASE64: ${{ secrets.ODIFY_DEBUG_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$ODIFY_DEBUG_KEYSTORE_BASE64" ]; then
+            mkdir -p "$HOME/.android"
+            printf '%s' "$ODIFY_DEBUG_KEYSTORE_BASE64" | base64 -d > "$HOME/.android/debug.keystore"
+            chmod 600 "$HOME/.android/debug.keystore"
+          fi
       - name: Compile standalone preview APK
         run: gradle -p native-android :app:assembleDebug --stacktrace --no-daemon
+      - name: Show Android OAuth certificate SHA-1
+        run: |
+          APK=native-android/app/build/outputs/apk/debug/app-debug.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --print-certs "$APK" | tee /tmp/odify-cert-info.txt
+          echo "Register the SHA-1 certificate digest above for OAuth Android package com.odify.music.nativepreview.v8.debug."
       - name: Verify APK independent package
         run: |
           APK=native-android/app/build/outputs/apk/debug/app-debug.apk
           test -s "$APK"
-          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | grep "package: name='com.odify.music.nativepreview.v7.debug'"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | grep "package: name='com.odify.music.nativepreview.v8.debug'"
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$APK"
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Odify-Native-v7-Player-Polish-debug
+          name: Odify-Native-v8-Google-Drive-Library-debug
           path: native-android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14

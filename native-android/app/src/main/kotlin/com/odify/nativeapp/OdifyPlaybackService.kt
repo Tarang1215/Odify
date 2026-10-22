@@ -4,6 +4,8 @@ import android.content.Intent
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.datasource.ResolvingDataSource
+import android.net.Uri
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
 import androidx.media3.datasource.cache.SimpleCache
@@ -36,9 +38,19 @@ class OdifyPlaybackService : MediaSessionService() {
                 provider
             )
             cache = diskCache
+            val resolver = ResolvingDataSource.Factory(
+                DefaultDataSource.Factory(this)
+            ) { spec ->
+                if (spec.uri.scheme == "odifydrive") {
+                    val id = spec.uri.host ?: throw java.io.IOException("Drive file id missing")
+                    val bearer = OdifyDriveAuth.token(this)
+                    spec.withUri(Uri.parse(OdifyDriveApi.mediaUrl(id)))
+                        .withRequestHeaders(mapOf("Authorization" to "Bearer $bearer"))
+                } else spec
+            }
             val cacheDataSource = CacheDataSource.Factory()
                 .setCache(diskCache)
-                .setUpstreamDataSourceFactory(DefaultDataSource.Factory(this))
+                .setUpstreamDataSourceFactory(resolver)
                 .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
             ExoPlayer.Builder(this)
                 .setMediaSourceFactory(DefaultMediaSourceFactory(cacheDataSource))
