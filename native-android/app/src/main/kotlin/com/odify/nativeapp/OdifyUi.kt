@@ -1234,8 +1234,8 @@ private fun OdifyProfile(
         Spacer(Modifier.height(7.dp))
         OdifySourceRow(
             icon = Icons.Default.FolderOpen,
-            title = "음악 폴더 변경",
-            subtitle = "Odify_Music_Test · 하위 폴더 포함",
+            title = "Drive 추가 음악 폴더 지정",
+            subtitle = "Test · Auto_Upload · Cloud_Uploads 자동 검색",
             enabled = !driveBusy,
             onClick = { showFolderEditor = true }
         )
@@ -1379,7 +1379,7 @@ private fun OdifyProfile(
             title = { Text("음악 폴더 지정") },
             text = {
                 Column {
-                    Text("Google Drive 폴더 주소의 마지막 ID를 입력합니다.",
+                    Text("특별히 추가할 폴더 ID를 입력하세요. 기본 Test, Auto_Upload, Cloud_Uploads는 계속 자동 검색됩니다.",
                         fontSize = 12.sp, color = grey)
                     Spacer(Modifier.height(10.dp))
                     OutlinedTextField(
