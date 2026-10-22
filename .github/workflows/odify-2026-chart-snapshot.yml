@@ -65,7 +65,7 @@ jobs:
                 rows.append({"rank":rank,"artist":artist.strip(),"title":title.strip(),"album":""})
             else:
               date='2026-10-17'
-              content=soup.select_one('.entry-content') or soup.select_one('article') or soup
+              content=soup
               lines=[re.sub(r'\s+',' ',line.strip()) for line in content.get_text('\n',strip=True).splitlines()]
               pattern=re.compile(r'^(0?[1-9]|[1-9][0-9]|100)\s+(\d+|\*\*)\s+(\d+)\s+(\d+)\s+(.+?)\s+[‒‐–—-]\s+(.+)$')
               for line in lines:
@@ -76,6 +76,7 @@ jobs:
                 title=re.sub(r'\s+\((HOT SHOT DEBUT|NEW|RE-ENTRY)\)$','',title).strip()
                 rows.append({"rank":rank,"artist":artist.strip(),"title":title,"album":""})
               print("US_MATCH",len(rows),"LINES",repr(lines[:85])[:3500],flush=True)
+              print("US_MATCH_SAMPLE",[l for l in lines if "Patient Zero" in l or "Choosin" in l][:8],flush=True)
               # The Canadian Billboard JSON-LD provides all 100 ordinal/title pairs,
               # although its article visually renders only 25 rows at once.
               official='https://ca.billboard.com/charts/hot-100/2026-10-17'
