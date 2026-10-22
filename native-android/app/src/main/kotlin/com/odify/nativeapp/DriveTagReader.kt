@@ -49,6 +49,24 @@ object DriveTagReader {
             .take(20000)
     }
 
+    /** Remove permitted ID3 padding/BOM before JPEG/PNG magic. */
+    fun normalizedCoverBytes(raw: ByteArray): ByteArray? {
+        val jpeg = byteArrayOf(0xff.toByte(), 0xd8.toByte(), 0xff.toByte())
+        val png = byteArrayOf(0x89.toByte(), 0x50, 0x4e, 0x47, 0x0d, 0x0a)
+        for (offset in 0..minOf(12, raw.size - 3)) {
+            if (offset > 0 && raw.take(offset).any {
+                    it != 0.toByte() && it != 0xfe.toByte() && it != 0xff.toByte()
+                }) break
+            if (raw.size - offset >= jpeg.size &&
+                raw.copyOfRange(offset, offset+jpeg.size).contentEquals(jpeg))
+                return raw.copyOfRange(offset,raw.size)
+            if (raw.size - offset >= png.size &&
+                raw.copyOfRange(offset,offset+png.size).contentEquals(png))
+                return raw.copyOfRange(offset,raw.size)
+        }
+        return null
+    }
+
     fun parseId3(b: ByteArray): DriveTagData {
         if (b.size < 10 || b[0] != 73.toByte() || b[1] != 68.toByte() || b[2] != 51.toByte())
             return DriveTagData()
@@ -110,7 +128,13 @@ object DriveTagReader {
                         }
                         p++
                     }
-                    if (p < stop && stop-p <= 900_000) cover = b.copyOfRange(p, stop)
+                    if (p < stop && stop-p <= 900_000) {
+                        // UTF-16 picture descriptions produced by FFmpeg may
+                        // include an extra 0x00 immediately before JPEG magic.
+                        // BitmapFactory rejects that payload although Samsung
+                        // Music recognizes the embedded image.
+                        cover = normalizedCoverBytes(b.copyOfRange(p, stop))
+                    }
                 }
             }
             at = stop
@@ -152,7 +176,7 @@ object DriveTagReader {
                                 val valueEnd = (inner+childSize).toInt()
                                 if (valueEnd > valueAt) {
                                     if (key == "covr" && valueEnd-valueAt <= 900_000)
-                                        cover = b.copyOfRange(valueAt,valueEnd)
+                                        cover = normalizedCoverBytes(b.copyOfRange(valueAt,valueEnd))
                                     else {
                                         val value = String(b, valueAt, valueEnd-valueAt,
                                             StandardCharsets.UTF_8)

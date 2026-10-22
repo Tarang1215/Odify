@@ -9,11 +9,13 @@ android {
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.odify.music.nativepreview.v10"
+        // Permanent Google OAuth identity. Never append version numbers here.
+        // New versions increment versionCode/versionName only.
+        applicationId = "com.odify.music.nativepreview.v11"
         minSdk = 26
         targetSdk = 35
-        versionCode = 10
-        versionName = "1.0.0-preview10"
+        versionCode = 11
+        versionName = "1.0.0-preview11"
     }
     buildTypes {
         release { isMinifyEnabled = false }

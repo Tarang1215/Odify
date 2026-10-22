@@ -24,7 +24,7 @@ private const val FOLDER_MIME = "application/vnd.google-apps.folder"
 /** A SQLite index: deliberately NOT 50k rows of JSON in SharedPreferences. */
 class DriveCatalog(private val context: Context) {
     private val prefs = context.getSharedPreferences("odify_drive_catalog_v1", 0)
-    private val db = object : SQLiteOpenHelper(context, "odify_drive_catalog.db", null, 2) {
+    private val db = object : SQLiteOpenHelper(context, "odify_drive_catalog.db", null, 3) {
         override fun onCreate(db: SQLiteDatabase) {
             db.execSQL("""CREATE TABLE tracks (
                 id TEXT PRIMARY KEY, name TEXT NOT NULL, title TEXT NOT NULL,
@@ -42,6 +42,11 @@ class DriveCatalog(private val context: Context) {
                 db.execSQL("ALTER TABLE tracks ADD COLUMN meta_source TEXT NOT NULL DEFAULT 'filename'")
                 db.execSQL("ALTER TABLE tracks ADD COLUMN meta_checked_modified TEXT NOT NULL DEFAULT ''")
             }
+            if (old < 3) {
+                // Version 10 successfully read titles but some ID3 APIC frames
+                // had a leading NUL. Rescan only the missing-art tracks once.
+                db.execSQL("UPDATE tracks SET meta_checked_modified='' WHERE cover=''")
+            }
         }
     }
     val folderId: String get() = prefs.getString("folder", "") ?: ""
@@ -55,6 +60,34 @@ class DriveCatalog(private val context: Context) {
         db.writableDatabase.delete("tracks", null, null)
         lastSync = 0
     }
+
+    /** Manual cover replaces only Odify display art, never the original Drive audio. */
+    suspend fun setManualArtwork(song: OdifySong, uri: android.net.Uri) =
+        withContext(Dispatchers.IO) {
+            require(song.id.startsWith("gdrive:")) { "Drive 곡만 이 메뉴에서 커버를 설정할 수 있습니다." }
+            val fileId = song.id.removePrefix("gdrive:")
+            require(Regex("[A-Za-z0-9_-]{10,150}").matches(fileId))
+            val resolver = context.contentResolver
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+            require(bounds.outWidth in 1..16000 && bounds.outHeight in 1..16000) {
+                "올바른 JPG/PNG 사진을 선택해 주세요."
+            }
+            var sample = 1
+            while (bounds.outWidth/sample > 768 || bounds.outHeight/sample > 768) sample *= 2
+            val bitmap = resolver.openInputStream(uri)?.use {
+                BitmapFactory.decodeStream(it, null,
+                    BitmapFactory.Options().apply { inSampleSize = sample })
+            } ?: error("사진을 열 수 없습니다.")
+            val directory = File(context.filesDir, "manual_art").apply { mkdirs() }
+            val target = File(directory, "$fileId.jpg")
+            try {
+                target.outputStream().use {
+                    check(bitmap.compress(Bitmap.CompressFormat.JPEG, 88, it))
+                }
+            } finally { bitmap.recycle() }
+            prefs.edit().putString("manualArt:$fileId", target.absolutePath).apply()
+        }
 
     fun hideTrack(song: OdifySong) {
         val hidden = prefs.getStringSet("hidden", emptySet())?.toMutableSet()
@@ -77,16 +110,26 @@ class DriveCatalog(private val context: Context) {
         val result = ArrayList<OdifySong>()
         val hidden = prefs.getStringSet("hidden", emptySet()) ?: emptySet()
         db.readableDatabase.rawQuery(
-            "SELECT id,name,title,artist,album,genre,cover,lyrics FROM tracks ORDER BY modified DESC,name LIMIT 100000",
+            "SELECT id,name,title,artist,album,genre,cover,lyrics,meta_source FROM tracks ORDER BY modified DESC,name LIMIT 100000",
             null
         ).use { cursor ->
             while (cursor.moveToNext()) {
                 val fileId = cursor.getString(0)
                 if (fileId in hidden) continue
+                val recordedTitle = cursor.getString(2)
+                val recordedArtist = cursor.getString(3)
+                val userEdited = cursor.getString(8) == "user"
+                val manualCover = prefs.getString("manualArt:$fileId", null)
+                    ?.takeIf { File(it).isFile }
                 result += OdifySong(
-                    id = "gdrive:$fileId", title = cursor.getString(2),
-                    artist = cursor.getString(3), album = cursor.getString(4),
-                    filePath = "", artworkPath = cursor.getString(6).takeIf { it.isNotBlank() },
+                    id = "gdrive:$fileId",
+                    title = if (userEdited) recordedTitle
+                        else OdifyTitlePolicy.title(recordedTitle, recordedArtist),
+                    artist = if (userEdited) recordedArtist
+                        else OdifyTitlePolicy.artist(recordedArtist),
+                    album = cursor.getString(4),
+                    filePath = "", artworkPath = manualCover ?:
+                        cursor.getString(6).takeIf { it.isNotBlank() },
                     sourceUri = "https://www.googleapis.com/drive/v3/files/$fileId?alt=media",
                     genre = cursor.getString(5),
                     lyrics = cursor.getString(7).orEmpty().take(20000)

@@ -181,7 +181,8 @@ fun OdifyRoot(
     onShuffle: () -> Unit,
     onRepeat: () -> Unit,
     onRemove: (OdifySong) -> Unit,
-    onEdit: (OdifySong, String, String, String) -> Unit
+    onEdit: (OdifySong, String, String, String) -> Unit,
+    onChooseArtwork: (OdifySong) -> Unit
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val prefs = remember { context.getSharedPreferences("odify_native_ui", 0) }
@@ -284,7 +285,8 @@ fun OdifyRoot(
                 )
                 OdifyTab.Search -> OdifySearch(songs, onImport, ::playList)
                 OdifyTab.Library -> OdifyLibraryScreen(
-                    songs, liked, ::playList, onImport, onRemove, onEdit
+                    songs, liked, ::playList, onImport, onRemove, onEdit,
+                    onChooseArtwork
                 )
                 OdifyTab.Profile -> OdifyProfile(
                     songs, onImport, onImportOffline, importing,
@@ -760,7 +762,8 @@ private fun OdifyLibraryScreen(
     onPlay: (List<OdifySong>, Int) -> Unit,
     onImport: () -> Unit,
     onRemove: (OdifySong) -> Unit,
-    onEdit: (OdifySong, String, String, String) -> Unit
+    onEdit: (OdifySong, String, String, String) -> Unit,
+    onChooseArtwork: (OdifySong) -> Unit
 ) {
     var editingSong by remember { mutableStateOf<OdifySong?>(null) }
     var selection by remember { mutableStateOf("Songs") }
@@ -828,8 +831,19 @@ private fun OdifyLibraryScreen(
                                     onClick = { showMenu = false; editingSong = song },
                                     leadingIcon = { Icon(Icons.Default.Edit, null) }
                                 )
+                                if (song.id.startsWith("gdrive:")) {
+                                    DropdownMenuItem(
+                                        text = { Text("앨범커버 직접 지정") },
+                                        onClick = {
+                                            showMenu = false
+                                            onChooseArtwork(song)
+                                        },
+                                        leadingIcon = { Icon(Icons.Default.Image, null) }
+                                    )
+                                }
                                 DropdownMenuItem(
-                                    text = { Text("가져온 파일 삭제") },
+                                    text = { Text(if (song.id.startsWith("gdrive:"))
+                                        "내 라이브러리에서 숨기기" else "가져온 파일 삭제") },
                                     onClick = { showMenu = false; onRemove(song) },
                                     leadingIcon = { Icon(Icons.Default.DeleteOutline, null) }
                                 )
