@@ -5,6 +5,7 @@ on:
     branches:
       - feature/odify-native-v1-design
       - feature/odify-native-ui-v2
+      - feature/odify-native-ui-v3
     paths:
       - 'native-android/**'
       - '.github/workflows/odify-native-preview.yml'
@@ -37,18 +38,37 @@ jobs:
         run: |
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses || true
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-35' 'build-tools;35.0.0'
+      - name: Bundle licensed Pretendard fonts
+        run: |
+          mkdir -p native-android/app/src/main/res/font native-android/licenses
+          BASE=https://raw.githubusercontent.com/orioncactus/pretendard/main/packages/pretendard/dist/public/static
+          for WEIGHT in Regular Medium SemiBold Bold; do
+            case "$WEIGHT" in
+              Regular) NAME=regular ;;
+              Medium) NAME=medium ;;
+              SemiBold) NAME=semibold ;;
+              Bold) NAME=bold ;;
+            esac
+            curl --fail --location --retry 3 --connect-timeout 15 --max-time 90 \
+              "$BASE/Pretendard-$WEIGHT.otf" \
+              --output "native-android/app/src/main/res/font/pretendard_$NAME.otf"
+            test "$(wc -c < native-android/app/src/main/res/font/pretendard_$NAME.otf)" -gt 100000
+          done
+          curl --fail --location --retry 3 \
+            https://raw.githubusercontent.com/orioncactus/pretendard/main/LICENSE \
+            --output native-android/licenses/Pretendard-OFL.txt
       - name: Compile standalone preview APK
         run: gradle -p native-android :app:assembleDebug --stacktrace --no-daemon
       - name: Verify APK independent package
         run: |
           APK=native-android/app/build/outputs/apk/debug/app-debug.apk
           test -s "$APK"
-          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | grep "package: name='com.odify.music.nativepreview.v2.debug'"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | grep "package: name='com.odify.music.nativepreview.v3.debug'"
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$APK"
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Odify-Native-UI-Polish-v2-debug
+          name: Odify-Native-UI-Polish-v3-debug
           path: native-android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
