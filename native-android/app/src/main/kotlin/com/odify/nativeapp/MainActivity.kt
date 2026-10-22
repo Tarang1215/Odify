@@ -588,11 +588,15 @@ private fun NativeOdify() {
             onEdit = { song, title, artist, album ->
                 scope.launch {
                     runCatching {
-                        if (song.id.startsWith("gdrive:")) {
-                            withContext(Dispatchers.IO) {
+                        when {
+                            song.id.startsWith("gdrive:") -> withContext(Dispatchers.IO) {
                                 driveCatalog.updateMetadata(song, title, artist, album)
                             }
-                        } else library.updateMetadata(song, title, artist, album)
+                            song.isPhoneFolder -> withContext(Dispatchers.IO) {
+                                phoneFolder.updateMetadata(song, title, artist, album)
+                            }
+                            else -> library.updateMetadata(song, title, artist, album)
+                        }
                     }.onSuccess {
                         songs = withContext(Dispatchers.IO) {
                             library.songs() + driveCatalog.tracks() + phoneFolder.tracks()
@@ -613,6 +617,8 @@ private fun NativeOdify() {
                     if (playback.mediaId == track.id) controller?.stop()
                     if (track.id.startsWith("gdrive:")) {
                         withContext(Dispatchers.IO) { driveCatalog.hideTrack(track) }
+                    } else if (track.isPhoneFolder) {
+                        withContext(Dispatchers.IO) { phoneFolder.hideTrack(track) }
                     } else library.delete(track)
                     songs = withContext(Dispatchers.IO) {
                         library.songs() + driveCatalog.tracks() + phoneFolder.tracks()
