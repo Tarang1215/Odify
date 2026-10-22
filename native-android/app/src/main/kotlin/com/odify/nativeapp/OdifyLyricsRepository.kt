@@ -82,7 +82,7 @@ object KoreanOriginalLyrics {
         val exact = matches.filter {
             key(it.songTitle) == key(song.title) &&
                 key(it.artist) == key(song.artist) &&
-                it.text.count { ch -> ch in '\\uAC00'..'\\uD7A3' } >= 12 &&
+                it.text.count { ch -> ch in '가'..'힣' } >= 12 &&
                 (song.durationMs <= 0L || it.durationSec <= 0 ||
                     kotlin.math.abs(it.durationSec * 1000L - song.durationMs) <= 6_000L)
         }
