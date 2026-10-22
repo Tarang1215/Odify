@@ -139,6 +139,22 @@ class OdifyLibrary(private val context: Context) {
         }
     }
 
+    /** User-owned metadata overrides survive restarts without mutating original Drive audio. */
+    suspend fun updateMetadata(
+        song: OdifySong, title: String, artist: String, album: String
+    ) = withContext(Dispatchers.IO) {
+        val safeTitle = title.trim()
+        require(safeTitle.isNotEmpty()) { "곡명을 입력해 주세요." }
+        val updated = songs().map {
+            if (it.id == song.id) it.copy(
+                title = safeTitle,
+                artist = artist.trim(),
+                album = album.trim()
+            ) else it
+        }
+        store(updated)
+    }
+
     suspend fun delete(song: OdifySong) = withContext(Dispatchers.IO) {
         val remaining = songs().filterNot { it.id == song.id }
         store(remaining)

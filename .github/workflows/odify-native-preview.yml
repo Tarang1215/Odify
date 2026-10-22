@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feature/odify-native-v1-design
+      - feature/odify-native-ui-v2
     paths:
       - 'native-android/**'
       - '.github/workflows/odify-native-preview.yml'
@@ -42,12 +43,12 @@ jobs:
         run: |
           APK=native-android/app/build/outputs/apk/debug/app-debug.apk
           test -s "$APK"
-          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | grep "package: name='com.odify.music.nativepreview.debug'"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | grep "package: name='com.odify.music.nativepreview.v2.debug'"
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$APK"
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Odify-Native-Preview-ARM64-compatible-debug
+          name: Odify-Native-UI-Polish-v2-debug
           path: native-android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14

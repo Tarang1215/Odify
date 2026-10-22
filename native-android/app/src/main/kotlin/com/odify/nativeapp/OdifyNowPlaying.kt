@@ -61,16 +61,17 @@ fun OdifyNowPlaying(
     onRepeat: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
-    val dragOffset = remember { Animatable(0f) }
+    var dragOffset by remember { mutableFloatStateOf(0f) }
     val threshold = with(LocalDensity.current) { 125.dp.toPx() }
     var showInfo by remember { mutableStateOf(false) }
     val dragState = rememberDraggableState { delta ->
-        scope.launch { dragOffset.snapTo((dragOffset.value + delta).coerceAtLeast(0f)) }
+        // Direct state update follows the finger at display refresh rate.
+        dragOffset = (dragOffset + delta).coerceAtLeast(0f)
     }
 
     Box(
         Modifier.fillMaxSize()
-            .offset { IntOffset(0, dragOffset.value.roundToInt()) }
+            .offset { IntOffset(0, dragOffset.roundToInt()) }
             .background(
                 Brush.verticalGradient(
                     listOf(Color(0xFF181B21), playerBg, Color(0xFF15181D))
@@ -80,12 +81,16 @@ fun OdifyNowPlaying(
                 orientation = Orientation.Vertical,
                 state = dragState,
                 onDragStopped = { velocity ->
-                    if (dragOffset.value > threshold || velocity > 1500f) {
+                    if (dragOffset > threshold || velocity > 1500f) {
                         onDismiss()
-                        // Next opening reinitializes the swipe offset.
-                        scope.launch { dragOffset.snapTo(0f) }
+                        dragOffset = 0f
                     } else {
-                        scope.launch { dragOffset.animateTo(0f, tween(180)) }
+                        scope.launch {
+                            val springBack = Animatable(dragOffset)
+                            springBack.animateTo(0f, tween(200)) {
+                                dragOffset = value
+                            }
+                        }
                     }
                 }
             )
@@ -108,9 +113,9 @@ fun OdifyNowPlaying(
                     }
                     Spacer(Modifier.weight(1f))
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("NOW PLAYING", color = playerSecondary, fontSize = 9.sp,
+                        Text("PLAYING FROM", color = playerSecondary, fontSize = 9.sp,
                             letterSpacing = 1.5.sp, fontWeight = FontWeight.Medium)
-                        Text("Odify", color = playerWhite, fontSize = 12.sp,
+                        Text("Your Library", color = playerWhite, fontSize = 12.sp,
                             fontWeight = FontWeight.SemiBold)
                     }
                     Spacer(Modifier.weight(1f))
@@ -128,20 +133,21 @@ fun OdifyNowPlaying(
                     radius = RoundedCornerShape(22.dp),
                     fallbackKey = song.id.hashCode()
                 )
-                Spacer(Modifier.height(25.dp))
+                Spacer(Modifier.height(22.dp))
 
                 Row(
                     Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(Modifier.weight(1f)) {
-                        Text(song.title, color = playerWhite, fontSize = 22.sp,
-                            fontWeight = FontWeight.Bold,
+                        Text(song.title, color = playerWhite, fontSize = 20.sp,
+                            fontWeight = FontWeight.SemiBold, lineHeight = 25.sp,
                             maxLines = 2, overflow = TextOverflow.Ellipsis)
                         Spacer(Modifier.height(5.dp))
-                        Text(song.artist.ifEmpty { "Unknown artist" },
-                            color = playerSecondary, fontSize = 14.sp,
-                            maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        if (song.artist.isNotBlank()) {
+                            Text(song.artist, color = playerSecondary, fontSize = 13.sp,
+                                maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
                     }
                     IconButton(onClick = onLike) {
                         Icon(if (liked) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
@@ -149,7 +155,7 @@ fun OdifyNowPlaying(
                     }
                 }
 
-                Spacer(Modifier.height(24.dp))
+                Spacer(Modifier.height(19.dp))
                 // Waveform scrubber replaces a bulky default slider.
                 OdifyWaveformProgress(
                     position = position,
@@ -163,9 +169,9 @@ fun OdifyNowPlaying(
                     Text(timecode(duration), fontSize = 11.sp, color = playerSecondary)
                 }
 
-                Spacer(Modifier.height(17.dp))
+                Spacer(Modifier.height(16.dp))
                 Row(
-                    Modifier.fillMaxWidth().height(74.dp),
+                    Modifier.fillMaxWidth().height(68.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -179,17 +185,17 @@ fun OdifyNowPlaying(
                     }
                     // Restrained, 1dp outlined glass circle. NO outer glow.
                     Box(
-                        Modifier.size(69.dp)
+                        Modifier.size(65.dp)
                             .clip(CircleShape)
                             .background(Brush.linearGradient(listOf(
-                                Color(0xFF353940), Color(0xFF24272C))))
-                            .border(1.dp, Color.White.copy(alpha = 0.25f), CircleShape)
+                                Color(0xFF32363C), Color(0xFF25292E))))
+                            .border(0.8.dp, Color.White.copy(alpha = 0.19f), CircleShape)
                             .clickable(onClick = onToggle),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow,
                             "재생·일시정지", tint = playerWhite,
-                            modifier = Modifier.size(35.dp))
+                            modifier = Modifier.size(31.dp))
                     }
                     IconButton(onClick = onNext) {
                         Icon(Icons.Default.SkipNext, "다음 곡",
@@ -208,14 +214,14 @@ fun OdifyNowPlaying(
                     Spacer(Modifier.height(10.dp))
                 }
                 Row(
-                    Modifier.fillMaxWidth().height(57.dp)
+                    Modifier.fillMaxWidth().height(53.dp)
                         .clip(RoundedCornerShape(24.dp))
                         .background(
                             Brush.horizontalGradient(
-                                listOf(Color(0x813D4147), Color(0x88484B50))
+                                listOf(Color(0x7040444A), Color(0x7844484E))
                             )
                         )
-                        .border(1.dp, Color.White.copy(alpha = 0.17f),
+                        .border(0.7.dp, Color.White.copy(alpha = 0.18f),
                             RoundedCornerShape(24.dp))
                         .padding(horizontal = 17.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -228,7 +234,7 @@ fun OdifyNowPlaying(
                             .background(Color.White.copy(alpha = 0.10f))
                             .padding(horizontal = 21.dp, vertical = 9.dp)
                     ) {
-                        Text("LOCAL AUDIO", color = playerWhite,
+                        Text("AUDIO", color = playerWhite,
                             fontSize = 10.sp, letterSpacing = .8.sp,
                             fontWeight = FontWeight.SemiBold)
                     }
