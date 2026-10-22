@@ -70,7 +70,8 @@ fun OdifyNowPlaying(
     onSeek: (Long) -> Unit,
     onLike: () -> Unit,
     onShuffle: () -> Unit,
-    onRepeat: () -> Unit
+    onRepeat: () -> Unit,
+    onShowQueue: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -365,11 +366,11 @@ fun OdifyNowPlaying(
                             letterSpacing = .8.sp, fontWeight = FontWeight.SemiBold)
                     }
                     IconButton(
-                        onClick = { showInfo = !showInfo },
+                        onClick = onShowQueue,
                         modifier = Modifier.align(Alignment.CenterEnd)
                             .padding(end = 9.dp).size(44.dp)
                     ) {
-                        Icon(Icons.Default.QueueMusic, "재생 정보",
+                        Icon(Icons.Default.QueueMusic, "다음 재생목록",
                             tint = playerWhite, modifier = Modifier.size(20.dp))
                     }
                 }
