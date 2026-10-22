@@ -24,18 +24,25 @@ private const val FOLDER_MIME = "application/vnd.google-apps.folder"
 /** A SQLite index: deliberately NOT 50k rows of JSON in SharedPreferences. */
 class DriveCatalog(private val context: Context) {
     private val prefs = context.getSharedPreferences("odify_drive_catalog_v1", 0)
-    private val db = object : SQLiteOpenHelper(context, "odify_drive_catalog.db", null, 1) {
+    private val db = object : SQLiteOpenHelper(context, "odify_drive_catalog.db", null, 2) {
         override fun onCreate(db: SQLiteDatabase) {
             db.execSQL("""CREATE TABLE tracks (
                 id TEXT PRIMARY KEY, name TEXT NOT NULL, title TEXT NOT NULL,
                 artist TEXT NOT NULL DEFAULT '', album TEXT NOT NULL DEFAULT '',
                 genre TEXT NOT NULL DEFAULT '', mime TEXT NOT NULL,
                 modified TEXT NOT NULL DEFAULT '', cover TEXT NOT NULL DEFAULT '',
-                lyrics TEXT NOT NULL DEFAULT ''
+                lyrics TEXT NOT NULL DEFAULT '',
+                meta_source TEXT NOT NULL DEFAULT 'filename',
+                meta_checked_modified TEXT NOT NULL DEFAULT ''
             )""")
             db.execSQL("CREATE INDEX tracks_search ON tracks(title, artist, genre)")
         }
-        override fun onUpgrade(db: SQLiteDatabase, old: Int, newer: Int) {}
+        override fun onUpgrade(db: SQLiteDatabase, old: Int, newer: Int) {
+            if (old < 2) {
+                db.execSQL("ALTER TABLE tracks ADD COLUMN meta_source TEXT NOT NULL DEFAULT 'filename'")
+                db.execSQL("ALTER TABLE tracks ADD COLUMN meta_checked_modified TEXT NOT NULL DEFAULT ''")
+            }
+        }
     }
     val folderId: String get() = prefs.getString("folder", "") ?: ""
     var lastSync: Long
@@ -61,7 +68,7 @@ class DriveCatalog(private val context: Context) {
         require(title.isNotBlank())
         val cv = ContentValues().apply {
             put("title", title.trim()); put("artist", artist.trim())
-            put("album", album.trim())
+            put("album", album.trim()); put("meta_source", "user")
         }
         db.writableDatabase.update("tracks", cv, "id=?", arrayOf(id))
     }
@@ -150,27 +157,31 @@ class DriveCatalog(private val context: Context) {
             dbConn.execSQL("CREATE TEMP TABLE IF NOT EXISTS odify_seen (id TEXT PRIMARY KEY)")
             dbConn.delete("odify_seen", null, null)
             for ((id, file) in collected) {
-                val filename = file.getString("name").substringBeforeLast('.')
-                val split = filename.split(" - ", limit = 2)
-                val genre = file.optString("odifyGenre")
+                val (fallbackTitle, fallbackArtist) =
+                    DriveTagReader.fallbackFromName(file.getString("name"))
+                val genre = DriveTagReader.recognizableGenre(file.optString("odifyGenre"))
                 val existing = dbConn.rawQuery(
-                    "SELECT title,artist,album,cover,modified FROM tracks WHERE id=?",
+                    "SELECT title,artist,album,cover,modified,meta_source,meta_checked_modified,lyrics,genre FROM tracks WHERE id=?",
                     arrayOf(id)
                 ).use { c ->
-                    if (c.moveToFirst()) (0..4).map { c.getString(it) } else null
+                    if (c.moveToFirst()) (0..8).map { c.getString(it) } else null
                 }
                 val modified = file.optString("modifiedTime")
+                val hasTags = existing?.get(5) in setOf("tag", "user")
                 val cv = ContentValues().apply {
                     put("id", id)
                     put("name", file.getString("name"))
-                    put("title", if (existing == null) split.last() else existing[0])
-                    put("artist", if (existing == null && split.size == 2) split[0]
-                        else existing?.get(1) ?: "")
-                    put("album", existing?.get(2) ?: "")
-                    put("genre", genre)
+                    put("title", if (hasTags) existing!![0] else fallbackTitle)
+                    put("artist", if (hasTags) existing!![1] else fallbackArtist)
+                    put("album", if (hasTags) existing!![2] else "")
+                    put("genre", if (hasTags && !existing!![8].isNullOrBlank()) existing[8] else genre)
                     put("mime", file.optString("mimeType"))
                     put("modified", modified)
                     put("cover", if (existing?.get(4) == modified) existing[3] else "")
+                    put("meta_source", existing?.get(5) ?: "filename")
+                    put("meta_checked_modified", if (existing?.get(4) == modified)
+                        existing[6] else "")
+                    put("lyrics", existing?.get(7) ?: "")
                 }
                 dbConn.insertWithOnConflict("tracks", null, cv, SQLiteDatabase.CONFLICT_REPLACE)
                 val seen = ContentValues().apply { put("id", id) }
