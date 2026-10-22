@@ -93,7 +93,7 @@ private fun NativeOdify() {
     val scope = rememberCoroutineScope()
 
     fun refreshCatalog(showProgress: Boolean = true) {
-        if (driveBusy || !DriveAuth.connected) return
+        if (driveBusy || uploadingToDrive || !DriveAuth.connected) return
         scope.launch {
             driveBusy = true
             if (showProgress) driveStatus = "Drive 음악 목록을 업데이트하고 있습니다."
@@ -187,7 +187,7 @@ private fun NativeOdify() {
     }
 
     fun uploadFiles(selected: List<android.net.Uri>) {
-        if (uploadingToDrive || selected.isEmpty()) return
+        if (uploadingToDrive || driveBusy || selected.isEmpty()) return
         scope.launch {
             uploadingToDrive = true
             var added = 0
@@ -463,7 +463,7 @@ private fun NativeOdify() {
             uploadingToDrive = uploadingToDrive,
             uploadStatus = uploadStatus,
             onUploadToDrive = {
-                if (!uploadingToDrive) driveUploadPicker.launch(arrayOf("audio/*"))
+                if (!uploadingToDrive && !driveBusy) driveUploadPicker.launch(arrayOf("audio/*"))
             },
             onMasterUpdated = { master ->
                 scope.launch {
