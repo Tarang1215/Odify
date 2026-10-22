@@ -11,6 +11,8 @@ import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -25,6 +27,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -34,7 +37,7 @@ import androidx.compose.ui.unit.IntOffset
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.roundToInt
-import kotlin.math.sin
+import kotlin.math.max
 
 private val playerBg = Color(0xFF101216)
 private val playerSecondary = Color(0xFFA3A7AF)
@@ -61,9 +64,15 @@ fun OdifyNowPlaying(
     onRepeat: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     var dragOffset by remember { mutableFloatStateOf(0f) }
     val threshold = with(LocalDensity.current) { 125.dp.toPx() }
     var showInfo by remember { mutableStateOf(false) }
+    var albumSlide by remember(song.id) { mutableFloatStateOf(0f) }
+    val swipeThreshold = with(LocalDensity.current) { 68.dp.toPx() }
+    val waveform by produceState<List<Float>>(initialValue = emptyList(), song.id) {
+        value = OdifyWaveformRepository.load(context = context, song = song)
+    }
     val dragState = rememberDraggableState { delta ->
         // Direct state update follows the finger at display refresh rate.
         dragOffset = (dragOffset + delta).coerceAtLeast(0f)
@@ -129,7 +138,23 @@ fun OdifyNowPlaying(
                 Spacer(Modifier.weight(0.8f))
                 AlbumArt(
                     song,
-                    Modifier.size(artSize),
+                    Modifier.size(artSize)
+                        .offset { IntOffset(albumSlide.roundToInt(), 0) }
+                        .pointerInput(song.id) {
+                            detectHorizontalDragGestures(
+                                onHorizontalDrag = { change, amount ->
+                                    change.consume()
+                                    albumSlide = (albumSlide + amount)
+                                        .coerceIn(-size.width.toFloat(), size.width.toFloat())
+                                },
+                                onDragEnd = {
+                                    if (albumSlide < -swipeThreshold) onNext()
+                                    else if (albumSlide > swipeThreshold) onPrevious()
+                                    albumSlide = 0f
+                                },
+                                onDragCancel = { albumSlide = 0f }
+                            )
+                        },
                     radius = RoundedCornerShape(22.dp),
                     fallbackKey = song.id.hashCode()
                 )
@@ -160,6 +185,7 @@ fun OdifyNowPlaying(
                 OdifyWaveformProgress(
                     position = position,
                     duration = duration,
+                    waveform = waveform,
                     onSeek = onSeek,
                     modifier = Modifier.fillMaxWidth().height(45.dp)
                 )
@@ -213,32 +239,38 @@ fun OdifyNowPlaying(
                         maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Spacer(Modifier.height(10.dp))
                 }
-                Row(
+                // Precisely center the AUDIO pill on the same x-axis as Play.
+                Box(
                     Modifier.fillMaxWidth().height(53.dp)
                         .clip(RoundedCornerShape(24.dp))
-                        .background(
-                            Brush.horizontalGradient(
-                                listOf(Color(0x7040444A), Color(0x7844484E))
-                            )
-                        )
+                        .background(Brush.horizontalGradient(
+                            listOf(Color(0x7040444A), Color(0x7844484E))
+                        ))
                         .border(0.7.dp, Color.White.copy(alpha = 0.18f),
                             RoundedCornerShape(24.dp))
-                        .padding(horizontal = 17.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(Icons.Default.Headphones, "출력 기기", tint = playerWhite,
-                        modifier = Modifier.size(19.dp))
-                    Box(
-                        Modifier.clip(RoundedCornerShape(22.dp))
-                            .background(Color.White.copy(alpha = 0.10f))
-                            .padding(horizontal = 21.dp, vertical = 9.dp)
+                    IconButton(
+                        onClick = { showInfo = !showInfo },
+                        modifier = Modifier.align(Alignment.CenterStart)
+                            .padding(start = 9.dp).size(44.dp)
                     ) {
-                        Text("AUDIO", color = playerWhite,
-                            fontSize = 10.sp, letterSpacing = .8.sp,
-                            fontWeight = FontWeight.SemiBold)
+                        Icon(Icons.Default.Headphones, "출력 기기",
+                            tint = playerWhite, modifier = Modifier.size(19.dp))
                     }
-                    IconButton(onClick = { showInfo = !showInfo }) {
+                    Box(
+                        Modifier.align(Alignment.Center)
+                            .clip(RoundedCornerShape(22.dp))
+                            .background(Color.White.copy(alpha = 0.10f))
+                            .padding(horizontal = 22.dp, vertical = 9.dp)
+                    ) {
+                        Text("AUDIO", color = playerWhite, fontSize = 10.sp,
+                            letterSpacing = .8.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                    IconButton(
+                        onClick = { showInfo = !showInfo },
+                        modifier = Modifier.align(Alignment.CenterEnd)
+                            .padding(end = 9.dp).size(44.dp)
+                    ) {
                         Icon(Icons.Default.QueueMusic, "재생 정보",
                             tint = playerWhite, modifier = Modifier.size(20.dp))
                     }
@@ -258,36 +290,55 @@ private fun timecode(milliseconds: Long): String {
 private fun OdifyWaveformProgress(
     position: Long,
     duration: Long,
+    waveform: List<Float>,
     onSeek: (Long) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val ratio = if (duration > 0) (position.toDouble() / duration).toFloat().coerceIn(0f, 1f)
-                else 0f
+    val playedFraction = if (duration > 0)
+        (position.toDouble() / duration).toFloat().coerceIn(0f, 1f) else 0f
     val played = Color(0xFFF5F6F7)
     val pending = Color(0xFF50545B)
+    val seek: (Float) -> Unit = { fraction ->
+        if (duration > 0L) {
+            onSeek((duration * fraction.coerceIn(0f, 1f)).toLong())
+        }
+    }
     Canvas(
         modifier.pointerInput(duration) {
             detectTapGestures { offset ->
-                if (duration > 0L && size.width > 0) {
-                    val fraction = (offset.x / size.width.toFloat()).coerceIn(0f, 1f)
-                    onSeek((duration * fraction).toLong())
-                }
+                if (size.width > 0) seek(offset.x / size.width.toFloat())
             }
+        }.pointerInput(duration) {
+            detectDragGestures(
+                onDragStart = { offset ->
+                    if (size.width > 0) seek(offset.x / size.width.toFloat())
+                },
+                onDrag = { change, _ ->
+                    if (size.width > 0) seek(change.position.x / size.width.toFloat())
+                    change.consume()
+                }
+            )
         }
     ) {
-        val bars = 94
-        val center = size.height / 2f
-        for (i in 0 until bars) {
-            val x = ((i + .5f) / bars) * size.width
-            val wave = abs(sin((i + 5) * 1.13f).toFloat()) * .66f +
-                abs(sin((i + 3) * .39f).toFloat()) * .34f
-            val half = (3f + wave * size.height * .33f)
-            drawLine(
-                color = if (i.toFloat() / bars <= ratio) played else pending,
-                start = Offset(x, center - half),
-                end = Offset(x, center + half),
-                strokeWidth = 2.dp.toPx()
-            )
+        val mid = size.height / 2f
+        if (waveform.size != 96) {
+            // Codec unsupported or analysis pending: honest seek line, no fake waves.
+            drawLine(pending, Offset(0f, mid), Offset(size.width, mid),
+                strokeWidth = 2.dp.toPx())
+            drawLine(played, Offset(0f, mid),
+                Offset(size.width * playedFraction, mid), strokeWidth = 2.dp.toPx())
+        } else {
+            waveform.forEachIndexed { index, amplitude ->
+                val x = (index + 0.5f) / waveform.size * size.width
+                val h = max(2.dp.toPx(), amplitude * (size.height * 0.42f))
+                drawLine(
+                    color = if ((index + .5f) / waveform.size <= playedFraction)
+                        played else pending,
+                    start = Offset(x, mid - h),
+                    end = Offset(x, mid + h),
+                    strokeWidth = 2.dp.toPx()
+                )
+            }
         }
     }
 }
