@@ -122,8 +122,10 @@ private fun NativeOdify() {
                             val master = runCatching { masterDb.sync() }
                                 .getOrElse { masterDb.loadCached() }
                             if (master.isNotEmpty()) {
+                                val renamed = driveCatalog.applyMasterCorrections(master)
                                 val syncedSongs = driveCatalog.tracks()
-                                artworkFallback.warm(driveCatalog, syncedSongs, master, 14)
+                                val covered = artworkFallback.warm(driveCatalog,syncedSongs,master,14)
+                                renamed + covered
                             } else 0
                         }
                     }.onSuccess { refreshed ->
@@ -507,9 +509,11 @@ private fun NativeOdify() {
             onMasterUpdated = { master ->
                 scope.launch {
                     val count = withContext(Dispatchers.IO) {
-                        artworkFallback.warm(
+                        val renamed = driveCatalog.applyMasterCorrections(master)
+                        val art = artworkFallback.warm(
                             driveCatalog, driveCatalog.tracks(), master, 18
                         )
+                        renamed + art
                     }
                     if (count > 0) songs = withContext(Dispatchers.IO) {
                         library.songs() + driveCatalog.tracks() + phoneFolder.tracks()
