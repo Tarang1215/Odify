@@ -19,11 +19,19 @@ class OdifyDeviceExport(private val context: Context) {
     private val maxBytes = 256L * 1024L * 1024L
 
     fun suggestedName(song: OdifySong, cloudName: String? = null): String {
-        val ext = (cloudName?.substringAfterLast('.', "")
-            ?: song.filePath.substringAfterLast('.', ""))
-            .lowercase().takeIf {
-                it in setOf("mp3", "m4a", "flac", "wav", "ogg", "opus", "aac")
-            } ?: "m4a"
+        val supported = setOf("mp3", "m4a", "flac", "wav", "ogg", "opus", "aac")
+        val sourcePath = song.sourceUri?.let { Uri.parse(it).lastPathSegment }.orEmpty()
+        val candidates = listOfNotNull(cloudName, song.filePath, sourcePath)
+        val ext = candidates.map { it.substringAfterLast('.', "").lowercase() }
+            .firstOrNull { it in supported }
+            ?: when (song.sourceUri?.let { context.contentResolver.getType(Uri.parse(it)) }) {
+                "audio/mpeg", "audio/mp3" -> "mp3"
+                "audio/mp4", "audio/x-m4a" -> "m4a"
+                "audio/flac", "audio/x-flac" -> "flac"
+                "audio/wav", "audio/x-wav" -> "wav"
+                "audio/ogg" -> "ogg"
+                else -> "m4a"
+            }
         val friendly = "${song.artist} - ${song.title}".trim().trimStart('-').trim()
             .replace(Regex("[\\\\/:*?\"<>|\\u0000-\\u001f]"), "_").take(140)
             .ifBlank { "Odify music" }
