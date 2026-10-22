@@ -39,18 +39,49 @@ class OdifyPhoneFolder(private val context: Context) {
             .apply()
     }
 
+    /**
+     * Only the app catalog is edited/hidden. SAF grants remain read-only and
+     * removing a linked track must never delete the user's original file.
+     */
+    fun updateMetadata(song: OdifySong, title: String, artist: String, album: String) {
+        require(song.isPhoneFolder)
+        require(title.trim().isNotEmpty()) { "곡명을 입력해 주세요." }
+        val overrides = JSONObject(prefs.getString("overrides", "{}").orEmpty())
+        overrides.put(song.id, JSONObject().apply {
+            put("title", title.trim()); put("artist", artist.trim())
+            put("album", album.trim())
+        })
+        prefs.edit().putString("overrides", overrides.toString()).apply()
+    }
+
+    fun hideTrack(song: OdifySong) {
+        require(song.isPhoneFolder)
+        val hidden = prefs.getStringSet("hidden", emptySet())?.toMutableSet()
+            ?: mutableSetOf()
+        hidden.add(song.id)
+        prefs.edit().putStringSet("hidden", hidden).apply()
+    }
+
     fun tracks(): List<OdifySong> {
         if (!hasFolder) return emptyList()
         val raw = prefs.getString("index","[]").orEmpty()
+        val hidden = prefs.getStringSet("hidden", emptySet()).orEmpty()
+        val overrides = runCatching {
+            JSONObject(prefs.getString("overrides", "{}").orEmpty())
+        }.getOrDefault(JSONObject())
         return runCatching {
             val arr = JSONArray(raw)
             (0 until arr.length()).mapNotNull { i ->
                 val j = arr.optJSONObject(i) ?: return@mapNotNull null
                 val uri = j.optString("sourceUri")
-                if (!uri.startsWith("content://")) return@mapNotNull null
+                val id = j.optString("id")
+                if (!uri.startsWith("content://") || id in hidden)
+                    return@mapNotNull null
+                val edited = overrides.optJSONObject(id)
                 OdifySong(
-                    id=j.optString("id"),title=j.optString("title"),
-                    artist=j.optString("artist"),album=j.optString("album"),
+                    id=id,title=edited?.optString("title") ?: j.optString("title"),
+                    artist=edited?.optString("artist") ?: j.optString("artist"),
+                    album=edited?.optString("album") ?: j.optString("album"),
                     filePath="",sourceUri=uri,
                     artworkPath=j.optString("artworkPath").takeIf { it.isNotBlank() },
                     durationMs=j.optLong("durationMs"),genre=j.optString("genre")
