@@ -34,7 +34,7 @@ class OdifyPlaylists(context: Context) {
         val json = JSONArray()
         items.forEach { list ->
             json.put(JSONObject().put("id", list.id).put("name", list.name)
-                .put("songs", JSONArray().apply { list.songIds.forEach(::put) }))
+                .put("songs", JSONArray().apply { list.songIds.forEach { songId -> put(songId) } }))
         }
         check(prefs.edit().putString(key, json.toString()).commit()) {
             "플레이리스트를 저장하지 못했습니다."
