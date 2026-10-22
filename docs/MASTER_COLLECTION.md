@@ -28,6 +28,8 @@ Direct interpreter invocation was verified to read the existing config.
 - Existing verified URLs are processed first; blank/unverified URLs are searched
   and validated against artist, title, duration, version and official audio.
 - Search results that do not confidently match are kept for review.
+- If a previously verified video has been removed or no longer matches, the
+  collector searches for a validated replacement and caches it locally.
 - Each MP3 is tagged, uploaded separately, and checked against its remote MD5.
 - SQLite preserves local downloads and discovered links for resume. Reports
   distinguish presence on Drive, remote-verified uploads, reviews and failures.
@@ -40,9 +42,10 @@ remotely verified during implementation. Full-run progress is written under
 `Music/Odify_Library/MASTER/master_report.json` on the user's PC.
 Automatic discovery was also checked on `ODF000081`: the blank link for
 황가람's 나는 반딧불 resolved to a matching auto-generated studio recording.
-Fourteen offline tests passed across the batch and core worker, including
+Sixteen offline tests passed across the batch and core worker, including
 named-tab export, removal of the 152-track ceiling, artist/version matching,
-module execution without a yt-dlp PATH entry, and remote hash mismatch handling.
+module execution without a yt-dlp PATH entry, remote hash mismatch handling,
+removed-link recovery and stopping rather than bypassing source access challenges.
 
 Run `run_master_all.bat` to collect every missing track, or invoke
 `run_collector.ps1 -DryRun` for a live plan and `-Limit 1` for a single-track test.

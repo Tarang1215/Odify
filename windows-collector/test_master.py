@@ -6,7 +6,7 @@ import subprocess
 import sys
 from tempfile import TemporaryDirectory
 import unittest
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 from zipfile import ZipFile
 
 import drive_source
@@ -85,6 +85,23 @@ class MasterCollectionTests(unittest.TestCase):
         with patch.object(music_catalog.subprocess, 'run', return_value=completed):
             music_catalog.inspect_audio_video('https://youtu.be/ABCDEFGHI_0', 'Song (feat. Singer)')
         self.assertEqual(music_catalog.recording_title('Song (Live)'), 'Song (Live)')
+
+    def test_removed_verified_video_is_recovered_with_a_validated_alternative(self):
+        row = master_row('ODF000001')
+        replacement = 'https://www.youtube.com/watch?v=ZYXWVUTSR_0'
+        with patch.object(music_catalog, 'download_one', side_effect=[RuntimeError('Video unavailable'), 'ODF000001']) as download:
+            with patch.object(run_master, 'resolve_link', return_value=(replacement, '{}')):
+                run_master.download_track(MagicMock(), row, Path('.'), row['YouTube 오디오 URL'])
+        self.assertEqual(download.call_count, 2)
+        self.assertEqual(download.call_args.args[1][-1], replacement)
+
+    def test_access_challenge_is_not_retried_or_bypassed(self):
+        row = master_row('ODF000001')
+        with patch.object(music_catalog, 'download_one', side_effect=RuntimeError('Sign in to confirm you are not a bot')):
+            with patch.object(run_master, 'resolve_link') as search:
+                with self.assertRaises(RuntimeError):
+                    run_master.download_track(MagicMock(), row, Path('.'), row['YouTube 오디오 URL'])
+                search.assert_not_called()
 
 
 if __name__ == '__main__':

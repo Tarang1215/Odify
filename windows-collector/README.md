@@ -32,6 +32,8 @@ official audio evidence are required. Ambiguous results stay `needs_review`.
 Successfully downloaded files are uploaded individually and marked complete
 only after a remote MD5 comparison. Network failures and source blocks remain
 visible; a bot challenge or five consecutive failures stops the run for review.
+Previously verified links that were removed or do not match are also searched
+again; any replacement must pass the same artist/recording checks.
 The next launch resumes from existing Drive audio and validated local files.
 
 Windows launchers use the real Python executable rather than the Microsoft

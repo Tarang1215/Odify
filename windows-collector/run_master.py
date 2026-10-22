@@ -175,6 +175,38 @@ def upload_track(audio: Path, remote: str) -> str:
     return destination
 
 
+def remember_link(database, row: dict, source_url: str, url: str, evidence: str) -> None:
+    database.execute('INSERT OR REPLACE INTO resolved_links VALUES (?,?,?,?,?,?)',
+                     (row['Track ID'], row['아티스트'], row['곡명'], source_url, url, evidence))
+    database.execute("UPDATE tracks SET video_url=?,verified='검증완료' WHERE id=?", (url, row['Track ID']))
+    database.commit()
+    row['YouTube 오디오 URL'] = url
+
+
+def download_track(database, row: dict, root: Path, source_url: str) -> None:
+    def download():
+        worker.download_one(database, (row['Track ID'], row['아티스트'], row['곡명'], row['앨범'],
+                            row['장르'], row['YouTube 오디오 URL']), root, True, True,
+                            audio_format='mp3', accept_lyric_or_mv=True)
+
+    try:
+        download()
+    except (RuntimeError, ValueError) as error:
+        if access_blocked(str(error)):
+            raise
+        stale_link = isinstance(error, ValueError) or any(marker in str(error).casefold() for marker in (
+            'video unavailable', 'video is not available', 'private video', 'has been removed',
+            'requested format is not available'))
+        if not stale_link:
+            raise
+        url, evidence = resolve_link(row)
+        if url == row['YouTube 오디오 URL']:
+            raise error
+        remember_link(database, row, source_url, url, evidence)
+        print('LINK RECOVERED', row['Track ID'], flush=True)
+        download()
+
+
 def write_reports(root: Path, plan: list[dict], *, running: bool, detail: str = '') -> dict:
     counts = {}
     for row in plan:
@@ -252,23 +284,19 @@ def collect(args: argparse.Namespace, root: Path) -> int:
             row['collection_status'] = 'processing'
             write_reports(root, plan, running=True)
             try:
-                if row['링크검증'] != '검증완료' or not worker.validate_video_url(row['YouTube 오디오 URL']):
-                    cached = database.execute('SELECT url,evidence FROM resolved_links WHERE id=? AND artist=? AND title=? AND source_url=?',
-                                              (track_id, row['아티스트'], row['곡명'], row['YouTube 오디오 URL'])).fetchone()
-                    url, evidence = cached if cached else resolve_link(row)
-                    database.execute('INSERT OR REPLACE INTO resolved_links VALUES (?,?,?,?,?,?)',
-                                     (track_id, row['아티스트'], row['곡명'], row['YouTube 오디오 URL'], url, evidence))
-                    row['YouTube 오디오 URL'] = url
-                    database.execute("UPDATE tracks SET video_url=?,verified='검증완료' WHERE id=?", (url, track_id))
-                    database.commit()
+                source_url = row['YouTube 오디오 URL']
+                cached = database.execute('SELECT url,evidence FROM resolved_links WHERE id=? AND artist=? AND title=? AND source_url=?',
+                                          (track_id, row['아티스트'], row['곡명'], source_url)).fetchone()
+                if cached:
+                    remember_link(database, row, source_url, *cached)
+                elif row['링크검증'] != '검증완료' or not worker.validate_video_url(source_url):
+                    remember_link(database, row, source_url, *resolve_link(row))
                 stored = database.execute('SELECT status,file_path,sha256 FROM tracks WHERE id=?', (track_id,)).fetchone()
                 audio = root / 'Audio' / (track_id + '.mp3')
                 valid_local = stored[0] == 'downloaded' and stored[1] == 'Audio/' + audio.name and audio.is_file()
                 valid_local = valid_local and stored[2] == hashlib.sha256(audio.read_bytes()).hexdigest()
                 if not valid_local:
-                    worker.download_one(database, (track_id, row['아티스트'], row['곡명'], row['앨범'],
-                                        row['장르'], row['YouTube 오디오 URL']), root, True, True,
-                                        audio_format='mp3', accept_lyric_or_mv=True)
+                    download_track(database, row, root, source_url)
                 upload_track(audio, args.remote)
                 row['collection_status'] = 'uploaded_verified'
                 print('UPLOADED + VERIFIED', track_id, flush=True)
