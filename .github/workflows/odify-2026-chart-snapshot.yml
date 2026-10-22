@@ -25,7 +25,7 @@ jobs:
           sources={
             "한국":("Melon TOP100","https://www.melon.com/chart/index.htm"),
             "일본":("Spotify Japan Daily Top100 (Kworb mirror)","https://kworb.net/spotify/country/jp_daily.html"),
-            "미국":("Billboard Hot 100","https://creativedisc.com/2026/10/billboard-hot-100-17-october-2026/"),
+            "미국":("Spotify US Daily Top100 (Kworb mirror)","https://kworb.net/spotify/country/us_daily.html"),
             "글로벌":("Spotify Global Daily Top100 (Kworb mirror)","https://kworb.net/spotify/country/global_daily.html")
           }
           def read(url):
@@ -49,7 +49,7 @@ jobs:
                 rows.append({"rank":index,"artist":", ".join(artists) if artists else artist_el.get_text(" ",strip=True),
                   "title":title_el.get_text(" ",strip=True),
                   "album":album_el.get_text(" ",strip=True) if album_el else ""})
-            elif region in ("일본","글로벌"):
+            elif region in ("일본","글로벌","미국"):
               text=soup.get_text(' ',strip=True)
               match=re.search(r'(2026/\d\d/\d\d)',text)
               if not match: raise ValueError(f"{region}: no snapshot date")
