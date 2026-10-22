@@ -692,14 +692,26 @@ private fun NativeOdify() {
             },
             onRemove = { track ->
                 scope.launch {
-                    if (playback.mediaId == track.id) controller?.stop()
-                    if (track.id.startsWith("gdrive:")) {
-                        withContext(Dispatchers.IO) { driveCatalog.hideTrack(track) }
-                    } else if (track.isPhoneFolder) {
-                        withContext(Dispatchers.IO) { phoneFolder.hideTrack(track) }
-                    } else library.delete(track)
-                    songs = withContext(Dispatchers.IO) {
-                        library.songs() + driveCatalog.tracks() + phoneFolder.tracks()
+                    // A provider/SQLite failure must never crash the Home
+                    // activity or pretend that the track was removed.
+                    runCatching {
+                        withContext(Dispatchers.IO) {
+                            when {
+                                track.id.startsWith("gdrive:") -> driveCatalog.hideTrack(track)
+                                track.isPhoneFolder -> phoneFolder.hideTrack(track)
+                                else -> library.delete(track)
+                            }
+                            library.songs() + driveCatalog.tracks() + phoneFolder.tracks()
+                        }
+                    }.onSuccess { refreshed ->
+                        songs = refreshed
+                        if (playback.mediaId == track.id) controller?.stop()
+                    }.onFailure { failure ->
+                        Toast.makeText(
+                            context,
+                            "라이브러리 변경 실패: ${failure.localizedMessage ?: "다시 시도하세요."}",
+                            Toast.LENGTH_LONG
+                        ).show()
                     }
                 }
             }
