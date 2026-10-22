@@ -11,9 +11,10 @@ Usage:
     --year 2026 --max-searches 25 --workers 4
   python scripts/odify_link_candidates.py --master-csv Odify_MASTER.csv --dry-run
 
-The search endpoint costs 100 YouTube quota units per unique query. At the
-default 10,000 units/day this limits new searches to ~100/day; cached queries
-10,000-unit general read bucket. Cache hits reduce the number of calls.
+YouTube Data API currently defaults to a separate search.list bucket of
+100 calls/day (one unit per call). General list operations such as videos.list
+use a separate 10,000-unit/day bucket. Cached queries avoid repeated search
+calls, and bulk videos.list covers up to 50 IDs per call.
 """
 from __future__ import annotations
 
