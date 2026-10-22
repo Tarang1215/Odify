@@ -60,7 +60,6 @@ fun OdifyQueueDialog(
     var dragging by remember { mutableStateOf<String?>(null) }
     var displacement by remember { mutableFloatStateOf(0f) }
     val rowHeight = with(LocalDensity.current) { 70.dp.toPx() }
-    val activeId = incoming.getOrNull(currentIndex)?.key
     Dialog(onDismissRequest=onClose,
         properties=DialogProperties(usePlatformDefaultWidth=false)) {
         Surface(
@@ -86,8 +85,8 @@ fun OdifyQueueDialog(
                 ) {
                     items(ordered, key = { it.key }) { queued ->
                         val song = queued.song
-                        val selected = queued.key == activeId
                         val index = ordered.indexOfFirst { it.key == queued.key }
+                        val selected = index == currentIndex
                         Row(
                             Modifier.fillMaxWidth()
                                 .background(
