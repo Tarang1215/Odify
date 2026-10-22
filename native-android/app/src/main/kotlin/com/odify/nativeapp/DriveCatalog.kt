@@ -19,6 +19,13 @@ import java.util.ArrayDeque
 import java.util.Locale
 
 private const val DEFAULT_FOLDER_NAME = "Odify_Music_Test"
+// Only these explicit Odify library roots are discovered. Never traverse the
+// rest of the user's Drive. Both top-level and nested Auto_Upload are accepted.
+internal val ODIFY_LIBRARY_ROOT_NAMES = listOf(
+    DEFAULT_FOLDER_NAME, "odify_music_test",
+    "Odify_Auto_Upload", "odify_auto_upload",
+    "Odify_Cloud_Uploads"
+)
 private const val FOLDER_MIME = "application/vnd.google-apps.folder"
 
 /** A SQLite index: deliberately NOT 50k rows of JSON in SharedPreferences. */
@@ -63,7 +70,8 @@ class DriveCatalog(private val context: Context) {
     fun setFolder(id: String) {
         require(Regex("[A-Za-z0-9_-]{10,150}").matches(id)) { "유효한 Drive 폴더 ID가 아닙니다." }
         prefs.edit().putString("folder", id).apply()
-        db.writableDatabase.delete("tracks", null, null)
+        // Keep existing metadata and manual corrections intact until a
+        // successful transactional sync replaces the visible file index.
         lastSync = 0
     }
 
@@ -265,36 +273,37 @@ class DriveCatalog(private val context: Context) {
      */
     suspend fun sync(onProgress: (Int) -> Unit = {}): Int = withContext(Dispatchers.IO) {
         val queue = ArrayDeque<Pair<String,String>>()
-        val initialFolder = folderId.ifBlank {
-            // Never publish the user's private folder ID inside an open-source APK.
-            // Locate the default folder by name in the authenticated account.
-            val q = "mimeType = '$FOLDER_MIME' and name = '$DEFAULT_FOLDER_NAME' and trashed = false"
-            val list = JSONObject(apiJson("files", mapOf(
-                "q" to q, "pageSize" to "100",
-                "fields" to "files(id,name),nextPageToken"
-            ))).getJSONArray("files")
-            if (list.length() == 0) error("Drive에서 $DEFAULT_FOLDER_NAME 폴더를 찾을 수 없습니다.")
-            list.getJSONObject(0).getString("id")
+        // Include the user's explicitly selected root plus both Drive
+        // Auto_Upload roots, even when one is outside Odify_Music_Test.
+        // Resolve by name on every device: IDs remain private and never
+        // hard-coded into an APK, and new remote uploads are picked up.
+        val roots = linkedSetOf<String>()
+        if (folderId.isNotBlank()) roots += folderId
+        val names = ODIFY_LIBRARY_ROOT_NAMES.joinToString(" or ") {
+            "name = '${it.replace("'", "\\'")}'"
         }
-        queue.add(initialFolder to "")
-        // Discover app-managed music root on *every device*, not just on
-        // the phone that originally uploaded it. Only this named folder is
-        // added; the rest of the user's personal Drive stays untouched.
-        runCatching {
-            val q = "mimeType = '$FOLDER_MIME' and name = 'Odify_Cloud_Uploads' and trashed = false"
-            val roots = JSONObject(apiJson("files", mapOf(
-                "q" to q, "pageSize" to "100",
-                "fields" to "nextPageToken,files(id,name)"
-            ))).getJSONArray("files")
-            for (i in 0 until roots.length()) {
-                val id = roots.getJSONObject(i).getString("id")
-                if (id != initialFolder) queue.add(id to "")
+        val filter = "mimeType = '$FOLDER_MIME' and trashed = false and ($names)"
+        var rootPage: String? = null
+        do {
+            val result = JSONObject(apiJson("files", mapOf(
+                "q" to filter, "pageSize" to "1000",
+                "fields" to "nextPageToken,files(id,name)",
+                "pageToken" to (rootPage ?: "")
+            )))
+            val entries = result.getJSONArray("files")
+            for (i in 0 until entries.length()) {
+                roots += entries.getJSONObject(i).getString("id")
             }
-        } // An unavailable upload folder must not break existing playback.
+            rootPage = result.optString("nextPageToken").takeIf { it.isNotBlank() }
+        } while (rootPage != null)
+        if (roots.isEmpty()) error("Drive에서 Odify_Music_Test 또는 Odify_Auto_Upload 폴더를 찾지 못했습니다.")
+        roots.forEach { queue.add(it to "") }
+        val scannedFolders = mutableSetOf<String>()
         val collected = LinkedHashMap<String, JSONObject>()
         var visitedFolders = 0
         while (queue.isNotEmpty()) {
             val (parent, genrePath) = queue.removeFirst()
+            if (!scannedFolders.add(parent)) continue
             if (++visitedFolders > 4_000) error("폴더 수 제한(4,000)을 초과했습니다.")
             var nextPage: String? = null
             do {
