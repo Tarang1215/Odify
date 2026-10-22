@@ -16,7 +16,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.consume
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
@@ -68,7 +67,7 @@ fun OdifyQueueDialog(
                     verticalArrangement=Arrangement.spacedBy(3.dp),
                     contentPadding=PaddingValues(bottom=20.dp)
                 ) {
-                    items(ordered,key={it.id}) { song ->
+                    items(ordered) { song ->
                         val selected = song.id == activeId
                         val index = ordered.indexOfFirst { it.id == song.id }
                         Row(
