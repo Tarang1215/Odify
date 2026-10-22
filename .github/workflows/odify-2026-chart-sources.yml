@@ -18,7 +18,10 @@ jobs:
           import requests,bs4,re
           urls={
           "melon":"https://www.melon.com/chart/index.htm",
-          "japan":"https://www.billboard-japan.com/charts/detail?a=hot100&year=2026&month=10&day=21",
+          "japan":"https://billboard-japan.com/charts/detail?a=hot100&year=2026&month=10&day=21",
+          "japan_spotify":"https://kworb.net/spotify/country/jp_daily.html",
+          "us_spotify":"https://kworb.net/spotify/country/us_daily.html",
+          "us_fallback":"https://creativedisc.com/2026/10/billboard-hot-100-17-october-2026/",
           "us":"https://ca.billboard.com/charts/hot-100/2026-10-17",
           "global":"https://ca.billboard.com/charts/billboard-global-200/2026-10-17",
           }
@@ -33,6 +36,14 @@ jobs:
                 if nodes:
                   texts=[re.sub(r'\\s+',' ',n.get_text(' ',strip=True))[:200] for n in nodes[:3]]
                   print("SELECT",selector,len(nodes),repr(texts))
+              for node in doc.select('script[type="application/ld+json"]'):
+                try:
+                  import json
+                  data=json.loads(node.string or node.get_text())
+                  if data.get('@type')=='ItemList':
+                    items=data.get('itemListElement',[])
+                    print("ITEMLIST",name,len(items),"SAMPLE",repr(items[:2])[:1300])
+                except (ValueError,AttributeError): pass
               print("TITLE",repr(doc.title.get_text(' ',strip=True) if doc.title else ''))
               print("TEXT",repr(re.sub(r'\\s+',' ',doc.get_text(' ',strip=True))[:1100]))
             except Exception as e:
