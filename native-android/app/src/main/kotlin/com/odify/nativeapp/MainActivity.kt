@@ -181,16 +181,13 @@ private fun NativeOdify() {
         val active = songs.firstOrNull { it.id == playback.mediaId }
         // Never prefetch the entire remote collection. Only analyze the one
         // currently requested Drive track, and keep that expensive read off UI.
-        if (active?.isCloud == true) {
-            kotlinx.coroutines.delay(1250L)
-            OdifyWaveformRepository.load(context.applicationContext, active)
-        } else {
-            val candidates = (listOfNotNull(active) +
-                songs.filterNot { it.isCloud || it.id == active?.id }).take(8)
-            for (track in candidates) {
-                OdifyWaveformRepository.load(context.applicationContext, track)
-                kotlinx.coroutines.yield()
-            }
+        // Streaming range playback must not cause a second unauthenticated
+        // full-track decode. Local files get true pre-analyzed waveforms.
+        val candidates = (listOfNotNull(active?.takeUnless { it.isCloud }) +
+            songs.filterNot { it.isCloud || it.id == active?.id }).take(8)
+        for (track in candidates) {
+            OdifyWaveformRepository.load(context.applicationContext, track)
+            kotlinx.coroutines.yield()
         }
     }
 
