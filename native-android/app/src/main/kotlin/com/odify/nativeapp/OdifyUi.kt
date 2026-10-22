@@ -25,6 +25,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
@@ -74,7 +76,8 @@ fun AlbumArt(
     song: OdifySong?,
     modifier: Modifier = Modifier,
     radius: androidx.compose.ui.graphics.Shape = RoundedCornerShape(14.dp),
-    fallbackKey: Int = 0
+    fallbackKey: Int = 0,
+    muted: Boolean = false
 ) {
     val image by produceState<ImageBitmap?>(initialValue = null, key1 = song?.artworkPath) {
         value = withContext(Dispatchers.IO) {
@@ -102,7 +105,10 @@ fun AlbumArt(
         val bitmap = image
         if (bitmap != null) {
             Image(bitmap = bitmap, contentDescription = song?.album ?: song?.title,
-                contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize(),
+                colorFilter = if (muted) ColorFilter.colorMatrix(
+                    ColorMatrix().apply { setToSaturation(0.20f) }
+                ) else null)
         } else {
             Icon(Icons.Default.MusicNote, contentDescription = null,
                 tint = Color.White.copy(alpha = 0.72f),
@@ -407,14 +413,15 @@ private fun OdifyMixCard(
             .clickable(onClick = onTap)
     ) {
         AlbumArt(coverSong, Modifier.fillMaxSize(),
-            radius = RoundedCornerShape(15.dp), fallbackKey = index + 9
+            radius = RoundedCornerShape(15.dp), fallbackKey = index + 9,
+            muted = true)
         Box(Modifier.fillMaxSize().background(
             Brush.verticalGradient(listOf(Color.Transparent,
                 Color.Transparent, Color.Black.copy(alpha = 0.75f)))
         ))
         Column(Modifier.align(Alignment.BottomStart).padding(start = 12.dp, bottom = 12.dp, end = 38.dp)) {
             Text(label, color = white, fontSize = 13.sp,
-                fontWeight = FontWeight.SemiBold, lineHeight = 15.sp
+                fontWeight = FontWeight.SemiBold, lineHeight = 15.sp)
             Spacer(Modifier.height(3.dp))
             Text(if (coverSong != null) "Made for you" else "Add your music",
                 color = white.copy(alpha = .78f), fontSize = 9.sp)
