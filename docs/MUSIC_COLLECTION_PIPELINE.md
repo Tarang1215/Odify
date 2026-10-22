@@ -66,3 +66,42 @@ Google API access. In this pilot, CSV is an explicit snapshot; direct Sheets API
 
 All Google account credentials must be configured on the user's device only;
 never commit secrets, OAuth tokens or account passwords.
+
+## 2026-10-22 MP3 collection and Drive read-back verification
+
+The worker now accepts concrete watch URLs (YouTube and YouTube Music, 11-character
+video IDs). YouTube search-result links and playlist-only URLs are deliberately
+not treated as playable audio.
+
+```powershell
+# Export the MASTER tab as a CSV snapshot from the connected Google Sheet.
+py tools/music_catalog.py --root E:\Odify_Library ingest --csv E:\MASTER.csv
+py tools/music_catalog.py --root E:\Odify_Library run --limit 5 --audio-format mp3 --accept-lyric-or-mv --enrich --dry-run
+py tools/music_catalog.py --root E:\Odify_Library run --limit 5 --audio-format mp3 --accept-lyric-or-mv --enrich
+py tools/music_catalog.py --root E:\Odify_Library status
+py tools/music_catalog.py --root E:\Odify_Library upload --remote mydrive:Odify_Music_Test
+```
+
+- MP3 output uses ffmpeg through yt-dlp at nominal 192 kbit/s; changing the
+  codec or target bitrate **does not** improve the source audio.
+- `--accept-lyric-or-mv` is opt-in because official lyric videos and full
+  music videos are not identical to audio-only Art Tracks; video metadata
+  matching and obvious karaoke/altered-version checks remain in place.
+- Lyrics and artwork enrichment is best effort; a source with a matching
+  title may still be the wrong recording and should be manually audited.
+- All audio and authentication is handled on the **user's own machine**;
+  these commands do not run on a hosted GitHub Actions worker.
+- A Drive-to-Drive test on 2026-10-22 confirmed `ODF000005.mp3` copied
+  from Odify_Auto_Upload to Odify_Music_Test (new Drive ID
+  `1MN7unwfTzehf4fiJI0JBgDZY8DU8ATiu`, size 4,803,705 bytes).
+- A separate existing Drive `ODF000011 - WOODZ - Drowning.m4a` was
+  converted to a 5,596,631-byte MP3 with embedded cover and lyrics,
+  uploaded to Odify_Music_Test (new Drive ID
+  `1844Tp5asCFZJ_FynUvSI1cDrhPO3wyM3`), downloaded again, and
+  the original/re-downloaded SHA-256 values matched:
+  `03cb92e9827e2f40a6e247cd00969351df25373da7f76509d5a71c984356937d`.
+- This confirms Drive upload, MP3 conversion, tags, and read-back for
+  **existing Drive audio**. It does not prove a fresh YouTube-link extraction,
+  nor execution of the entire 2026 catalog. It also does not attest to
+  external content download rights. No passwords or OAuth tokens are stored
+  in this repository.
