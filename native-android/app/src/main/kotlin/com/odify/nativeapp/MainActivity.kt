@@ -82,6 +82,7 @@ private fun NativeOdify() {
     var expanded by remember { mutableStateOf(false) }
     var importing by remember { mutableStateOf(false) }
     var importAsOffline by remember { mutableStateOf(false) }
+    var pendingCoverTrack by remember { mutableStateOf<OdifySong?>(null) }
     var startup by remember { mutableStateOf(true) }
     val scope = rememberCoroutineScope()
 
@@ -93,6 +94,10 @@ private fun NativeOdify() {
             try {
                 val (n, merged) = withContext(Dispatchers.IO) {
                     val count = driveCatalog.sync()
+                    // Avoid briefly showing ODF###### placeholders on a new
+                    // library. The small free-tier collection is hydrated
+                    // before the first visible catalog refresh.
+                    driveCatalog.prefetchMetadata(limit = 40)
                     count to (library.songs() + driveCatalog.tracks())
                 }
                 songs = merged
@@ -254,6 +259,28 @@ private fun NativeOdify() {
         }
     }
 
+    val artworkPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { imageUri ->
+        val track = pendingCoverTrack
+        pendingCoverTrack = null
+        if (track != null && imageUri != null) {
+            scope.launch {
+                runCatching {
+                    driveCatalog.setManualArtwork(track, imageUri)
+                }.onSuccess {
+                    songs = withContext(Dispatchers.IO) {
+                        library.songs() + driveCatalog.tracks()
+                    }
+                    Toast.makeText(context, "앨범커버가 저장됐습니다.", Toast.LENGTH_SHORT).show()
+                }.onFailure {
+                    Toast.makeText(context, it.message ?: "이미지를 열 수 없습니다.",
+                        Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
+
     val picker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenMultipleDocuments()
     ) { uris ->
@@ -378,6 +405,10 @@ private fun NativeOdify() {
                                 Toast.LENGTH_LONG).show()
                         }
                 }
+            },
+            onChooseArtwork = { track ->
+                pendingCoverTrack = track
+                artworkPicker.launch(arrayOf("image/*"))
             },
             onRemove = { track ->
                 scope.launch {
