@@ -3,6 +3,7 @@ package com.odify.nativeapp
 import android.content.Intent
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
+import androidx.media3.datasource.ResolvingDataSource
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
@@ -36,9 +37,27 @@ class OdifyPlaybackService : MediaSessionService() {
                 provider
             )
             cache = diskCache
+            val authenticatedUpstream = ResolvingDataSource.Factory(
+                DefaultDataSource.Factory(this),
+                ResolvingDataSource.Resolver { spec ->
+                    val uri = spec.uri
+                    if (uri.scheme == "https" &&
+                        uri.host == "www.googleapis.com" &&
+                        uri.path?.startsWith("/drive/v3/files/") == true &&
+                        uri.getQueryParameter("alt") == "media") {
+                        val token = DriveAuth.tokenBlocking(applicationContext)
+                        spec.buildUpon()
+                            .setHttpRequestHeaders(
+                                spec.httpRequestHeaders + mapOf(
+                                    "Authorization" to "Bearer $token"
+                                )
+                            ).build()
+                    } else spec
+                }
+            )
             val cacheDataSource = CacheDataSource.Factory()
                 .setCache(diskCache)
-                .setUpstreamDataSourceFactory(DefaultDataSource.Factory(this))
+                .setUpstreamDataSourceFactory(authenticatedUpstream)
                 .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
             ExoPlayer.Builder(this)
                 .setMediaSourceFactory(DefaultMediaSourceFactory(cacheDataSource))
