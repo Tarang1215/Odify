@@ -144,7 +144,10 @@ fun OdifyNowPlaying(
                 Modifier.fillMaxWidth()
                     .heightIn(min = maxHeight)
                     .verticalScroll(rememberScrollState()).padding(horizontal = 25.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
+                horizontalAlignment = Alignment.CenterHorizontally,
+                // Consume tall-device spare height between controls rather
+                // than leaving one large empty slab below the final button.
+                verticalArrangement = Arrangement.SpaceBetween
             ) {
                 Row(
                     Modifier.fillMaxWidth().height(58.dp),
