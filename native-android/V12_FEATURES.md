@@ -36,3 +36,18 @@
 - CI Gradle assembleDebug; validate app package & actual APK signer SHA-1.
 - Galaxy S25 Ultra manual QA: OAuth read-only login; Profile MASTER CSV browse/export; lyrics icon/import/LRCLIB search; music file upload permission, successful upload, duplicate skip, cross-device discovery; album thumbnail on CORTIS REDRED.
 - CI success cannot prove real account authorization or third-party thumbnail/lyrics endpoints are reachable from a particular mobile carrier.
+
+## Existing music file metadata repair
+- V12 automatically corrects the **in-app title / artist / album view** when a verified ODF track code or exact Drive file ID matches an existing Google Sheets MASTER row; deliberate user edits take priority.
+- That correction **does not rewrite** MP3/M4A/FLAC bytes in Google Drive. Read-only Drive browsing must never silently replace someone's originals.
+- For **real ID3/MP4/FLAC tag repair** before a cloud upload, run the companion on your own Windows/Mac computer after downloading the current MASTER CSV and a local copy of the audio:
+
+    python -m pip install mutagen
+    python scripts/odify_retag_library.py --master-csv Odify_MASTER.csv --library ./Music
+
+- Review the preview and then explicitly apply, with a non-overwriting backup outside the music folder:
+
+    python scripts/odify_retag_library.py --master-csv Odify_MASTER.csv --library ./Music --apply --backup-dir ./Odify_tag_backup
+
+- Only exact ODF###### filename prefixes are matched; ambiguous song titles, translations, duplicates/conflicting MASTER entries, and files with no code are intentionally left for manual review.
+- This script **does not upload**, overwrite or delete Google Drive files. If existing Drive originals need byte-level replacement, review backup, metadata and destination individually before replacing them. The phone app continues to play existing Drive files without the retagging script.
