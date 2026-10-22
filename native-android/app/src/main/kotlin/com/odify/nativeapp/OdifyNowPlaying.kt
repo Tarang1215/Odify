@@ -77,6 +77,7 @@ fun OdifyNowPlaying(
     var dragOffset by remember { mutableFloatStateOf(0f) }
     val threshold = with(LocalDensity.current) { 125.dp.toPx() }
     var showInfo by remember { mutableStateOf(false) }
+    var showLyrics by remember { mutableStateOf(false) }
     var albumSlide by remember(song.id) { mutableFloatStateOf(0f) }
     var albumSettling by remember(song.id) { mutableStateOf(false) }
     val swipeThreshold = with(LocalDensity.current) { 68.dp.toPx() }
@@ -151,6 +152,12 @@ fun OdifyNowPlaying(
                             fontWeight = FontWeight.SemiBold)
                     }
                     Spacer(Modifier.weight(1f))
+                    IconButton(onClick = { showLyrics = !showLyrics },
+                        modifier = Modifier.size(40.dp)) {
+                        Icon(Icons.Default.Subtitles,
+                            if (showLyrics) "앨범커버 표시" else "가사 보기",
+                            tint = if (showLyrics) Color.White else playerSecondary)
+                    }
                     IconButton(onClick = { showInfo = !showInfo },
                         modifier = Modifier.size(40.dp)) {
                         Icon(Icons.Default.MoreHoriz, "음원 정보",
@@ -163,7 +170,9 @@ fun OdifyNowPlaying(
                 val artGapPx = with(LocalDensity.current) { 12.dp.toPx() }
                 // Three covers share one clipped viewport. As the user swipes,
                 // the next cover enters continuously instead of popping in.
-                Box(
+                if (showLyrics) {
+                    OdifyLyricsPanel(song, position, onSeek, Modifier.size(artSize))
+                } else Box(
                     Modifier.size(artSize)
                         .clip(RoundedCornerShape(22.dp))
                         .pointerInput(song.id, previousSong?.id, nextSong?.id) {
