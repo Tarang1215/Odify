@@ -47,6 +47,8 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -908,6 +910,16 @@ private fun OdifyProfile(
 ) {
     val cloudCount = songs.count { it.isCloud }
     val offlineCount = songs.size - cloudCount
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val clipboard = LocalClipboardManager.current
+    val pilotStatus by produceState<OdifyPilotStatus?>(null) {
+        while (true) {
+            value = OdifyDiagnostics.snapshot(context.applicationContext)
+            delay(12_000)
+        }
+    }
+    val lastSync = context.getSharedPreferences("odify_drive_catalog_v1", 0)
+        .getLong("lastSync", 0L)
     var showFolderEditor by remember { mutableStateOf(false) }
     var folderInput by remember(driveFolder) { mutableStateOf(driveFolder) }
     Column(
@@ -995,11 +1007,50 @@ private fun OdifyProfile(
         OdifyInfoRow(Icons.Default.Headphones, "Audio engine",
             "Android Media3 · background playback")
         Spacer(Modifier.height(7.dp))
-        OdifyInfoRow(Icons.Default.CloudDone, "Smart stream cache",
-            "최근 재생 데이터 자동 캐시 · 최대 192MB")
+        OdifyInfoRow(Icons.Default.CloudDone, "Drive 스트리밍 캐시",
+            "사용: ${OdifyDiagnostics.humanBytes(pilotStatus?.streamCacheBytes ?: 0L)} · 최대 192MB")
+        Spacer(Modifier.height(7.dp))
+        OdifyInfoRow(Icons.Default.OfflinePin, "기기 내 오프라인 음원",
+            OdifyDiagnostics.humanBytes(pilotStatus?.offlineBytes ?: 0L))
+        Spacer(Modifier.height(7.dp))
+        OdifyInfoRow(Icons.Default.Image, "앨범커버 이미지",
+            OdifyDiagnostics.humanBytes(pilotStatus?.artworkBytes ?: 0L))
+        Spacer(Modifier.height(7.dp))
+        OdifyInfoRow(Icons.Default.Wifi, "네트워크 상태",
+            if (pilotStatus?.networkConnected == true) "인터넷 사용 가능"
+            else "현재 연결 없음 · 저장된 곡만 재생 가능")
+        Spacer(Modifier.height(7.dp))
+        OdifyInfoRow(Icons.Default.Refresh, "마지막 Drive 목록 동기화",
+            if (lastSync == 0L) "아직 동기화되지 않았습니다."
+            else java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.KOREA)
+                .format(java.util.Date(lastSync)))
+        Spacer(Modifier.height(25.dp))
+        Text("15GB 무료 Drive 테스트", fontWeight = FontWeight.SemiBold,
+            fontSize = 14.sp, color = ink)
+        Spacer(Modifier.height(8.dp))
+        Text("Drive 용량은 Google 계정에서 확인합니다. 이 화면은 Odify가 직접 저장한 음원·캐시 용량만 표시하며, Google Drive 앱 자체 캐시는 포함하지 않습니다.",
+            fontSize = 11.sp, color = grey, lineHeight = 16.sp)
+        Spacer(Modifier.height(25.dp))
+        Text("OAuth 연결 진단", fontWeight = FontWeight.SemiBold,
+            fontSize = 14.sp, color = ink)
+        Spacer(Modifier.height(8.dp))
+        Text("패키지: ${pilotStatus?.packageName ?: context.packageName}",
+            fontSize = 11.sp, color = grey)
+        Spacer(Modifier.height(8.dp))
+        Text("서명 SHA-1: ${pilotStatus?.signingSha1?.ifEmpty { "확인 불가" } ?: "확인 중"}",
+            fontSize = 11.sp, color = grey, lineHeight = 17.sp)
+        TextButton(
+            onClick = {
+                pilotStatus?.signingSha1?.takeIf { it.isNotBlank() }?.let {
+                    clipboard.setText(AnnotatedString(it))
+                }
+            }
+        ) {
+            Text("Google Cloud 등록용 SHA-1 복사", color = ink, fontSize = 12.sp)
+        }
         Spacer(Modifier.height(7.dp))
         OdifyInfoRow(Icons.Default.Info, "About",
-            "Odify Native · Drive Library Preview 8")
+            "Odify Native · 15GB Pilot Preview 9")
     }
     if (showFolderEditor) {
         AlertDialog(
