@@ -3,23 +3,58 @@ package com.odify.nativeapp
 import android.content.Intent
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
+import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.datasource.cache.CacheDataSource
+import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
+import androidx.media3.datasource.cache.SimpleCache
+import androidx.media3.database.StandaloneDatabaseProvider
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
+import java.io.File
 
-/** Completely independent Media3 player; no Mornye/SpotiFLAC runtime. */
+/**
+ * An isolated Android Media3 session. DocumentsUI content:// entries are opened
+ * through ContentResolver/DefaultDataSource; no automatic file copying.
+ * Cached bytes are bounded by a 192 MiB LRU cache. Provider-specific file
+ * handling MAY still stage a full file outside Odify's control.
+ */
 class OdifyPlaybackService : MediaSessionService() {
     private var session: MediaSession? = null
+    private var cache: SimpleCache? = null
+    private var cacheDb: StandaloneDatabaseProvider? = null
 
     override fun onCreate() {
         super.onCreate()
-        val player = ExoPlayer.Builder(this).build().apply {
+        val player = try {
+            val provider = StandaloneDatabaseProvider(this)
+            cacheDb = provider
+            val diskCache = SimpleCache(
+                File(cacheDir, "odify_media3_stream_cache"),
+                LeastRecentlyUsedCacheEvictor(192L * 1024L * 1024L),
+                provider
+            )
+            cache = diskCache
+            val cacheDataSource = CacheDataSource.Factory()
+                .setCache(diskCache)
+                .setUpstreamDataSourceFactory(DefaultDataSource.Factory(this))
+                .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
+            ExoPlayer.Builder(this)
+                .setMediaSourceFactory(DefaultMediaSourceFactory(cacheDataSource))
+                .build()
+        } catch (e: Exception) {
+            // Cache failure must not prevent otherwise valid offline playback.
+            cache?.release()
+            cache = null
+            ExoPlayer.Builder(this).build()
+        }
+        player.apply {
             setAudioAttributes(
                 AudioAttributes.Builder()
                     .setUsage(C.USAGE_MEDIA)
                     .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
-                    .build(),
-                true
+                    .build(), true
             )
             setHandleAudioBecomingNoisy(true)
         }
@@ -30,7 +65,6 @@ class OdifyPlaybackService : MediaSessionService() {
         session
 
     override fun onTaskRemoved(rootIntent: Intent?) {
-        // Remain in foreground for audible playback; end an idle service.
         if (session?.player?.isPlaying != true) stopSelf()
     }
 
@@ -40,6 +74,9 @@ class OdifyPlaybackService : MediaSessionService() {
             release()
         }
         session = null
+        cache?.release()
+        cache = null
+        cacheDb = null
         super.onDestroy()
     }
 }

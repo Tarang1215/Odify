@@ -69,6 +69,7 @@ private fun NativeOdify() {
     var playback by remember { mutableStateOf(OdifyPlaybackSnapshot()) }
     var expanded by remember { mutableStateOf(false) }
     var importing by remember { mutableStateOf(false) }
+    var importAsOffline by remember { mutableStateOf(false) }
     var startup by remember { mutableStateOf(true) }
     val scope = rememberCoroutineScope()
 
@@ -79,7 +80,7 @@ private fun NativeOdify() {
     LaunchedEffect(songs, playback.mediaId) {
         val active = songs.firstOrNull { it.id == playback.mediaId }
         val candidates = (listOfNotNull(active) +
-            songs.filter { it.id != active?.id }).take(8)
+            songs.filter { it.id != active?.id }).filterNot { it.isCloud }.take(8)
         for (track in candidates) {
             OdifyWaveformRepository.load(context.applicationContext, track)
             kotlinx.coroutines.yield()
@@ -122,11 +123,15 @@ private fun NativeOdify() {
         if (uris.isNotEmpty()) {
             scope.launch {
                 importing = true
-                val result = library.importFiles(uris)
+                val result = if (importAsOffline) library.importFiles(uris)
+                    else library.linkCloudDocuments(uris)
                 songs = library.songs()
                 importing = false
                 result.onSuccess {
-                    Toast.makeText(context, "${it}곡을 Odify에 가져왔습니다.", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context,
+                        if (importAsOffline) "${it}곡 오프라인 저장 완료"
+                        else "${it}곡 클라우드 연결 완료",
+                        Toast.LENGTH_SHORT).show()
                 }.onFailure {
                     Toast.makeText(context, it.message ?: "음악 파일을 열 수 없습니다.", Toast.LENGTH_LONG).show()
                 }
@@ -177,7 +182,14 @@ private fun NativeOdify() {
             importing = importing,
             expanded = expanded,
             onExpandedChange = { expanded = it },
-            onImport = { picker.launch(arrayOf("audio/*")) },
+            onImport = {
+                importAsOffline = false
+                picker.launch(arrayOf("audio/*"))
+            },
+            onImportOffline = {
+                importAsOffline = true
+                picker.launch(arrayOf("audio/*"))
+            },
             onPlay = { list, index -> playFrom(list, index) },
             onTogglePlayback = { toggle() },
             onPrevious = { controller?.seekToPreviousMediaItem() },

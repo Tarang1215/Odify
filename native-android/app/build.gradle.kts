@@ -9,11 +9,11 @@ android {
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.odify.music.nativepreview.v5"
+        applicationId = "com.odify.music.nativepreview.v6"
         minSdk = 26
         targetSdk = 35
-        versionCode = 5
-        versionName = "1.0.0-preview5"
+        versionCode = 6
+        versionName = "1.0.0-preview6"
     }
     buildTypes {
         release { isMinifyEnabled = false }
@@ -40,6 +40,8 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer:1.9.4")
     implementation("androidx.media3:media3-session:1.9.4")
     implementation("androidx.media3:media3-common:1.9.4")
+    implementation("androidx.media3:media3-datasource:1.9.4")
+    implementation("androidx.media3:media3-database:1.9.4")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
     debugImplementation("androidx.compose.ui:ui-tooling")
 }
