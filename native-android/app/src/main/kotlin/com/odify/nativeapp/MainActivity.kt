@@ -563,7 +563,7 @@ private fun NativeOdify() {
                         player.moveMediaItem(from,to)
                 }
             },
-            onPlayYoutubeMatched = { song -> playFrom(listOf(song),0) },
+            onPlayYoutubeMatched = { matchedQueue,index -> playFrom(matchedQueue,index) },
             onSelectQueue = { index ->
                 controller?.let { player ->
                     if (index in 0 until player.mediaItemCount) {
