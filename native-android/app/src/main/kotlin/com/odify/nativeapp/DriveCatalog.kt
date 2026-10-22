@@ -77,7 +77,7 @@ class DriveCatalog(private val context: Context) {
         val result = ArrayList<OdifySong>()
         val hidden = prefs.getStringSet("hidden", emptySet()) ?: emptySet()
         db.readableDatabase.rawQuery(
-            "SELECT id,name,title,artist,album,genre,cover FROM tracks ORDER BY modified DESC,name LIMIT 100000",
+            "SELECT id,name,title,artist,album,genre,cover,lyrics FROM tracks ORDER BY modified DESC,name LIMIT 100000",
             null
         ).use { cursor ->
             while (cursor.moveToNext()) {
@@ -88,7 +88,8 @@ class DriveCatalog(private val context: Context) {
                     artist = cursor.getString(3), album = cursor.getString(4),
                     filePath = "", artworkPath = cursor.getString(6).takeIf { it.isNotBlank() },
                     sourceUri = "https://www.googleapis.com/drive/v3/files/$fileId?alt=media",
-                    genre = cursor.getString(5)
+                    genre = cursor.getString(5),
+                    lyrics = cursor.getString(7).orEmpty().take(20000)
                 )
             }
         }
