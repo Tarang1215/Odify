@@ -26,6 +26,13 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, false)
+        // Do not let Samsung/Android draw a contrasting grey scrim below the
+        // white rounded Odify navigation surface and the system gesture bar.
+        @Suppress("DEPRECATION")
+        window.navigationBarColor = android.graphics.Color.WHITE
+        if (android.os.Build.VERSION.SDK_INT >= 29) {
+            window.isNavigationBarContrastEnforced = false
+        }
         setContent {
             MaterialTheme(
                 typography = OdifyTypography,
