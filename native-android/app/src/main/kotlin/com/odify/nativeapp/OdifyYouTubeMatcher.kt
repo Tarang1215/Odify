@@ -7,7 +7,7 @@ import java.util.Locale
  * Never treat similarly named covers, remixes or live performances as exact.
  */
 object OdifyYouTubeMatcher {
-    private val extras = Regex("""(?i)\s*(\((?:official\s*(?:music\s*)?video|mv|audio|lyrics?|audio\s*only|visualizer)\)|\[(?:official\s*(?:music\s*)?video|mv|audio|lyrics?|visualizer)])""")
+    private val extras = Regex("""(?i)\s*(\((?:official\s*(?:music\s*)?(?:video|audio)|mv|audio|lyrics?|audio\s*only|visualizer)\)|\[(?:official\s*(?:music\s*)?(?:video|audio)|mv|audio|lyrics?|visualizer)])""")
     fun norm(input: String): String = Normalizer.normalize(input,Normalizer.Form.NFKC)
         .lowercase(Locale.ROOT).replace(Regex("[^\\p{L}\\p{N}]"),"")
     fun videoId(url: String): String? {
