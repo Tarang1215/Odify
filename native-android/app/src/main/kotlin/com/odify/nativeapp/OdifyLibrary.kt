@@ -106,7 +106,7 @@ class OdifyLibrary(private val context: Context) {
 
     private fun store(songs: List<OdifySong>) {
         val json = JSONArray()
-        songs.forEach { song ->
+        songs.filterNot { it.id.startsWith("gdrive-") }.forEach { song ->
             json.put(JSONObject().apply {
                 put("id", song.id)
                 put("title", song.title)
