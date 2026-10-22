@@ -43,7 +43,20 @@ fun OdifyLyricsPanel(song: OdifySong, positionMs: Long,
     var searching by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf("") }
     val parsed = remember(text) { LrcParser.parse(text) }
-    LaunchedEffect(song.id, song.lyrics) { text = repo.read(song) }
+    LaunchedEffect(song.id, song.lyrics) {
+        val saved = repo.read(song)
+        text = saved
+        if (KoreanOriginalLyrics.needsOriginal(song, saved)) {
+            status = "한국어 원문 가사 확인 중…"
+            val original = runCatching { repo.recoverKoreanOriginal(song, saved) }.getOrNull()
+            if (original != null) {
+                text = original
+                status = "곡명·가수·길이를 대조한 한국어 원문으로 교체했습니다."
+            } else {
+                status = "발음 표기 가사일 수 있습니다. 가사 추가에서 한글 원문을 선택하세요."
+            }
+        }
+    }
     val openDocument = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri ->
@@ -61,7 +74,9 @@ fun OdifyLyricsPanel(song: OdifySong, positionMs: Long,
             matches = try {
                 val found = repo.search(titleQuery.trim(),artistQuery.trim())
                 status = "${found.size}개 가사 후보를 찾았습니다. 원하는 버전을 선택하세요."
-                found
+                found.sortedWith(compareByDescending<LyricCandidate> {
+                    it.text.count { ch -> ch in '가'..'힣' }
+                }.thenByDescending { it.synchronized.isNotBlank() })
             } catch(e: Exception) {
                 status = e.message ?: "온라인 가사 조회 실패"
                 emptyList()
@@ -96,6 +111,11 @@ fun OdifyLyricsPanel(song: OdifySong, positionMs: Long,
                 Spacer(Modifier.width(4.dp))
                 Text("가사 추가",color=Color.White,fontSize=11.sp)
             }
+        }
+        if (KoreanOriginalLyrics.needsOriginal(song, text)) {
+            Text("현재 가사는 한글 원문이 아닌 발음 표기일 수 있습니다.",
+                color = Color(0xFFFFCD86), fontSize = 10.sp,
+                modifier = Modifier.padding(vertical = 4.dp))
         }
         if (text.isBlank()) {
             Box(Modifier.fillMaxSize(),contentAlignment=Alignment.Center) {
