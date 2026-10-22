@@ -12,9 +12,12 @@ from music_catalog import connection, ingest, validate_video_url, export_status
 
 class MusicCatalogTests(unittest.TestCase):
     def test_verified_youtube_urls_only(self):
-        self.assertTrue(validate_video_url("https://music.youtube.com/watch?v=abcd1234"))
-        self.assertTrue(validate_video_url("https://youtu.be/abcdefghi"))
+        self.assertTrue(validate_video_url("https://music.youtube.com/watch?v=ABCDEFGHI_0"))
+        self.assertTrue(validate_video_url("https://youtu.be/ABCDEFGHI_0"))
         self.assertFalse(validate_video_url("https://youtube.com.evil.example/watch?v=x"))
+        self.assertFalse(validate_video_url("https://www.youtube.com/results?search_query=beatles"))
+        self.assertFalse(validate_video_url("https://www.youtube.com/playlist?list=PL123"))
+        self.assertFalse(validate_video_url("https://youtube.com/watch?v=too-short"))
         self.assertFalse(validate_video_url("file:///etc/passwd"))
         self.assertFalse(validate_video_url("javascript:alert(1)"))
 
