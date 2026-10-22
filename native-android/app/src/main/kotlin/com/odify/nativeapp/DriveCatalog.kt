@@ -201,12 +201,20 @@ class DriveCatalog(private val context: Context) {
             list.getJSONObject(0).getString("id")
         }
         queue.add(initialFolder to "")
-        // Additional uploads are stored inside an app-created folder. Users
-        // keep their existing test root unchanged; never scan their whole Drive.
-        val uploadRoot = context.getSharedPreferences("odify_cloud_upload_v1", 0)
-            .getString("folderId", "").orEmpty()
-        if (uploadRoot.isNotBlank() && uploadRoot != initialFolder)
-            queue.add(uploadRoot to "")
+        // Discover app-managed music root on *every device*, not just on
+        // the phone that originally uploaded it. Only this named folder is
+        // added; the rest of the user's personal Drive stays untouched.
+        runCatching {
+            val q = "mimeType = '$FOLDER_MIME' and name = 'Odify_Cloud_Uploads' and trashed = false"
+            val roots = JSONObject(apiJson("files", mapOf(
+                "q" to q, "pageSize" to "100",
+                "fields" to "nextPageToken,files(id,name)"
+            ))).getJSONArray("files")
+            for (i in 0 until roots.length()) {
+                val id = roots.getJSONObject(i).getString("id")
+                if (id != initialFolder) queue.add(id to "")
+            }
+        } // An unavailable upload folder must not break existing playback.
         val collected = LinkedHashMap<String, JSONObject>()
         var visitedFolders = 0
         while (queue.isNotEmpty()) {
