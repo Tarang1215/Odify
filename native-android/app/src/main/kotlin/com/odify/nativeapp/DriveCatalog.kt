@@ -210,6 +210,8 @@ class DriveCatalog(private val context: Context) {
         ).use { cursor ->
             while (cursor.moveToNext()) {
                 val id = cursor.getString(0)
+                val retryAfter = prefs.getLong("metaRetry:$id", 0L)
+                if (retryAfter > System.currentTimeMillis()) continue
                 candidates += OdifySong(
                     id = "gdrive:$id", title = cursor.getString(2),
                     artist = cursor.getString(3), album = cursor.getString(4),
@@ -218,11 +220,23 @@ class DriveCatalog(private val context: Context) {
                 )
             }
         }
-        var changed = 0
         for (song in candidates) {
-            if (ensureMetadata(song)) changed++
+            val parsed = ensureMetadata(song)
+            val id = song.id.removePrefix("gdrive:")
+            val marked = db.readableDatabase.rawQuery(
+                "SELECT modified,meta_checked_modified FROM tracks WHERE id=?",
+                arrayOf(id)
+            ).use { c ->
+                c.moveToFirst() && c.getString(0) == c.getString(1)
+            }
+            if (!marked) {
+                // Network/auth failure: defer this one file rather than
+                // retrying it in every batch and starving other tracks.
+                prefs.edit().putLong("metaRetry:$id",
+                    System.currentTimeMillis() + 10L * 60L * 1000L).apply()
+            }
         }
-        changed
+        candidates.size
     }
 
     /** Refresh title, artist, album, lyrics and cover for a single Drive file. */
