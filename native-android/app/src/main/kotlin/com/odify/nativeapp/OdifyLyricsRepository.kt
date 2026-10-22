@@ -1,0 +1,120 @@
+package com.odify.nativeapp
+
+import android.content.Context
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import org.json.JSONArray
+import java.io.File
+import java.net.HttpURLConnection
+import java.net.URL
+import java.net.URLEncoder
+import java.security.MessageDigest
+
+data class TimedLyric(val milliseconds: Long, val text: String)
+data class LyricCandidate(
+    val id: Long, val songTitle: String, val artist: String, val album: String,
+    val durationSec: Int, val synchronized: String, val plain: String
+) {
+    val text: String get() = synchronized.ifBlank { plain }
+}
+data class LyricView(val text: String, val lines: List<TimedLyric>, val isTimed: Boolean)
+
+object LrcParser {
+    private val time = Regex("""\[(\d{1,3}):(\d{2})(?:[.:](\d{1,3}))?]""")
+    fun parse(source: String): LyricView {
+        val result = ArrayList<TimedLyric>()
+        val plainLines = ArrayList<String>()
+        for (line in source.lines()) {
+            val matches = time.findAll(line).toList()
+            if (matches.isEmpty()) {
+                if (line.isNotBlank() && !Regex("""^\[(ar|al|ti|by|offset):""",
+                        RegexOption.IGNORE_CASE).containsMatchIn(line)) {
+                    plainLines.add(line)
+                }
+                continue
+            }
+            val text = line.replace(time, "").trim()
+            for (m in matches) {
+                val minutes = m.groupValues[1].toLongOrNull() ?: continue
+                val secs = m.groupValues[2].toLongOrNull() ?: continue
+                val fractions = m.groupValues[3]
+                val millis = when (fractions.length) {
+                    1 -> (fractions.toLongOrNull() ?: 0) * 100
+                    2 -> (fractions.toLongOrNull() ?: 0) * 10
+                    3 -> fractions.toLongOrNull() ?: 0
+                    else -> 0
+                }
+                result.add(TimedLyric((minutes * 60 + secs) * 1000 + millis, text))
+            }
+        }
+        val timed = result.sortedBy { it.milliseconds }
+        return LyricView(source, timed,
+            isTimed = timed.isNotEmpty() && timed.any { it.text.isNotBlank() })
+    }
+}
+
+/** Lyrics are private per-song app files; an imported LRC overrides embedded tags. */
+class OdifyLyricsRepository(private val context: Context) {
+    private val root = File(context.filesDir, "lyrics").apply { mkdirs() }
+    private val userAgent = "Odify/12 (https://github.com/Tarang1215/Odify)"
+
+    private fun storedFile(song: OdifySong): File {
+        val hash = MessageDigest.getInstance("SHA-256")
+            .digest(song.id.toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it) }
+        return File(root, "$hash.lrc")
+    }
+    suspend fun read(song: OdifySong): String = withContext(Dispatchers.IO) {
+        val file = storedFile(song)
+        if (file.isFile) file.readText(Charsets.UTF_8)
+        else song.lyrics
+    }
+    suspend fun save(song: OdifySong, lyrics: String) = withContext(Dispatchers.IO) {
+        require(lyrics.length <= 200_000) { "가사는 200KB 미만으로 입력해 주세요." }
+        storedFile(song).writeText(lyrics.trim(), Charsets.UTF_8)
+    }
+    suspend fun import(song: OdifySong, uri: android.net.Uri) =
+        withContext(Dispatchers.IO) {
+            val bytes = context.contentResolver.openInputStream(uri)?.use {
+                it.readNBytes(200_001)
+            } ?: error("가사 파일을 열 수 없습니다.")
+            require(bytes.size <= 200_000) { "가사 파일이 너무 큽니다." }
+            // Most modern LRCs use UTF-8, including BOM.
+            save(song, String(bytes, Charsets.UTF_8).removePrefix("\uFEFF"))
+        }
+    suspend fun search(title: String, artist: String): List<LyricCandidate> =
+        withContext(Dispatchers.IO) {
+            require(title.isNotBlank()) { "곡명을 입력해 주세요." }
+            val q = "track_name=${enc(title)}" +
+                if (artist.isNotBlank()) "&artist_name=${enc(artist)}" else ""
+            val conn = URL("https://lrclib.net/api/search?$q").openConnection()
+                as HttpURLConnection
+            try {
+                conn.setRequestProperty("User-Agent", userAgent)
+                conn.connectTimeout = 10_000; conn.readTimeout = 15_000
+                if (conn.responseCode == 429) error("가사 검색 요청이 많습니다. 잠시 후 다시 시도하세요.")
+                require(conn.responseCode == 200) {
+                    "가사 검색 실패 HTTP ${conn.responseCode}"
+                }
+                val content = conn.inputStream.use { input ->
+                    val bytes = input.readNBytes(1_000_001)
+                    require(bytes.size <= 1_000_000) { "가사 응답이 너무 큽니다." }
+                    String(bytes, Charsets.UTF_8)
+                }
+                val json = JSONArray(content)
+                (0 until json.length()).mapNotNull { index ->
+                    val x = json.optJSONObject(index) ?: return@mapNotNull null
+                    val synchronized = x.optString("syncedLyrics").takeUnless { it == "null" }.orEmpty()
+                    val plain = x.optString("plainLyrics").takeUnless { it == "null" }.orEmpty()
+                    if (synchronized.isBlank() && plain.isBlank()) return@mapNotNull null
+                    LyricCandidate(
+                        id=x.optLong("id"), songTitle=x.optString("trackName"),
+                        artist=x.optString("artistName"), album=x.optString("albumName"),
+                        durationSec=x.optInt("duration"), synchronized=synchronized,
+                        plain=plain
+                    )
+                }.take(20)
+            } finally { conn.disconnect() }
+        }
+    private fun enc(value: String) = URLEncoder.encode(value, "UTF-8")
+}
