@@ -107,8 +107,10 @@ fun OdifyNowPlaying(
                 state = dragState,
                 onDragStopped = { velocity ->
                     if (dragOffset > threshold || velocity > 1500f) {
+                        // Let the outer player morph finish the dismissal.
+                        // Resetting dragOffset here would flash the full-size
+                        // rectangular surface before exit.
                         onDismiss()
-                        dragOffset = 0f
                     } else {
                         scope.launch {
                             val springBack = Animatable(dragOffset)
@@ -140,7 +142,8 @@ fun OdifyNowPlaying(
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("PLAYING FROM", color = playerSecondary, fontSize = 9.sp,
                             letterSpacing = 1.5.sp, fontWeight = FontWeight.Medium)
-                        Text("Your Library", color = playerWhite, fontSize = 12.sp,
+                        Text(if (song.isCloud) "Google Drive" else "Offline Library",
+                            color = playerWhite, fontSize = 12.sp,
                             fontWeight = FontWeight.SemiBold)
                     }
                     Spacer(Modifier.weight(1f))
