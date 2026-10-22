@@ -186,7 +186,7 @@ fun OdifyRoot(
     onImportOffline: () -> Unit,
     onPlay: (List<OdifySong>, Int) -> Unit,
     onMoveQueue: (Int, Int) -> Unit,
-    onPlayYoutubeMatched: (OdifySong) -> Unit,
+    onPlayYoutubeMatched: (List<OdifySong>,Int) -> Unit,
     onSelectQueue: (Int) -> Unit,
     onTogglePlayback: () -> Unit,
     onPrevious: () -> Unit,
@@ -409,7 +409,7 @@ fun OdifyRoot(
             OdifyYoutubeScreen(
                 localSongs=songs,connected=youtubeConnected,
                 onConnect=onConnectYoutube,
-                onPlayLocal={ track -> onPlayYoutubeMatched(track);youtubeOpen=false },
+                onPlayLocal={ queue,index -> onPlayYoutubeMatched(queue,index);youtubeOpen=false },
                 onClose={youtubeOpen=false}
             )
         }
