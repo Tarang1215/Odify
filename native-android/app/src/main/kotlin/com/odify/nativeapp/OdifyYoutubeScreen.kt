@@ -30,7 +30,7 @@ import org.json.JSONObject
 @Composable
 fun OdifyYoutubeScreen(
     localSongs: List<OdifySong>, connected: Boolean, onConnect: () -> Unit,
-    onPlayLocal: (OdifySong) -> Unit, onClose: () -> Unit
+    onPlayLocal: (List<OdifySong>,Int) -> Unit, onClose: () -> Unit
 ) {
     val context=LocalContext.current
     val repo=remember {OdifyYoutubeLibrary(context.applicationContext)}
@@ -130,6 +130,8 @@ fun OdifyYoutubeScreen(
                 Text(status,color=Color.Gray,fontSize=11.sp)
                 Spacer(Modifier.height(9.dp))
                 if(selected!=null) {
+                    val matchedQueue=videos.mapNotNull { match(it) }
+                        .distinctBy { it.id }
                     val unmatched=videos.filter { match(it)==null }
                     OutlinedButton(
                         enabled=videos.isNotEmpty(),
@@ -165,7 +167,10 @@ fun OdifyYoutubeScreen(
                             Column(
                                 Modifier.fillMaxWidth()
                                     .clickable(enabled=held!=null) {
-                                        held?.let(onPlayLocal)
+                                        held?.let { track ->
+                                            val index=matchedQueue.indexOfFirst { it.id==track.id }
+                                            if(index>=0) onPlayLocal(matchedQueue,index)
+                                        }
                                     }.padding(vertical=10.dp,horizontal=5.dp)
                             ) {
                                 Text(v.title,fontSize=13.sp,fontWeight=FontWeight.SemiBold)
