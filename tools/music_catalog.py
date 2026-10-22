@@ -21,7 +21,9 @@ import sqlite3
 import subprocess
 import sys
 import time
-from urllib.parse import urlencode
+from urllib.parse import urlencode, parse_qs, urlsplit
+from io import BytesIO
+import tempfile
 from urllib.request import Request, urlopen
 
 EXTENSIONS = (".m4a", ".mp3", ".flac", ".opus", ".ogg", ".wav", ".aac")
@@ -32,26 +34,72 @@ COLUMNS = ("Track ID", "연도", "국가", "장르", "아티스트", "곡명", "
 HEADER = "OdifyMusicBot/0.1 (personal test library)"
 
 
-def validate_video_url(value: str) -> bool:
-    """Only a concrete single-video URL, never a YouTube search page."""
-    from urllib.parse import urlsplit, parse_qs
+def youtube_video_id(value: str) -> str | None:
+    """Extract an exact video ID; refuse playlists, searches or untrusted hosts."""
     try:
         uri = urlsplit(value.strip())
         if uri.scheme != "https" or uri.hostname not in ALLOWED_HOSTS:
-            return False
+            return None
         if uri.hostname == "youtu.be":
             video_id = uri.path.strip("/")
         elif uri.path == "/watch":
             video_id = parse_qs(uri.query).get("v", [""])[0]
         else:
-            return False
-        return bool(re.fullmatch(r"[A-Za-z0-9_-]{11}", video_id))
+            return None
+        return video_id if re.fullmatch(r"[A-Za-z0-9_-]{11}", video_id) else None
     except ValueError:
-        return False
+        return None
+
+
+def validate_video_url(value: str) -> bool:
+    return youtube_video_id(value) is not None
 
 
 def normalize(value: str) -> str:
     return re.sub(r"[^\w]+", "", value.casefold())
+
+
+def try_youtube_thumbnail(video_url: str) -> bytes | None:
+    """Best-effort JPEG fallback when matching album art was not found.
+
+    Never treat a YouTube thumbnail as verified album artwork.
+    """
+    video_id = youtube_video_id(video_url)
+    if video_id is None:
+        return None
+    for size in ("maxresdefault", "sddefault", "hqdefault", "mqdefault"):
+        url = f"https://i.ytimg.com/vi/{video_id}/{size}.jpg"
+        try:
+            req = Request(url, headers={"User-Agent": HEADER})
+            with urlopen(req, timeout=12) as response:
+                if not str(response.headers.get("Content-Type", "")).startswith("image/jpeg"):
+                    continue
+                data = response.read(2 * 1024 * 1024 + 1)
+            if len(data) < 4096 or len(data) > 2 * 1024 * 1024 or not data.startswith(b"\xff\xd8"):
+                continue
+            try:
+                from PIL import Image
+                with Image.open(BytesIO(data)) as img:
+                    img.load()
+                    if img.width < 300 or img.height < 150:
+                        continue
+                    # Center-crop the video thumbnail into square album-art form.
+                    edge = min(img.width, img.height)
+                    left = (img.width - edge) // 2
+                    top = (img.height - edge) // 2
+                    img = img.crop((left, top, left + edge, top + edge))
+                    img = img.convert("RGB")
+                    img.thumbnail((700, 700))
+                    out = BytesIO()
+                    img.save(out, format="JPEG", quality=90)
+                    return out.getvalue()
+            except ImportError:
+                return data  # Even without Pillow, MP3 can embed the rectangular image.
+            except (OSError, ValueError):
+                continue
+        except (OSError, ValueError, TimeoutError):
+            continue
+    return None
 
 
 def connection(database: Path) -> sqlite3.Connection:
@@ -74,13 +122,17 @@ def connection(database: Path) -> sqlite3.Connection:
     return db
 
 
-def ingest(db: sqlite3.Connection, path: Path) -> tuple[int, int]:
+def ingest(db: sqlite3.Connection, path: Path,
+           default_year: str | None = None) -> tuple[int, int]:
     count, dupe = 0, 0
     with path.open("r", encoding="utf-8-sig", newline="") as handle:
         reader = csv.DictReader(handle)
-        if not set(COLUMNS).issubset(reader.fieldnames or []):
-            missing = set(COLUMNS).difference(reader.fieldnames or [])
-            raise ValueError(f"MASTER CSV columns missing: {sorted(missing)}")
+        required = set(COLUMNS) - {"연도"}
+        if not required.issubset(reader.fieldnames or []):
+            missing = required.difference(reader.fieldnames or [])
+            raise ValueError(f"CSV columns missing: {sorted(missing)}")
+        if "연도" not in (reader.fieldnames or []) and not default_year:
+            raise ValueError("Year column absent; pass ingest --year 2026 for the 2026 tab export")
         for row in reader:
             track_id = row["Track ID"].strip()
             artist, title = row["아티스트"].strip(), row["곡명"].strip()
@@ -95,7 +147,7 @@ def ingest(db: sqlite3.Connection, path: Path) -> tuple[int, int]:
              title=excluded.title, album=excluded.album,
              video_url=excluded.video_url, verified=excluded.verified,
              updated_at=CURRENT_TIMESTAMP""",
-             (track_id, row["연도"].strip(), row["국가"].strip(),
+             (track_id, (row.get("연도") or default_year or "").strip(), row["국가"].strip(),
               row["장르"].strip(), artist, title, row["앨범"].strip(),
               row["YouTube 오디오 URL"].strip(), row["링크검증"].strip()))
             count += 1
@@ -299,8 +351,15 @@ def download_one(db: sqlite3.Connection, row: tuple, root: Path,
         raise ValueError("Audio is unexpectedly empty")
     plain = synced = None
     cover = None
+    cover_origin = "unavailable"
     if enrich:
         cover = try_cover(artist, title, album)
+        if cover:
+            cover_origin = "album"
+        else:
+            cover = try_youtube_thumbnail(url)
+            if cover:
+                cover_origin = "youtube_thumbnail"
         plain, synced = try_lyrics(artist, title, album)
         if synced:
             lyric_folder = root / "Lyrics"
@@ -313,7 +372,7 @@ def download_one(db: sqlite3.Connection, row: tuple, root: Path,
         for chunk in iter(lambda: fp.read(1024 * 1024), b""):
             sha.update(chunk)
     status(db, track_id, "downloaded", str(audio.relative_to(root)), sha.hexdigest(),
-           "complete" if cover else "unavailable",
+           cover_origin,
            "synced" if synced else ("plain" if plain else "unavailable"))
     return track_id
 
@@ -332,15 +391,20 @@ def export_status(db: sqlite3.Connection, output: Path) -> None:
 def run_worker(args: argparse.Namespace) -> None:
     db = connection(args.root / "catalog.sqlite3")
     if args.command == "ingest":
-        total, duplicates = ingest(db, args.csv)
+        total, duplicates = ingest(db, args.csv, default_year=args.year)
         print(f"CSV loaded: {total}; duplicate candidates: {duplicates}")
     elif args.command == "run":
         if not shutil.which("yt-dlp") or not shutil.which("ffmpeg"):
             raise RuntimeError("Install yt-dlp and ffmpeg, then add them to PATH")
         blocked = {r[0] for r in db.execute("SELECT track_id FROM duplicate_candidates")}
-        records = db.execute("""SELECT id,artist,title,album,genre,video_url
+        sql = """SELECT id,artist,title,album,genre,video_url
           FROM tracks WHERE verified='검증완료' AND
-          (status != 'downloaded' OR status IS NULL) ORDER BY id""").fetchall()
+          (status != 'downloaded' OR status IS NULL)"""
+        params = []
+        if args.chart_year:
+            sql += " AND chart_year=?"
+            params.append(args.chart_year)
+        records = db.execute(sql + " ORDER BY id", params).fetchall()
         count = 0
         for row in records:
             if count >= args.limit: break
@@ -366,13 +430,43 @@ def run_worker(args: argparse.Namespace) -> None:
     elif args.command == "upload":
         if not shutil.which("rclone"):
             raise RuntimeError("Install rclone and configure a Google Drive remote first")
-        subprocess.run(["rclone", "copy", str(args.root / "Audio"), args.remote + "/Audio",
-                        "--transfers", "2", "--checkers", "4"], check=True)
-        lyrics_dir = args.root / "Lyrics"
-        if lyrics_dir.exists():
-            subprocess.run(["rclone", "copy", str(lyrics_dir), args.remote + "/Lyrics",
-                            "--transfers", "2"], check=True)
-        print("Uploaded; verify files in Google Drive before deleting local backup.")
+        if args.chart_year:
+            records = db.execute(
+                "SELECT id,file_path FROM tracks WHERE chart_year=? AND status='downloaded'",
+                (args.chart_year,)).fetchall()
+            relpaths = []
+            for track_id, file_path in records:
+                if not file_path:
+                    continue
+                relpath = Path(file_path)
+                if relpath.is_absolute() or ".." in relpath.parts or relpath.parts[0] != "Audio":
+                    continue
+                if (args.root / relpath).is_file():
+                    relpaths.append(relpath.as_posix())
+                lyric = Path("Lyrics") / f"{track_id}.lrc"
+                if (args.root / lyric).is_file():
+                    relpaths.append(lyric.as_posix())
+            if not relpaths:
+                print(f"No locally downloaded files for {args.chart_year}; nothing uploaded.")
+            else:
+                with tempfile.TemporaryDirectory(prefix="odify-files-") as temp:
+                    manifest = Path(temp) / "files.txt"
+                    manifest.write_text("\n".join(sorted(set(relpaths))) + "\n", encoding="utf-8")
+                    base = ["rclone", "copy", str(args.root), args.remote,
+                            "--files-from", str(manifest)]
+                    subprocess.run(base + ["--transfers", "2", "--checkers", "4"], check=True)
+                    subprocess.run(
+                        ["rclone", "check", str(args.root), args.remote,
+                         "--files-from", str(manifest), "--one-way"], check=True)
+                print(f"Uploaded and remotely verified {len(set(relpaths))} files for {args.chart_year}.")
+        else:
+            subprocess.run(["rclone", "copy", str(args.root / "Audio"), args.remote + "/Audio",
+                            "--transfers", "2", "--checkers", "4"], check=True)
+            lyrics_dir = args.root / "Lyrics"
+            if lyrics_dir.exists():
+                subprocess.run(["rclone", "copy", str(lyrics_dir), args.remote + "/Lyrics",
+                                "--transfers", "2"], check=True)
+            print("Uploaded; verify files in Google Drive before deleting local backup.")
     db.close()
 
 
@@ -382,8 +476,10 @@ def main() -> None:
     sub = parser.add_subparsers(dest="command", required=True)
     load = sub.add_parser("ingest")
     load.add_argument("--csv", required=True, type=Path)
+    load.add_argument("--year", help="chart year if exporting a year-specific tab without 연도, e.g. 2026")
     run = sub.add_parser("run")
     run.add_argument("--limit", type=int, default=20)
+    run.add_argument("--chart-year", help="process tracks in this chart year only, e.g. 2026")
     run.add_argument("--enrich", action="store_true", help="try artwork and lyrics")
     run.add_argument("--audio-format", choices=("m4a", "mp3"), default="m4a",
                      help="output codec (MP3 encoded at 192K; source quality is not improved)")
@@ -392,7 +488,8 @@ def main() -> None:
     run.add_argument("--dry-run", action="store_true")
     sub.add_parser("status")
     upload = sub.add_parser("upload")
-    upload.add_argument("--remote", required=True, help="e.g. mydrive:Odify_Music_Test")
+    upload.add_argument("--remote", required=True, help="e.g. mydrive:Odify_Auto_Upload")
+    upload.add_argument("--chart-year", help="upload and verify only completed files from this chart year")
     args = parser.parse_args()
     run_worker(args)
 
