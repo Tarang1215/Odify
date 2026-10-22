@@ -50,7 +50,7 @@ object OdifyWaveformRepository {
                         return@withContext cached
                     }
                 }
-                val values = analyze(song)
+                val values = analyze(context, song)
                 remember(song.id, values)
                 if (values.size == BAR_COUNT) {
                     val payload = JSONArray()
@@ -68,13 +68,19 @@ object OdifyWaveformRepository {
             }
         }
 
-    private fun analyze(song: OdifySong): List<Float> {
-        val file = File(song.filePath)
-        if (!file.isFile) return emptyList()
+    private fun analyze(context: Context, song: OdifySong): List<Float> {
+        val file = if (song.isCloud) null else File(song.filePath)
+        if (!song.isCloud && file?.isFile != true) return emptyList()
         val extractor = MediaExtractor()
         var decoder: MediaCodec? = null
         try {
-            extractor.setDataSource(file.absolutePath)
+            if (song.isCloud) {
+                extractor.setDataSource(
+                    context, Uri.parse(song.sourceUri), null
+                )
+            } else {
+                extractor.setDataSource(file!!.absolutePath)
+            }
             var audioTrack = -1
             for (i in 0 until extractor.trackCount) {
                 val format = extractor.getTrackFormat(i)

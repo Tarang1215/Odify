@@ -123,10 +123,11 @@ class OdifyLibrary(private val context: Context) {
                     val parts = base.split(" - ", limit = 2)
                     val title = if (parts.size == 2) parts[1] else base
                     val artist = if (parts.size == 2) parts[0] else ""
-                    existing = existing + OdifySong(
-                        id = id, title = title, artist = artist, album = "",
-                        filePath = "", sourceUri = canonical
-                    )
+                    // Read embedded title/artist/cover through Android's document
+                    // descriptor. No Odify-owned full MP3 copy is created.
+                    // Providers may fetch/cache parts of the remote file internally.
+                    val tagged = extractCloudMetadata(uri, title, artist, id)
+                    existing = existing + tagged
                     store(existing)
                     added++
                 }
@@ -218,6 +219,64 @@ class OdifyLibrary(private val context: Context) {
             }
         }
         song.artworkPath?.let { File(it).delete() }
+    }
+
+    private fun extractCloudMetadata(
+        uri: Uri, fallbackTitle: String, fallbackArtist: String, id: String
+    ): OdifySong {
+        var title = fallbackTitle
+        var artist = fallbackArtist
+        var album = ""
+        var duration = 0L
+        var cover: String? = null
+        val retriever = MediaMetadataRetriever()
+        try {
+            retriever.setDataSource(context, uri)
+            title = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE)
+                ?.takeIf { it.isNotBlank() } ?: fallbackTitle
+            artist = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST)
+                ?.takeIf { it.isNotBlank() } ?: fallbackArtist
+            album = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM)
+                ?: ""
+            duration = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+                ?.toLongOrNull() ?: 0L
+            val picture = retriever.embeddedPicture
+            if (picture != null && picture.size <= 10 * 1024 * 1024) {
+                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                BitmapFactory.decodeByteArray(picture, 0, picture.size, bounds)
+                if (bounds.outWidth > 0 && bounds.outHeight > 0) {
+                    var scale = 1
+                    while (bounds.outWidth / scale > 768 || bounds.outHeight / scale > 768) {
+                        scale *= 2
+                    }
+                    val bitmap = BitmapFactory.decodeByteArray(
+                        picture, 0, picture.size,
+                        BitmapFactory.Options().apply {
+                            inSampleSize = scale
+                            inPreferredConfig = Bitmap.Config.RGB_565
+                        }
+                    )
+                    if (bitmap != null) {
+                        val destination = File(covers, "$id.jpg")
+                        FileOutputStream(destination).use { output ->
+                            bitmap.compress(Bitmap.CompressFormat.JPEG, 85, output)
+                        }
+                        bitmap.recycle()
+                        cover = destination.absolutePath
+                    }
+                }
+            }
+        } catch (_: Exception) {
+            // Remote metadata extraction is best effort: a provider can reject
+            // random reads, but media playback should remain accessible.
+        } finally {
+            runCatching { retriever.release() }
+        }
+        return OdifySong(
+            id = id, title = title, artist = artist, album = album,
+            filePath = "", artworkPath = cover,
+            durationMs = duration, sourceUri = uri.toString()
+        )
     }
 
     private fun displayName(uri: Uri): String {

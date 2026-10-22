@@ -4,6 +4,8 @@ import android.graphics.BitmapFactory
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.updateTransition
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -81,6 +83,20 @@ fun OdifySplash() {
     }
 }
 
+/** Bound decoded artwork retained across adjacent-track transitions. */
+private object OdifyCoverMemory {
+    private val images = object : LinkedHashMap<String, ImageBitmap>(32, 0.75f, true) {
+        override fun removeEldestEntry(
+            eldest: MutableMap.MutableEntry<String, ImageBitmap>?
+        ): Boolean = size > 24
+    }
+    @Synchronized fun peek(path: String?): ImageBitmap? =
+        path?.let { images[it] }
+    @Synchronized fun put(path: String, art: ImageBitmap) {
+        images[path] = art
+    }
+}
+
 @Composable
 fun AlbumArt(
     song: OdifySong?,
@@ -89,18 +105,30 @@ fun AlbumArt(
     fallbackKey: Int = 0,
     muted: Boolean = false
 ) {
-    val image by produceState<ImageBitmap?>(initialValue = null, key1 = song?.artworkPath) {
-        value = withContext(Dispatchers.IO) {
-            runCatching {
-                song?.artworkPath?.let { path ->
-                    val options = BitmapFactory.Options().apply {
-                        inPreferredConfig = android.graphics.Bitmap.Config.RGB_565
+    val coverPath = song?.artworkPath
+    // produceState(key1=...) restarts its loader but keeps the OLD image value
+    // for a frame when the song changes. remember(key) recreates state, so
+    // neighbor transitions can never flash the previously selected cover.
+    val imageState = remember(coverPath) {
+        mutableStateOf(OdifyCoverMemory.peek(coverPath))
+    }
+    LaunchedEffect(coverPath) {
+        if (imageState.value == null) {
+            imageState.value = withContext(Dispatchers.IO) {
+                runCatching {
+                    coverPath?.let { path ->
+                        val options = BitmapFactory.Options().apply {
+                            inPreferredConfig = android.graphics.Bitmap.Config.RGB_565
+                        }
+                        BitmapFactory.decodeFile(path, options)?.asImageBitmap()?.also { art ->
+                            OdifyCoverMemory.put(path, art)
+                        }
                     }
-                    BitmapFactory.decodeFile(path, options)?.asImageBitmap()
-                }
-            }.getOrNull()
+                }.getOrNull()
+            }
         }
     }
+    val image = imageState.value
     val neutralPalette = listOf(
         listOf(Color(0xFF393D44), Color(0xFF858C94)),
         listOf(Color(0xFF242E39), Color(0xFF868A88)),
@@ -285,13 +313,36 @@ fun OdifyRoot(
         }
 
         } // light UI layer; mini and nav share safe-area coordinates
-        AnimatedVisibility(
-            visible = expanded,
-            enter = slideInVertically(tween(340, easing = FastOutSlowInEasing)) { it },
-            exit = slideOutVertically(tween(320, easing = FastOutSlowInEasing)) { it },
-            modifier = Modifier.fillMaxSize()
-        ) {
-            if (active != null) {
+        // Full player morph: rounded floating panel grows out of the mini area.
+        // Keeping this composed throughout exit removes the rectangular
+        // slide-and-snap seen with AnimatedVisibility's raw offset.
+        val fullTransition = updateTransition(
+            targetState = expanded, label = "odify-expanded-player"
+        )
+        val fullProgress by fullTransition.animateFloat(
+            transitionSpec = {
+                tween(durationMillis = 440, easing = FastOutSlowInEasing)
+            },
+            label = "player-expand-progress"
+        ) { open -> if (open) 1f else 0f }
+        if ((expanded || fullProgress > 0.001f) && active != null) {
+            Box(
+                Modifier.fillMaxSize()
+                    .background(Color.Black.copy(alpha = fullProgress * 0.16f))
+                    .clickable(onClick = { onExpandedChange(false) })
+            )
+            Box(
+                Modifier.fillMaxSize()
+                    .graphicsLayer {
+                        val closed = 1f - fullProgress
+                        translationY = size.height * 0.59f * closed
+                        scaleX = 1f - closed * 0.045f
+                        scaleY = 1f - closed * 0.13f
+                        alpha = (fullProgress * 1.8f).coerceIn(0.0f, 1.0f)
+                        shape = RoundedCornerShape((30f * closed).dp)
+                        clip = true
+                    }
+            ) {
                 OdifyNowPlaying(
                     song = active,
                     previousSong = songs.firstOrNull { it.id == playback.previousMediaId },

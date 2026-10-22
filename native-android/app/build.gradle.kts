@@ -9,11 +9,11 @@ android {
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.odify.music.nativepreview.v6"
+        applicationId = "com.odify.music.nativepreview.v7"
         minSdk = 26
         targetSdk = 35
-        versionCode = 6
-        versionName = "1.0.0-preview6"
+        versionCode = 7
+        versionName = "1.0.0-preview7"
     }
     buildTypes {
         release { isMinifyEnabled = false }
