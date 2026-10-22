@@ -14,6 +14,7 @@ on:
       - feature/odify-v9-15gb-pilot
       - feature/odify-v10-metadata-library
       - feature/odify-v11-native-titles-artwork
+      - feature/odify-v12-master-db
     paths:
       - 'native-android/**'
       - '.github/workflows/odify-native-preview.yml'
