@@ -185,7 +185,7 @@ fun OdifyRoot(
     LaunchedEffect(selectedTab) { navVisible = true }
 
     Box(Modifier.fillMaxSize().background(white)) {
-        Column(Modifier.fillMaxSize().nestedScroll(scrollConnection)) {
+        Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().nestedScroll(scrollConnection)) {
             Box(Modifier.weight(1f)) {
                 when (selectedTab) {
                     OdifyTab.Home -> OdifyHome(
