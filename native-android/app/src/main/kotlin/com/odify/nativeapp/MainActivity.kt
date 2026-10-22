@@ -71,6 +71,7 @@ private fun NativeOdify() {
     val driveCatalog = remember { DriveCatalog(context.applicationContext) }
     val masterDb = remember { OdifyMasterDatabase(context.applicationContext) }
     val artworkFallback = remember { OdifyArtworkFallback(context.applicationContext) }
+    val uploader = remember { OdifyDriveUploader(context.applicationContext) }
     val drivePrefs = remember {
         context.getSharedPreferences("odify_drive_consent_state", 0)
     }
@@ -83,6 +84,9 @@ private fun NativeOdify() {
     var playback by remember { mutableStateOf(OdifyPlaybackSnapshot()) }
     var expanded by remember { mutableStateOf(false) }
     var importing by remember { mutableStateOf(false) }
+    var uploadingToDrive by remember { mutableStateOf(false) }
+    var uploadStatus by remember { mutableStateOf("선택한 음악만 Drive에 저장합니다.") }
+    var uploadSelection by remember { mutableStateOf<List<android.net.Uri>>(emptyList()) }
     var importAsOffline by remember { mutableStateOf(false) }
     var pendingCoverTrack by remember { mutableStateOf<OdifySong?>(null) }
     var startup by remember { mutableStateOf(true) }
@@ -180,6 +184,77 @@ private fun NativeOdify() {
             },
             onError = { driveStatus = "Google 로그인 실패: $it" }
         )
+    }
+
+    fun uploadFiles(selected: List<android.net.Uri>) {
+        if (uploadingToDrive || selected.isEmpty()) return
+        scope.launch {
+            uploadingToDrive = true
+            var added = 0
+            var skipped = 0
+            try {
+                // Refresh before checking duplicates: another phone or PC
+                // may have already uploaded these exact files.
+                withContext(Dispatchers.IO) { driveCatalog.sync() }
+                selected.forEachIndexed { index, uri ->
+                    uploadStatus = "Drive 저장 ${index+1}/${selected.size} 준비"
+                    try {
+                        val result = uploader.upload(uri, driveCatalog) {
+                            uploadStatus = it
+                        }
+                        when (result) {
+                            is OdifyUploadResult.Added -> added++
+                            is OdifyUploadResult.Skipped -> {
+                                skipped++
+                                uploadStatus = "${result.name}: ${result.reason}"
+                            }
+                        }
+                        if (result is OdifyUploadResult.Added) {
+                            withContext(Dispatchers.IO) { driveCatalog.sync() }
+                        }
+                    } catch (e: Exception) {
+                        uploadStatus = "업로드 오류: ${e.message ?: "연결 상태를 확인하세요."}"
+                        throw e
+                    }
+                }
+                uploadStatus = "Drive 저장 완료: 신규 ${added}곡 · 중복 제외 ${skipped}곡"
+            } catch (e: Exception) {
+                if (!uploadStatus.startsWith("업로드 오류"))
+                    uploadStatus = "Drive 저장 실패: ${e.message ?: "다시 시도하세요."}"
+            } finally {
+                songs = withContext(Dispatchers.IO) {
+                    library.songs() + driveCatalog.tracks()
+                }
+                uploadingToDrive = false
+                uploadSelection = emptyList()
+            }
+        }
+    }
+
+    val uploadAuthorization = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartIntentSenderForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK &&
+            runCatching { DriveAuth.resolveUpload(activity,result.data) }.getOrDefault(false))
+            uploadFiles(uploadSelection)
+        else uploadStatus = "Drive 쓰기 권한 승인이 취소되었습니다."
+    }
+    val driveUploadPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenMultipleDocuments()
+    ) { files ->
+        if (files.isNotEmpty()) {
+            uploadSelection = files
+            uploadStatus = "업로드 전 Google Drive 저장 권한 확인"
+            DriveAuth.authorizeUpload(activity,
+                onToken = { uploadFiles(files) },
+                onResolution = { pending ->
+                    uploadAuthorization.launch(
+                        IntentSenderRequest.Builder(pending.intentSender).build()
+                    )
+                },
+                onError = { uploadStatus = "업로드 인증 실패: $it" }
+            )
+        }
     }
 
     LaunchedEffect(Unit) {
@@ -384,6 +459,11 @@ private fun NativeOdify() {
                     songs = library.songs()
                     if (driveConnected) refreshCatalog()
                 }.onFailure { driveStatus = it.message ?: "폴더 ID를 확인하세요." }
+            },
+            uploadingToDrive = uploadingToDrive,
+            uploadStatus = uploadStatus,
+            onUploadToDrive = {
+                if (!uploadingToDrive) driveUploadPicker.launch(arrayOf("audio/*"))
             },
             onMasterUpdated = { master ->
                 scope.launch {
