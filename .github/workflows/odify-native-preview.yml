@@ -11,6 +11,7 @@ on:
       - feature/odify-native-v6-drive-stream
       - feature/odify-native-v7-player-polish
       - feature/odify-v8-drive-library
+      - feature/odify-v9-15gb-pilot
     paths:
       - 'native-android/**'
       - '.github/workflows/odify-native-preview.yml'
@@ -77,7 +78,7 @@ jobs:
         run: |
           APK=native-android/app/build/outputs/apk/debug/app-debug.apk
           test -s "$APK"
-          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | grep "package: name='com.odify.music.nativepreview.v8.debug'"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | grep "package: name='com.odify.music.nativepreview.v9.debug'"
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$APK"
       - name: Show signing certificate SHA-1 for OAuth setup
         run: |
@@ -86,7 +87,7 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Odify-Native-v8-Drive-Library-debug
+          name: Odify-Native-v9-15GB-Pilot-debug
           path: native-android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14

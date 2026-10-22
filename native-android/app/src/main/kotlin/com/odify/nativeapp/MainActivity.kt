@@ -98,6 +98,18 @@ private fun NativeOdify() {
                 songs = merged
                 driveConnected = true
                 driveStatus = "음악 ${n}곡 동기화 완료"
+                // A few covers become visible in Search/Home before first play.
+                // This runs after sync, off the UI thread, with daily retry caps.
+                scope.launch {
+                    runCatching {
+                        withContext(Dispatchers.IO) {
+                            val count = driveCatalog.prefetchArtwork(limit = 4)
+                            count to (library.songs() + driveCatalog.tracks())
+                        }
+                    }.onSuccess { (count, refreshed) ->
+                        if (count > 0) songs = refreshed
+                    }
+                }
             } catch (e: Exception) {
                 driveStatus = "Drive 동기화 실패: ${e.message ?: "연결 확인 필요"}"
             } finally {
@@ -181,16 +193,13 @@ private fun NativeOdify() {
         val active = songs.firstOrNull { it.id == playback.mediaId }
         // Never prefetch the entire remote collection. Only analyze the one
         // currently requested Drive track, and keep that expensive read off UI.
-        if (active?.isCloud == true) {
-            kotlinx.coroutines.delay(1250L)
-            OdifyWaveformRepository.load(context.applicationContext, active)
-        } else {
-            val candidates = (listOfNotNull(active) +
-                songs.filterNot { it.isCloud || it.id == active?.id }).take(8)
-            for (track in candidates) {
-                OdifyWaveformRepository.load(context.applicationContext, track)
-                kotlinx.coroutines.yield()
-            }
+        // Streaming range playback must not cause a second unauthenticated
+        // full-track decode. Local files get true pre-analyzed waveforms.
+        val candidates = (listOfNotNull(active?.takeUnless { it.isCloud }) +
+            songs.filterNot { it.isCloud || it.id == active?.id }).take(8)
+        for (track in candidates) {
+            OdifyWaveformRepository.load(context.applicationContext, track)
+            kotlinx.coroutines.yield()
         }
     }
 
@@ -206,7 +215,21 @@ private fun NativeOdify() {
 
     LaunchedEffect(controller) {
         val player = controller ?: return@LaunchedEffect
+        var lastError: String? = null
         while (isActive) {
+            val failure = player.playerError
+            val failureCode = failure?.errorCodeName
+            if (failureCode != null && lastError != failureCode) {
+                lastError = failureCode
+                val isDrive = player.currentMediaItem?.mediaId
+                    ?.startsWith("gdrive:") == true
+                val notice = if (isDrive)
+                    "Drive 재생 실패 (${failureCode}). 네트워크·Google 권한을 확인하세요."
+                else "재생 오류: ${failureCode}"
+                Toast.makeText(context, notice, Toast.LENGTH_LONG).show()
+            } else if (failureCode == null) {
+                lastError = null
+            }
             val currentDuration = player.duration
             val previousIndex = player.previousMediaItemIndex
             val nextIndex = player.nextMediaItemIndex
