@@ -194,12 +194,27 @@ fun OdifyRoot(
     onSeek: (Long) -> Unit,
     onShuffle: () -> Unit,
     onRepeat: () -> Unit,
+    onSaveDevice: (OdifySong) -> Unit,
     onRemove: (OdifySong) -> Unit,
     onEdit: (OdifySong, String, String, String) -> Unit,
     onChooseArtwork: (OdifySong) -> Unit
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val prefs = remember { context.getSharedPreferences("odify_native_ui", 0) }
+    val playlistStore = remember { OdifyPlaylists(context.applicationContext) }
+    var playlistVersion by remember { mutableIntStateOf(0) }
+    val playlists = remember(playlistVersion) { playlistStore.all() }
+    var playlistDialogTrack by remember { mutableStateOf<OdifySong?>(null) }
+    fun createPlaylist(name: String): String = runCatching {
+        playlistStore.create(name)
+        playlistVersion++
+        ""
+    }.getOrElse { it.message ?: "플레이리스트 생성 실패" }
+    fun addToPlaylist(playlistId: String, songId: String): String = runCatching {
+        val added = playlistStore.addSong(playlistId, songId)
+        playlistVersion++
+        if (!added) "이미 이 플레이리스트에 있는 곡입니다." else ""
+    }.getOrElse { it.message ?: "플레이리스트 저장 실패" }
     var selectedTab by remember { mutableStateOf(OdifyTab.Home) }
     val tabHistory = remember { mutableStateListOf<OdifyTab>() }
     fun navigateTo(tab: OdifyTab) {
@@ -313,14 +328,34 @@ fun OdifyRoot(
         ) {
             when (selectedTab) {
                 OdifyTab.Home -> OdifyHome(
-                    songs, displayed, recent.isNotEmpty(), onImport, importing,
+                    songs = songs,
+                    recent = displayed,
+                    hasHistory = recent.isNotEmpty(),
+                    importing = importing,
+                    onImport = onImport,
                     onSearch = { navigateTo(OdifyTab.Search) },
-                    onPlay = ::playList
+                    onProfile = { navigateTo(OdifyTab.Profile) },
+                    onLibrary = { navigateTo(OdifyTab.Library) },
+                    onPlay = ::playList,
+                    playlists = playlists,
+                    onPlaylistPlay = { list ->
+                        val tracks = playlistStore.resolved(list, songs)
+                        if (tracks.isNotEmpty()) playList(tracks, 0)
+                        else navigateTo(OdifyTab.Library)
+                    }
                 )
                 OdifyTab.Search -> OdifySearch(songs, onImport, ::playList)
                 OdifyTab.Library -> OdifyLibraryScreen(
-                    songs, liked, ::playList, onImport, onRemove, onEdit,
-                    onChooseArtwork
+                    songs = songs, liked = liked, onPlay = ::playList,
+                    onImport = onImport, onRemove = onRemove, onEdit = onEdit,
+                    onChooseArtwork = onChooseArtwork,
+                    playlists = playlists, onCreatePlaylist = ::createPlaylist,
+                    onDeletePlaylist = { id ->
+                        playlistStore.delete(id); playlistVersion++
+                    },
+                    onRemoveFromPlaylist = { listId, trackId ->
+                        playlistStore.removeSong(listId, trackId); playlistVersion++
+                    }
                 )
                 OdifyTab.Profile -> OdifyProfile(
                     songs, onImport, onImportOffline, importing,
@@ -412,7 +447,9 @@ fun OdifyRoot(
                     onLike = { toggleLike(active.id) },
                     onShuffle = onShuffle,
                     onRepeat = onRepeat,
-                    onShowQueue = { queueOpen = true }
+                    onShowQueue = { queueOpen = true },
+                    onAddToPlaylist = { playlistDialogTrack = active },
+                    onSaveDevice = { onSaveDevice(active) }
                 )
             }
         }
@@ -431,6 +468,19 @@ fun OdifyRoot(
                 onMove=onMoveQueue,
                 onSelect={ index -> onSelectQueue(index); queueOpen=false },
                 onClose={ queueOpen=false }
+            )
+        }
+        playlistDialogTrack?.let { target ->
+            OdifyPlaylistPicker(
+                song = target, playlists = playlists,
+                onCreateAndAdd = { name, songId ->
+                    val newList = runCatching { playlistStore.create(name) }
+                        .getOrElse { return@OdifyPlaylistPicker it.message ?: "생성 실패" }
+                    playlistVersion++
+                    addToPlaylist(newList.id, songId)
+                },
+                onAdd = ::addToPlaylist,
+                onDismiss = { playlistDialogTrack = null }
             )
         }
     }
