@@ -1034,7 +1034,7 @@ private fun OdifyProfile(
             icon = Icons.Default.CloudUpload,
             title = if (uploadingToDrive) "선택한 음원 Drive 업로드 중…" else "음악을 Drive에 저장",
             subtitle = "중복 MD5·Track ID·메타데이터 확인 · 앱 전용 폴더",
-            enabled = driveConnected && !uploadingToDrive,
+            enabled = driveConnected && !driveBusy && !uploadingToDrive,
             onClick = onUploadToDrive
         )
         Text(uploadStatus, color = grey, fontSize = 10.sp, lineHeight = 14.sp)
