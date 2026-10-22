@@ -73,6 +73,8 @@ jobs:
             printf '%s' "$ODIFY_DEBUG_KEYSTORE_BASE64" | base64 --decode > "$HOME/.android/debug.keystore"
             chmod 600 "$HOME/.android/debug.keystore"
           fi
+      - name: Verify audio metadata parser tests
+        run: gradle -p native-android :app:testDebugUnitTest --stacktrace --no-daemon
       - name: Compile standalone preview APK
         run: gradle -p native-android :app:assembleDebug --stacktrace --no-daemon
       - name: Verify APK independent package
