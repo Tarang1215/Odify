@@ -74,6 +74,14 @@ class OdifyLocalFolders(private val context: Context) {
         return result
     }
 
+    fun edit(song: OdifySong, title: String, artist: String, album: String) {
+        require(song.id.startsWith("saf:") && title.isNotBlank())
+        val cv = ContentValues().apply {
+            put("title",title.trim()); put("artist",artist.trim()); put("album",album.trim())
+        }
+        db.writableDatabase.update("songs",cv,"id=?",arrayOf(song.id.removePrefix("saf:")))
+    }
+
     fun removeFromLibrary(song: OdifySong) {
         if (!song.id.startsWith("saf:")) return
         db.writableDatabase.delete("songs", "id=?", arrayOf(song.id.removePrefix("saf:")))
