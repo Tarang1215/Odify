@@ -1,5 +1,7 @@
 package com.odify.nativeapp
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -19,6 +21,10 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import org.json.JSONArray
+import org.json.JSONObject
 
 /** Public playlist metadata. Audio uses locally held files or Google Drive only. */
 @Composable
@@ -36,6 +42,28 @@ fun OdifyYoutubeScreen(
     var entry by remember {mutableStateOf("")}
     var loading by remember {mutableStateOf(false)}
     var status by remember {mutableStateOf("공개 플레이리스트만 조회합니다.")}
+    val masterRepo=remember {OdifyMasterDatabase(context.applicationContext)}
+    var master by remember {mutableStateOf<List<MasterTrack>>(emptyList())}
+    var exportData by remember {mutableStateOf("")}
+    LaunchedEffect(Unit) {
+        master=masterRepo.loadCached()
+    }
+    val exporter=rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json")
+    ) { uri ->
+        if(uri!=null && exportData.isNotBlank()) scope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    context.contentResolver.openOutputStream(uri)?.use {
+                        it.write(exportData.toByteArray(Charsets.UTF_8))
+                    } ?: error("수집 목록을 저장할 수 없습니다.")
+                }
+            }.onSuccess {
+                status="없는 곡의 수집 목록을 저장했습니다. 음악 파일은 별도 수집 후 Drive에 보관합니다."
+            }.onFailure { status=it.message ?: "JSON 내보내기 실패" }
+            exportData=""
+        }
+    }
 
     fun loadOwned() {
         if(!connected) {status="YouTube 계정을 먼저 연결하세요.";return}
@@ -60,17 +88,8 @@ fun OdifyYoutubeScreen(
         }
     }
     LaunchedEffect(connected) {if(connected) loadOwned()}
-    fun match(song:YoutubeVideo):OdifySong? {
-        val simplified=MasterDuplicateDetector.norm(song.title)
-        val matches=localSongs.filter {
-            val title=MasterDuplicateDetector.norm(it.title)
-            val artist=MasterDuplicateDetector.norm(it.artist)
-            title.length>=3 && simplified.contains(title) &&
-                (artist.isBlank() || simplified.contains(artist))
-        }
-        // Never guess between a remix and a studio recording.
-        return matches.singleOrNull()
-    }
+    fun match(song:YoutubeVideo):OdifySong? =
+        OdifyYouTubeMatcher.find(song,localSongs,master)
     Dialog(onDismissRequest=onClose,
         properties=DialogProperties(usePlatformDefaultWidth=false)) {
         Surface(Modifier.fillMaxSize().statusBarsPadding()
@@ -85,7 +104,7 @@ fun OdifyYoutubeScreen(
                         modifier=Modifier.weight(1f),fontSize=18.sp,
                         fontWeight=FontWeight.Bold)
                 }
-                Text("YouTube 계정은 Drive와 별도입니다. 보유 중인 음원은 Odify에서 재생하고, 없는 음원은 목록에만 표시합니다.",
+                Text("Drive와 다른 Google 계정의 공개 플리를 읽습니다. 보유 음원은 광고 없는 Odify 플레이어로 재생하고, 없는 곡은 수집 목록으로 내보냅니다.",
                     fontSize=11.sp,color=Color.Gray,lineHeight=16.sp)
                 Spacer(Modifier.height(10.dp))
                 Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
@@ -111,6 +130,35 @@ fun OdifyYoutubeScreen(
                 Text(status,color=Color.Gray,fontSize=11.sp)
                 Spacer(Modifier.height(9.dp))
                 if(selected!=null) {
+                    val unmatched=videos.filter { match(it)==null }
+                    OutlinedButton(
+                        enabled=videos.isNotEmpty(),
+                        onClick={
+                            val items=JSONArray()
+                            unmatched.forEach { item ->
+                                items.put(JSONObject().apply {
+                                    put("youtube_video_id",item.videoId)
+                                    put("title",item.title)
+                                    put("channel",item.channel)
+                                    put("source_url","https://www.youtube.com/watch?v=${item.videoId}")
+                                })
+                            }
+                            exportData=JSONObject().apply {
+                                put("format","odify-youtube-collection-v1")
+                                put("playlist_id",selected)
+                                put("unmatched_count",items.length())
+                                put("tracks",items)
+                            }.toString(2)
+                            exporter.launch("Odify_YouTube_${selected}.json")
+                        }
+                    ) {
+                        Icon(Icons.Default.SaveAlt,null,Modifier.size(17.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("미보유 ${unmatched.size}곡 수집목록 내보내기",fontSize=11.sp)
+                    }
+                    Text("YouTube 영상 재생 화면은 사용하지 않습니다. 목록을 별도 음원 수집 작업에 전달한 후 Odify Drive 재생 목록으로 통합합니다.",
+                        fontSize=10.sp,color=Color.Gray,lineHeight=16.sp)
+                    Spacer(Modifier.height(7.dp))
                     LazyColumn {
                         items(videos,key={it.videoId}) { v ->
                             val held=match(v)
