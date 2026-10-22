@@ -24,7 +24,7 @@ private const val FOLDER_MIME = "application/vnd.google-apps.folder"
 /** A SQLite index: deliberately NOT 50k rows of JSON in SharedPreferences. */
 class DriveCatalog(private val context: Context) {
     private val prefs = context.getSharedPreferences("odify_drive_catalog_v1", 0)
-    private val db = object : SQLiteOpenHelper(context, "odify_drive_catalog.db", null, 3) {
+    private val db = object : SQLiteOpenHelper(context, "odify_drive_catalog.db", null, 4) {
         override fun onCreate(db: SQLiteDatabase) {
             db.execSQL("""CREATE TABLE tracks (
                 id TEXT PRIMARY KEY, name TEXT NOT NULL, title TEXT NOT NULL,
@@ -33,7 +33,9 @@ class DriveCatalog(private val context: Context) {
                 modified TEXT NOT NULL DEFAULT '', cover TEXT NOT NULL DEFAULT '',
                 lyrics TEXT NOT NULL DEFAULT '',
                 meta_source TEXT NOT NULL DEFAULT 'filename',
-                meta_checked_modified TEXT NOT NULL DEFAULT ''
+                meta_checked_modified TEXT NOT NULL DEFAULT '',
+                md5 TEXT NOT NULL DEFAULT '',
+                file_bytes INTEGER NOT NULL DEFAULT 0
             )""")
             db.execSQL("CREATE INDEX tracks_search ON tracks(title, artist, genre)")
         }
@@ -46,6 +48,10 @@ class DriveCatalog(private val context: Context) {
                 // Version 10 successfully read titles but some ID3 APIC frames
                 // had a leading NUL. Rescan only the missing-art tracks once.
                 db.execSQL("UPDATE tracks SET meta_checked_modified='' WHERE cover=''")
+            }
+            if (old < 4) {
+                db.execSQL("ALTER TABLE tracks ADD COLUMN md5 TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE tracks ADD COLUMN file_bytes INTEGER NOT NULL DEFAULT 0")
             }
         }
     }
@@ -96,6 +102,34 @@ class DriveCatalog(private val context: Context) {
             "UPDATE tracks SET cover=? WHERE id=? AND cover=''",
             arrayOf(picturePath, fileId)
         )
+    }
+
+    /** Exact-byte duplicate detection. Compare Drive's MD5 and file size. */
+    fun hasExactBytes(md5Hex: String, size: Long): Boolean {
+        require(Regex("[0-9a-fA-F]{32}").matches(md5Hex))
+        return db.readableDatabase.rawQuery(
+            "SELECT 1 FROM tracks WHERE md5=? AND file_bytes=? LIMIT 1",
+            arrayOf(md5Hex.lowercase(Locale.ROOT), size.toString())
+        ).use { it.moveToFirst() }
+    }
+
+    /** ODF identifiers in filenames are stronger than title-only guesses. */
+    fun hasTrackCode(code: String): Boolean {
+        if (!Regex("ODF[0-9]{6}", RegexOption.IGNORE_CASE).matches(code))
+            return false
+        return db.readableDatabase.rawQuery(
+            "SELECT 1 FROM tracks WHERE UPPER(name) LIKE ? LIMIT 1",
+            arrayOf(code.uppercase(Locale.ROOT) + ".%")
+        ).use { it.moveToFirst() }
+    }
+
+    /** Track metadata duplicates are not treated as exact bytes. */
+    fun hasMatchingSong(title: String, artist: String, album: String): Boolean {
+        if (title.isBlank() || artist.isBlank() || album.isBlank()) return false
+        val wanted = listOf(title, artist, album).map(MasterDuplicateDetector::norm)
+        return tracks().any {
+            listOf(it.title, it.artist, it.album).map(MasterDuplicateDetector::norm) == wanted
+        }
     }
 
     fun hideTrack(song: OdifySong) {
@@ -167,6 +201,12 @@ class DriveCatalog(private val context: Context) {
             list.getJSONObject(0).getString("id")
         }
         queue.add(initialFolder to "")
+        // Additional uploads are stored inside an app-created folder. Users
+        // keep their existing test root unchanged; never scan their whole Drive.
+        val uploadRoot = context.getSharedPreferences("odify_cloud_upload_v1", 0)
+            .getString("folderId", "").orEmpty()
+        if (uploadRoot.isNotBlank() && uploadRoot != initialFolder)
+            queue.add(uploadRoot to "")
         val collected = LinkedHashMap<String, JSONObject>()
         var visitedFolders = 0
         while (queue.isNotEmpty()) {
@@ -178,7 +218,7 @@ class DriveCatalog(private val context: Context) {
                 val params = linkedMapOf(
                     "q" to query,
                     "pageSize" to "1000",
-                    "fields" to "nextPageToken,files(id,name,mimeType,modifiedTime,capabilities/canDownload)",
+                    "fields" to "nextPageToken,files(id,name,mimeType,modifiedTime,md5Checksum,size,capabilities/canDownload)",
                     "pageToken" to (nextPage ?: "")
                 )
                 val json = JSONObject(apiJson("files", params))
@@ -230,6 +270,8 @@ class DriveCatalog(private val context: Context) {
                     put("genre", if (hasTags && !existing!![8].isNullOrBlank()) existing[8] else genre)
                     put("mime", file.optString("mimeType"))
                     put("modified", modified)
+                    put("md5", file.optString("md5Checksum"))
+                    put("file_bytes", file.optLong("size", 0L))
                     put("cover", if (existing?.get(4) == modified) existing[3] else "")
                     put("meta_source", existing?.get(5) ?: "filename")
                     put("meta_checked_modified", if (existing?.get(4) == modified)
