@@ -24,13 +24,13 @@ object OdifyYouTubeMatcher {
     }
 
     fun find(
-        video: OdifyYouTubeVideo,
+        video: YoutubeVideo,
         tracks: List<OdifySong>,
         master: List<MasterTrack>
     ): OdifySong? {
         // Best match: known official video ID from verified user's Google Sheets MASTER.
         val target=master.firstOrNull {
-            it.verified && videoId(it.youtubeUrl)==video.id
+            it.verified && videoId(it.youtubeUrl)==video.videoId
         }
         if(target!=null) {
             val exact=tracks.firstOrNull {
