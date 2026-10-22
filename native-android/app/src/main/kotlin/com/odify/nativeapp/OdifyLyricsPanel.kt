@@ -1,0 +1,172 @@
+package com.odify.nativeapp
+
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.LibraryMusic
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+
+/** An LRC-first lyrics area that replaces the square artwork on demand. */
+@Composable
+fun OdifyLyricsPanel(song: OdifySong, positionMs: Long,
+                     onSeek: (Long) -> Unit, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val repo = remember { OdifyLyricsRepository(context.applicationContext) }
+    val scope = rememberCoroutineScope()
+    var text by remember(song.id) { mutableStateOf(song.lyrics) }
+    var editing by remember { mutableStateOf(false) }
+    var artistQuery by remember(song.id) { mutableStateOf(song.artist) }
+    var titleQuery by remember(song.id) { mutableStateOf(song.title) }
+    var draft by remember(song.id) { mutableStateOf("") }
+    var matches by remember { mutableStateOf<List<LyricCandidate>>(emptyList()) }
+    var searching by remember { mutableStateOf(false) }
+    var status by remember { mutableStateOf("") }
+    val parsed = remember(text) { LrcParser.parse(text) }
+    LaunchedEffect(song.id, song.lyrics) { text = repo.read(song) }
+    val openDocument = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) scope.launch {
+            runCatching { repo.import(song, uri); repo.read(song) }
+                .onSuccess { text = it; status = "LRC 파일을 불러왔습니다."; editing = false }
+                .onFailure { status = it.message ?: "파일 열기 실패" }
+        }
+    }
+    fun searchOnline() {
+        if (searching) return
+        scope.launch {
+            searching = true
+            status = "LRCLIB에서 가사 후보 조회 중…"
+            matches = try {
+                val found = repo.search(titleQuery.trim(),artistQuery.trim())
+                status = "${found.size}개 가사 후보를 찾았습니다. 원하는 버전을 선택하세요."
+                found
+            } catch(e: Exception) {
+                status = e.message ?: "온라인 가사 조회 실패"
+                emptyList()
+            } finally { searching = false }
+        }
+    }
+    fun saveLyrics(input: String) {
+        scope.launch {
+            runCatching { repo.save(song,input); repo.read(song) }
+                .onSuccess { text = it; editing = false; status = "가사를 저장했습니다." }
+                .onFailure { status = it.message ?: "저장 실패" }
+        }
+    }
+    val active = remember(parsed, positionMs) {
+        if (!parsed.isTimed) -1
+        else parsed.lines.indexOfLast { it.milliseconds <= positionMs }
+    }
+    val listState = rememberLazyListState()
+    LaunchedEffect(active, parsed.isTimed) {
+        if (active >= 0 && parsed.isTimed)
+            listState.animateScrollToItem(active.coerceAtLeast(0))
+    }
+    Column(
+        modifier.background(Color(0xFF252B33),RoundedCornerShape(20.dp))
+            .padding(14.dp)
+    ) {
+        Row(verticalAlignment=Alignment.CenterVertically) {
+            Text("LYRICS",fontWeight=FontWeight.Bold,color=Color.White,
+                fontSize=13.sp,modifier=Modifier.weight(1f))
+            TextButton(onClick={ draft=text; editing=true }) {
+                Icon(Icons.Default.Edit,null,tint=Color.White,modifier=Modifier.size(16.dp))
+                Spacer(Modifier.width(4.dp))
+                Text("가사 추가",color=Color.White,fontSize=11.sp)
+            }
+        }
+        if (text.isBlank()) {
+            Box(Modifier.fillMaxSize(),contentAlignment=Alignment.Center) {
+                Text("가사 없음\n가사 추가에서 LRC 파일·온라인 검색·직접 입력을 선택하세요.",
+                    color=Color(0xFFBCC4D2),lineHeight=21.sp,fontSize=12.sp)
+            }
+        } else if (parsed.isTimed) {
+            LazyColumn(state=listState,modifier=Modifier.fillMaxSize(),
+                verticalArrangement=Arrangement.spacedBy(15.dp),
+                contentPadding=PaddingValues(top=18.dp,bottom=24.dp)) {
+                itemsIndexed(parsed.lines) { index,line ->
+                    Text(line.text.ifBlank { "♪" },
+                        color=if(index == active) Color.White else Color(0xFF9CA5B1),
+                        fontWeight=if(index==active) FontWeight.Bold else FontWeight.Normal,
+                        fontSize=if(index==active) 16.sp else 13.sp,
+                        lineHeight=21.sp,modifier=Modifier.fillMaxWidth()
+                            .clickable { onSeek(line.milliseconds) })
+                }
+            }
+        } else {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                Text(text,color=Color.White,fontSize=13.sp,lineHeight=22.sp)
+            }
+        }
+    }
+    if (editing) AlertDialog(
+        onDismissRequest={editing=false},
+        title={Text("가사 추가 · LRC 우선")},
+        text={
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                OutlinedTextField(value=titleQuery,onValueChange={titleQuery=it},
+                    label={Text("곡명")},singleLine=true)
+                Spacer(Modifier.height(6.dp))
+                OutlinedTextField(value=artistQuery,onValueChange={artistQuery=it},
+                    label={Text("아티스트 (커버곡은 원곡 가수로 검색 가능)")},
+                    singleLine=true)
+                Spacer(Modifier.height(9.dp))
+                OutlinedButton(onClick={openDocument.launch(arrayOf(
+                    "text/plain","application/octet-stream","*/*"
+                ))}) { Text(".lrc / .txt 파일 불러오기") }
+                Spacer(Modifier.height(9.dp))
+                OutlinedButton(enabled=!searching,onClick={searchOnline()}) {
+                    Text(if(searching) "검색 중…" else "LRCLIB 온라인 가사 후보 검색")
+                }
+                if(matches.isNotEmpty()) {
+                    Text("동명곡·커버곡은 가사나 싱크가 다를 수 있습니다. 확인 후 적용하세요.",
+                        fontSize=11.sp,color=Color.Gray)
+                    Spacer(Modifier.height(6.dp))
+                    matches.take(8).forEach { item ->
+                        Column(Modifier.fillMaxWidth()
+                            .clickable { saveLyrics(item.text) }
+                            .padding(vertical=7.dp)) {
+                            Text("${item.songTitle} — ${item.artist}",fontSize=13.sp,
+                                fontWeight=FontWeight.Medium)
+                            Text("${item.durationSec}초 · ${if(item.synchronized.isNotBlank()) "LRC 싱크 가사" else "일반 가사"}",
+                                fontSize=11.sp,color=Color.Gray)
+                        }
+                    }
+                }
+                if(status.isNotBlank()) Text(status,fontSize=11.sp,color=Color.Gray)
+                Spacer(Modifier.height(10.dp))
+                OutlinedTextField(value=draft,onValueChange={draft=it},
+                    label={Text("가사 직접 입력 / LRC 붙여넣기")},
+                    modifier=Modifier.fillMaxWidth(), minLines=4,maxLines=8)
+            }
+        },
+        confirmButton={
+            TextButton(onClick={saveLyrics(draft)},enabled=draft.isNotBlank()) {
+                Text("입력 내용 저장")
+            }
+        },
+        dismissButton={TextButton(onClick={editing=false}) {Text("닫기")} }
+    )
+}
