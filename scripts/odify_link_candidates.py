@@ -29,7 +29,7 @@ import unicodedata
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlencode
+from urllib.parse import parse_qs, urlencode, urlparse
 from urllib.request import Request, urlopen
 
 API = "https://www.googleapis.com/youtube/v3/"
@@ -44,6 +44,19 @@ def normalize(value: str) -> str:
 
 def query_for(row: dict) -> str:
     return f"{row.get('아티스트', '').strip()} {row.get('곡명', '').strip()} official audio".strip()
+
+
+def existing_video_id(url: str) -> str | None:
+    parsed = urlparse(url.strip())
+    if parsed.scheme != "https":
+        return None
+    if parsed.hostname in ("youtube.com", "www.youtube.com", "music.youtube.com", "m.youtube.com"):
+        video = parse_qs(parsed.query).get("v", [""])[0]
+    elif parsed.hostname == "youtu.be":
+        video = parsed.path.lstrip("/").split("/")[0]
+    else:
+        return None
+    return video if VIDEO_ID.fullmatch(video) else None
 
 
 def pending(rows: list[dict], year: str | None = None) -> list[dict]:
@@ -127,7 +140,10 @@ def run(master: Path, output: Path, cache_file: Path, year: str | None,
             raise ValueError("MASTER CSV 필수 열이 누락됐습니다.")
         rows = list(reader)
     todo = pending(rows, year)
-    queries = {query_for(row) for row in todo}
+    # Existing unverified video IDs use a single batched videos.list call
+    # (1 quota unit / up to 50 IDs), not costly search.list (100 each).
+    queries = {query_for(row) for row in todo
+               if existing_video_id(row.get("YouTube 오디오 URL", "")) is None}
     cache = load_cache(cache_file)
     missing = [q for q in queries if q not in cache]
     # Keep the same stable candidate order across executions.
@@ -139,7 +155,7 @@ def run(master: Path, output: Path, cache_file: Path, year: str | None,
                "estimated_search_quota": 100 * len(chosen)}
     if dry_run:
         return summary
-    if not key and chosen:
+    if not key and todo:
         raise ValueError("YouTube Data API key가 필요합니다 (YOUTUBE_API_KEY).")
     def search(q: str) -> tuple[str, dict]:
         return q, api_get("search", {
@@ -155,6 +171,9 @@ def run(master: Path, output: Path, cache_file: Path, year: str | None,
 
     video_ids = set()
     for row in todo:
+        existing = existing_video_id(row.get("YouTube 오디오 URL", ""))
+        if existing:
+            video_ids.add(existing)
         for item in cache.get(query_for(row), {}).get("items", []):
             video = (item.get("id") or {}).get("videoId", "")
             if VIDEO_ID.fullmatch(video):
@@ -170,12 +189,18 @@ def run(master: Path, output: Path, cache_file: Path, year: str | None,
     records = []
     for row in todo:
         q = query_for(row)
-        for item in cache.get(q, {}).get("items", []):
+        existing = existing_video_id(row.get("YouTube 오디오 URL", ""))
+        items = ([{"id": {"videoId": existing},
+                   "snippet": detail.get(existing, {}).get("snippet", {})}]
+                 if existing else cache.get(q, {}).get("items", []))
+        for item in items:
             vid = (item.get("id") or {}).get("videoId", "")
-            if not VIDEO_ID.fullmatch(vid) or vid not in detail:
+            if not vid or vid not in detail:
                 continue
             meta = item.get("snippet") or {}
             status, why = evidence_rank(row, meta, detail[vid])
+            if existing:
+                why = "기존 MASTER URL 재검토 · " + why
             records.append({
                 "Track ID": row["Track ID"], "연도": row.get("연도", ""),
                 "아티스트": row.get("아티스트", ""), "곡명": row.get("곡명", ""),
