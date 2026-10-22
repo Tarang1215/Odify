@@ -26,7 +26,10 @@ data class OdifySong(
     val filePath: String,
     val artworkPath: String? = null,
     val durationMs: Long = 0L,
-    val sourceUri: String? = null
+    val sourceUri: String? = null,
+    val genre: String = "",
+    val lyrics: String = "",
+    val driveVersion: String = ""
 ) {
     val isCloud: Boolean get() = !sourceUri.isNullOrEmpty()
     fun mediaItem(): MediaItem = MediaItem.Builder()
@@ -55,7 +58,7 @@ class OdifyLibrary(private val context: Context) {
         val raw = prefs.getString("songs", "[]") ?: "[]"
         return try {
             val array = JSONArray(raw)
-            (0 until array.length()).mapNotNull { index ->
+            val oldSongs = (0 until array.length()).mapNotNull { index ->
                 val value = array.optJSONObject(index) ?: return@mapNotNull null
                 val source = value.optString("filePath")
                 val cloudUri = value.optString("sourceUri").takeIf { it.isNotBlank() }
@@ -70,10 +73,35 @@ class OdifyLibrary(private val context: Context) {
                     filePath = source,
                     artworkPath = value.optString("artworkPath").takeIf { it.isNotEmpty() },
                     durationMs = value.optLong("durationMs"),
-                    sourceUri = cloudUri
+                    sourceUri = cloudUri,
+                    genre = value.optString("genre"),
+                    lyrics = value.optString("lyrics"),
+                    driveVersion = value.optString("driveVersion")
                 )
             }
-        } catch (_: Exception) { emptyList() }
+            oldSongs + OdifyDriveCatalogDb(context).all()
+        } catch (_: Exception) {
+            OdifyDriveCatalogDb(context).all()
+        }
+    }
+
+    fun search(query: String, genre: String = ""): List<OdifySong> {
+        val local = songs().filterNot { it.id.startsWith("gdrive-") }
+            .filter {
+                (genre.isBlank() || it.genre.equals(genre, true)) &&
+                (query.isBlank() || listOf(it.title, it.artist, it.album,
+                    it.genre, it.lyrics).any { v -> v.contains(query, true) })
+            }
+        val cloud = OdifyDriveCatalogDb(context).search(query, genre)
+        return local + cloud
+    }
+
+    fun mergeDriveTracks(tracks: List<OdifySong>) {
+        OdifyDriveCatalogDb(context).replaceSnapshot(tracks)
+    }
+
+    fun updateDriveCover(song: OdifySong, path: String) {
+        if (song.id.startsWith("gdrive-")) OdifyDriveCatalogDb(context).cover(song.id, path)
     }
 
     private fun store(songs: List<OdifySong>) {
@@ -88,6 +116,9 @@ class OdifyLibrary(private val context: Context) {
                 put("artworkPath", song.artworkPath ?: "")
                 put("durationMs", song.durationMs)
                 put("sourceUri", song.sourceUri ?: "")
+                put("genre", song.genre)
+                put("lyrics", song.lyrics)
+                put("driveVersion", song.driveVersion)
             })
         }
         prefs.edit().putString("songs", json.toString()).apply()
@@ -195,7 +226,11 @@ class OdifyLibrary(private val context: Context) {
     ) = withContext(Dispatchers.IO) {
         val safeTitle = title.trim()
         require(safeTitle.isNotEmpty()) { "곡명을 입력해 주세요." }
-        val updated = songs().map {
+        if (song.id.startsWith("gdrive-")) {
+            OdifyDriveCatalogDb(context).edit(song.id, safeTitle, artist.trim(), album.trim())
+            return@withContext
+        }
+        val updated = songs().filterNot { it.id.startsWith("gdrive-") }.map {
             if (it.id == song.id) it.copy(
                 title = safeTitle,
                 artist = artist.trim(),
@@ -206,7 +241,11 @@ class OdifyLibrary(private val context: Context) {
     }
 
     suspend fun delete(song: OdifySong) = withContext(Dispatchers.IO) {
-        val remaining = songs().filterNot { it.id == song.id }
+        if (song.id.startsWith("gdrive-")) {
+            OdifyDriveCatalogDb(context).hide(song.id)
+            return@withContext
+        }
+        val remaining = songs().filterNot { it.id.startsWith("gdrive-") || it.id == song.id }
         store(remaining)
         if (!song.isCloud) {
             File(song.filePath).delete()
