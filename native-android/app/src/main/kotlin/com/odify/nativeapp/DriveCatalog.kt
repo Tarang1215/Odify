@@ -170,12 +170,23 @@ class DriveCatalog(private val context: Context) {
                 if (track.title.isBlank() || track.artist.isBlank()) continue
                 val searchId=track.driveId
                 val rows=ArrayList<Pair<String,String>>()
+                val prefix=track.trackId.uppercase(Locale.ROOT)
                 conn.rawQuery(
-                    "SELECT id,meta_source FROM tracks WHERE " +
-                        "(name LIKE ? OR id=?)",
-                    arrayOf(track.trackId + ".%", searchId)
+                    "SELECT id,name,meta_source FROM tracks WHERE " +
+                        "(UPPER(name) LIKE ? OR id=?)",
+                    arrayOf(prefix + "%", searchId)
                 ).use { c ->
-                    while(c.moveToNext()) rows += c.getString(0) to c.getString(1)
+                    while(c.moveToNext()) {
+                        val id=c.getString(0)
+                        val name=c.getString(1).uppercase(Locale.ROOT)
+                        // ODF000001.mp3 and ODF000001 - artist - title.mp3 are
+                        // both valid. Do not confuse ODF000001 with ODF0000010.
+                        val suffix=name.getOrNull(prefix.length)
+                        val codeMatches=name.startsWith(prefix) &&
+                            suffix in listOf('.', ' ', '-', '_')
+                        if ((searchId.isNotBlank() && id==searchId) || codeMatches)
+                            rows += id to c.getString(2)
+                    }
                 }
                 for((id,origin) in rows) {
                     if(origin=="user") continue
