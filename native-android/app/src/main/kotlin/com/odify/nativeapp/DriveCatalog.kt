@@ -49,14 +49,33 @@ class DriveCatalog(private val context: Context) {
         lastSync = 0
     }
 
+    fun hideTrack(song: OdifySong) {
+        val hidden = prefs.getStringSet("hidden", emptySet())?.toMutableSet()
+            ?: mutableSetOf()
+        hidden += song.id.removePrefix("gdrive:")
+        prefs.edit().putStringSet("hidden", hidden).apply()
+    }
+
+    fun updateMetadata(song: OdifySong, title: String, artist: String, album: String) {
+        val id = song.id.removePrefix("gdrive:")
+        require(title.isNotBlank())
+        val cv = ContentValues().apply {
+            put("title", title.trim()); put("artist", artist.trim())
+            put("album", album.trim())
+        }
+        db.writableDatabase.update("tracks", cv, "id=?", arrayOf(id))
+    }
+
     fun tracks(): List<OdifySong> {
         val result = ArrayList<OdifySong>()
+        val hidden = prefs.getStringSet("hidden", emptySet()) ?: emptySet()
         db.readableDatabase.rawQuery(
             "SELECT id,name,title,artist,album,genre,cover FROM tracks ORDER BY modified DESC,name LIMIT 100000",
             null
         ).use { cursor ->
             while (cursor.moveToNext()) {
                 val fileId = cursor.getString(0)
+                if (fileId in hidden) continue
                 result += OdifySong(
                     id = "gdrive:$fileId", title = cursor.getString(2),
                     artist = cursor.getString(3), album = cursor.getString(4),
