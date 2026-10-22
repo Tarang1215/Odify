@@ -8,6 +8,7 @@ on:
       - 'native-android/**'
       - 'scripts/odify_youtube_ingest.py'
       - 'scripts/odify_retag_library.py'
+      - 'scripts/tests/**'
       - '.github/workflows/odify-native-source-check.yml'
   workflow_dispatch:
 
@@ -29,6 +30,7 @@ jobs:
         run: |
           python3 -m py_compile scripts/odify_youtube_ingest.py scripts/odify_retag_library.py
           python3 scripts/odify_youtube_ingest.py --help > /dev/null
+          python3 -m unittest discover -s scripts/tests -p 'test_odify_retag_library.py'
       - name: Java 17
         uses: actions/setup-java@v4
         with:
