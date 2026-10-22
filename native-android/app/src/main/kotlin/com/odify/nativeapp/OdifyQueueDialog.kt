@@ -26,6 +26,22 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 
 /**
+ * A queued instance is not necessarily a unique song: the same audio file
+ * can appear multiple times in a playlist, so drag identity must distinguish
+ * its occurrences rather than use song.id as a Compose key.
+ */
+private data class QueuedTrack(val key: String, val song: OdifySong)
+
+private fun queueInstances(items: List<OdifySong>): List<QueuedTrack> {
+    val seen = mutableMapOf<String, Int>()
+    return items.map { song ->
+        val occurrence = seen.getOrDefault(song.id, 0)
+        seen[song.id] = occurrence + 1
+        QueuedTrack("${song.id}#${occurrence}", song)
+    }
+}
+
+/**
  * Reorders the actual Media3 playlist, not merely this dialog's visual list.
  * A long press on the handle drags a track by one row at a time.
  */
@@ -35,15 +51,16 @@ fun OdifyQueueDialog(
     onMove: (Int, Int) -> Unit, onSelect: (Int) -> Unit,
     onClose: () -> Unit
 ) {
-    var ordered by remember { mutableStateOf(items) }
-    val ids = items.map { it.id }
+    val incoming = queueInstances(items)
+    var ordered by remember { mutableStateOf(incoming) }
+    val ids = incoming.map { it.key }
     LaunchedEffect(ids) {
-        if (ordered.map { it.id } != ids) ordered = items
+        if (ordered.map { it.key } != ids) ordered = incoming
     }
     var dragging by remember { mutableStateOf<String?>(null) }
     var displacement by remember { mutableFloatStateOf(0f) }
     val rowHeight = with(LocalDensity.current) { 70.dp.toPx() }
-    val activeId = items.getOrNull(currentIndex)?.id
+    val activeId = incoming.getOrNull(currentIndex)?.key
     Dialog(onDismissRequest=onClose,
         properties=DialogProperties(usePlatformDefaultWidth=false)) {
         Surface(
@@ -67,14 +84,15 @@ fun OdifyQueueDialog(
                     verticalArrangement=Arrangement.spacedBy(3.dp),
                     contentPadding=PaddingValues(bottom=20.dp)
                 ) {
-                    items(ordered) { song ->
-                        val selected = song.id == activeId
-                        val index = ordered.indexOfFirst { it.id == song.id }
+                    items(ordered, key = { it.key }) { queued ->
+                        val song = queued.song
+                        val selected = queued.key == activeId
+                        val index = ordered.indexOfFirst { it.key == queued.key }
                         Row(
                             Modifier.fillMaxWidth()
                                 .background(
                                     if (selected) Color(0xFF303D42)
-                                    else if (dragging==song.id) Color(0xFF3F434A)
+                                    else if (dragging==queued.key) Color(0xFF3F434A)
                                     else Color(0xFF25272D),
                                     RoundedCornerShape(14.dp)
                                 )
@@ -101,19 +119,19 @@ fun OdifyQueueDialog(
                                 tint=Color(0xFFCFD1D6),
                                 modifier=Modifier.size(42.dp)
                                     .padding(8.dp)
-                                    .pointerInput(song.id, rowHeight) {
+                                    .pointerInput(queued.key, rowHeight) {
                                         detectDragGesturesAfterLongPress(
                                             onDragStart={
-                                                dragging=song.id
+                                                dragging=queued.key
                                                 displacement=0f
                                             },
                                             onDragEnd={ dragging=null;displacement=0f },
                                             onDragCancel={ dragging=null;displacement=0f },
                                             onDrag={ change, movement ->
                                                 change.consume()
-                                                if(dragging != song.id) return@detectDragGesturesAfterLongPress
+                                                if(dragging != queued.key) return@detectDragGesturesAfterLongPress
                                                 displacement+=movement.y
-                                                var from=ordered.indexOfFirst { it.id==song.id }
+                                                var from=ordered.indexOfFirst { it.key==queued.key }
                                                 while(displacement>=rowHeight && from < ordered.lastIndex) {
                                                     val to=from+1
                                                     val modified=ordered.toMutableList()
