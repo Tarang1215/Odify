@@ -169,6 +169,13 @@ fun OdifyRoot(
     onDriveConnect: () -> Unit,
     onDriveSync: () -> Unit,
     onDriveFolderChange: (String) -> Unit,
+    youtubeConnected: Boolean,
+    youtubeStatus: String,
+    onConnectYoutube: () -> Unit,
+    youtubeConnected: Boolean,
+    youtubeStatus: String,
+    onConnectYoutube: () -> Unit,
+    onOpenYoutube: () -> Unit,
     phoneFolderStatus: String,
     onChoosePhoneFolder: () -> Unit,
     onRefreshPhoneFolder: () -> Unit,
@@ -183,6 +190,7 @@ fun OdifyRoot(
     onImportOffline: () -> Unit,
     onPlay: (List<OdifySong>, Int) -> Unit,
     onMoveQueue: (Int, Int) -> Unit,
+    onPlayYoutubeMatched: (OdifySong) -> Unit,
     onSelectQueue: (Int) -> Unit,
     onTogglePlayback: () -> Unit,
     onPrevious: () -> Unit,
@@ -198,6 +206,7 @@ fun OdifyRoot(
     val prefs = remember { context.getSharedPreferences("odify_native_ui", 0) }
     var selectedTab by remember { mutableStateOf(OdifyTab.Home) }
     var queueOpen by remember { mutableStateOf(false) }
+    var youtubeOpen by remember { mutableStateOf(false) }
     BackHandler(enabled = queueOpen || expanded || selectedTab != OdifyTab.Home) {
         when {
             queueOpen -> queueOpen = false
@@ -310,6 +319,8 @@ fun OdifyRoot(
                     songs, onImport, onImportOffline, importing,
                     driveConnected, driveBusy, driveStatus, driveFolder,
                     onDriveConnect, onDriveSync, onDriveFolderChange,
+                    youtubeConnected, youtubeStatus, onConnectYoutube,
+                    { youtubeOpen = true },
                     phoneFolderStatus, onChoosePhoneFolder, onRefreshPhoneFolder,
                     onMasterUpdated, uploadingToDrive, uploadStatus, onUploadToDrive
                 )
@@ -397,6 +408,14 @@ fun OdifyRoot(
                     onShowQueue = { queueOpen = true }
                 )
             }
+        }
+        if (youtubeOpen) {
+            OdifyYoutubeScreen(
+                localSongs=songs,connected=youtubeConnected,
+                onConnect=onConnectYoutube,
+                onPlayLocal={ track -> onPlayYoutubeMatched(track);youtubeOpen=false },
+                onClose={youtubeOpen=false}
+            )
         }
         if (queueOpen) {
             OdifyQueueDialog(
@@ -1049,6 +1068,16 @@ private fun OdifyProfile(
             subtitle = "Odify_Music_Test · 하위 폴더 포함",
             enabled = !driveBusy,
             onClick = { showFolderEditor = true }
+        )
+        Spacer(Modifier.height(7.dp))
+        OdifySourceRow(
+            icon = Icons.Default.PlaylistPlay,
+            title = "YouTube 공개 플레이리스트",
+            subtitle = if(youtubeConnected)
+                "YouTube 연결됨 · 공개 플리 조회 · 보유 음원과 매칭"
+                else youtubeStatus,
+            enabled = true,
+            onClick = onOpenYoutube
         )
         Spacer(Modifier.height(7.dp))
         OdifySourceRow(
