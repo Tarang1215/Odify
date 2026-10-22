@@ -72,6 +72,8 @@ private fun NativeOdify() {
     val library = remember { OdifyLibrary(context.applicationContext) }
     val phoneFolder = remember { OdifyPhoneFolder(context.applicationContext) }
     var phoneFolderStatus by remember { mutableStateOf(phoneFolder.folderLabel) }
+    var youtubeConnected by remember { mutableStateOf(OdifyYoutubeAuth.connected) }
+    var youtubeStatus by remember { mutableStateOf("별도 YouTube 계정 선택 가능") }
     val driveCatalog = remember { DriveCatalog(context.applicationContext) }
     val masterDb = remember { OdifyMasterDatabase(context.applicationContext) }
     val artworkFallback = remember { OdifyArtworkFallback(context.applicationContext) }
@@ -261,6 +263,26 @@ private fun NativeOdify() {
                 onError = { uploadStatus = "업로드 인증 실패: $it" }
             )
         }
+    }
+
+    val youtubeAuthorization = rememberLauncherForActivityResult(
+        contract=ActivityResultContracts.StartIntentSenderForResult()
+    ) { result ->
+        if(result.resultCode==Activity.RESULT_OK &&
+            runCatching {OdifyYoutubeAuth.resolve(activity,result.data)}.getOrDefault(false)) {
+            youtubeConnected=true
+            youtubeStatus="YouTube 계정 연결 완료"
+        } else youtubeStatus="YouTube 계정 승인 취소 또는 실패"
+    }
+    fun connectYoutube() {
+        OdifyYoutubeAuth.connect(
+            activity=activity,
+            onReady={youtubeConnected=true;youtubeStatus="YouTube 계정 연결 완료"},
+            onResolution={pending ->
+                youtubeAuthorization.launch(IntentSenderRequest.Builder(pending.intentSender).build())
+            },
+            onError={youtubeStatus=it}
+        )
     }
 
     LaunchedEffect(Unit) {
@@ -492,6 +514,9 @@ private fun NativeOdify() {
             onUploadToDrive = {
                 if (!uploadingToDrive && !driveBusy) driveUploadPicker.launch(arrayOf("audio/*"))
             },
+            youtubeConnected = youtubeConnected,
+            youtubeStatus = youtubeStatus,
+            onConnectYoutube = { connectYoutube() },
             phoneFolderStatus = phoneFolderStatus,
             onChoosePhoneFolder = { phoneFolderPicker.launch(null) },
             onRefreshPhoneFolder = {
@@ -538,6 +563,7 @@ private fun NativeOdify() {
                         player.moveMediaItem(from,to)
                 }
             },
+            onPlayYoutubeMatched = { song -> playFrom(listOf(song),0) },
             onSelectQueue = { index ->
                 controller?.let { player ->
                     if (index in 0 until player.mediaItemCount) {
