@@ -97,6 +97,9 @@ jobs:
           test -s "$APK"
           "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | grep "package: name='com.odify.music.nativepreview.v11.debug'"
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$APK"
+          APK_SHA1="$("$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --print-certs "$APK" | sed -n 's/.*certificate SHA-1 digest: //p' | head -n 1)"
+          test "$APK_SHA1" = "656d465e5c729bdf21a4026c764dfb636f1899e5" ||
+            { echo "::error::APK signer changed unexpectedly: $APK_SHA1"; exit 1; }
       - name: Verify stable certificate after build
         run: |
           keytool -list -v -keystore "$HOME/.android/debug.keystore" \
