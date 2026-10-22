@@ -72,6 +72,20 @@ private fun NativeOdify() {
     var startup by remember { mutableStateOf(true) }
     val scope = rememberCoroutineScope()
 
+    // Prime waveform caches while the user browses the library, rather than
+    // starting a multi-minute PCM decode when Now Playing is first opened.
+    // Analyze one track at a time off the UI thread; prioritize the current
+    // track and cap work to protect large music libraries/battery.
+    LaunchedEffect(songs, playback.mediaId) {
+        val active = songs.firstOrNull { it.id == playback.mediaId }
+        val candidates = (listOfNotNull(active) +
+            songs.filter { it.id != active?.id }).take(8)
+        for (track in candidates) {
+            OdifyWaveformRepository.load(context.applicationContext, track)
+            kotlinx.coroutines.yield()
+        }
+    }
+
     // Connect only to our own foreground Media3 service. No vendor player init.
     DisposableEffect(Unit) {
         val token = SessionToken(context, ComponentName(context, OdifyPlaybackService::class.java))
