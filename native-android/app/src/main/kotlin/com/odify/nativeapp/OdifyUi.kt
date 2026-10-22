@@ -887,7 +887,7 @@ private fun OdifyLibraryScreen(
                                     )
                                 }
                                 DropdownMenuItem(
-                                    text = { Text(if (song.id.startsWith("gdrive:"))
+                                    text = { Text(if (song.id.startsWith("gdrive:") || song.isPhoneFolder)
                                         "내 라이브러리에서 숨기기" else "가져온 파일 삭제") },
                                     onClick = { showMenu = false; onRemove(song) },
                                     leadingIcon = { Icon(Icons.Default.DeleteOutline, null) }
