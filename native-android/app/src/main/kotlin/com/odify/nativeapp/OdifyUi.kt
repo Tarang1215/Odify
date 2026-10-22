@@ -120,11 +120,27 @@ fun AlbumArt(
             imageState.value = withContext(Dispatchers.IO) {
                 runCatching {
                     coverPath?.let { path ->
-                        val options = BitmapFactory.Options().apply {
-                            inPreferredConfig = android.graphics.Bitmap.Config.RGB_565
+                        // Covers from external files can be 4K/8K. Decoding
+                        // full-resolution bitmaps for tiny list rows causes
+                        // avoidable heap spikes and can kill the Home screen.
+                        val bounds = BitmapFactory.Options().apply {
+                            inJustDecodeBounds = true
                         }
-                        BitmapFactory.decodeFile(path, options)?.asImageBitmap()?.also { art ->
-                            OdifyCoverMemory.put(path, art)
+                        BitmapFactory.decodeFile(path, bounds)
+                        if (bounds.outWidth !in 1..16000 ||
+                            bounds.outHeight !in 1..16000) null
+                        else {
+                            var sample = 1
+                            while (bounds.outWidth / sample > 768 ||
+                                bounds.outHeight / sample > 768) sample *= 2
+                            val options = BitmapFactory.Options().apply {
+                                inPreferredConfig = android.graphics.Bitmap.Config.RGB_565
+                                inSampleSize = sample
+                            }
+                            BitmapFactory.decodeFile(path, options)
+                                ?.asImageBitmap()?.also { art ->
+                                    OdifyCoverMemory.put(path, art)
+                                }
                         }
                     }
                 }.getOrNull()
@@ -670,12 +686,9 @@ private fun HorizontalChips(options: List<String>) {
 
 @Composable
 private fun SectionTitle(title: String) {
-    Row(Modifier.fillMaxWidth().padding(end = 19.dp),
-        verticalAlignment = Alignment.CenterVertically) {
-        Text(title, fontSize = 17.sp, color = ink, fontWeight = FontWeight.Bold,
-            modifier = Modifier.weight(1f))
-        Icon(Icons.Default.ChevronRight, null, tint = ink, modifier = Modifier.size(20.dp))
-    }
+    // Only actionable rows have chevrons; this is a static section heading.
+    Text(title, fontSize = 17.sp, color = ink, fontWeight = FontWeight.Bold,
+        modifier = Modifier.fillMaxWidth())
 }
 
 @Composable
