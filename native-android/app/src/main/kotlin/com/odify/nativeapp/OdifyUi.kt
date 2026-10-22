@@ -194,10 +194,10 @@ fun OdifyRoot(
     val barHeightPx = with(androidx.compose.ui.platform.LocalDensity.current) {
         barHeight.toPx()
     }
-    Box(
-        Modifier.fillMaxSize().background(white)
-            .statusBarsPadding().navigationBarsPadding()
-    ) {
+    Box(Modifier.fillMaxSize().background(white)) {
+        // Only the light screens are inset. Fullscreen player must retain
+        // status-bar background and apply its own insets exactly once.
+        Box(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
         Box(
             Modifier.fillMaxSize()
                 // Stable bottom padding: the content never reflows when nav hides.
@@ -270,6 +270,7 @@ fun OdifyRoot(
             }
         }
 
+        } // light UI layer; mini and nav share safe-area coordinates
         AnimatedVisibility(
             visible = expanded,
             enter = slideInVertically(tween(340, easing = FastOutSlowInEasing)) { it },
