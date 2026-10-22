@@ -1,5 +1,6 @@
 package com.odify.nativeapp
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -93,6 +94,7 @@ fun OdifyPlaylistLibrary(
     onRemoveSong: (String, String) -> Unit
 ) {
     var selectedId by remember { mutableStateOf<String?>(null) }
+    BackHandler(enabled = selectedId != null) { selectedId = null }
     var creating by remember { mutableStateOf(false) }
     var newName by remember { mutableStateOf("") }
     var error by remember { mutableStateOf("") }
