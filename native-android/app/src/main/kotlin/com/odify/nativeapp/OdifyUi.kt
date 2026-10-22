@@ -169,6 +169,9 @@ fun OdifyRoot(
     onDriveSync: () -> Unit,
     onDriveFolderChange: (String) -> Unit,
     onMasterUpdated: (List<MasterTrack>) -> Unit,
+    uploadingToDrive: Boolean,
+    uploadStatus: String,
+    onUploadToDrive: () -> Unit,
     importing: Boolean,
     expanded: Boolean,
     onExpandedChange: (Boolean) -> Unit,
@@ -293,7 +296,7 @@ fun OdifyRoot(
                     songs, onImport, onImportOffline, importing,
                     driveConnected, driveBusy, driveStatus, driveFolder,
                     onDriveConnect, onDriveSync, onDriveFolderChange,
-                    onMasterUpdated
+                    onMasterUpdated, uploadingToDrive, uploadStatus, onUploadToDrive
                 )
             }
         }
@@ -941,7 +944,10 @@ private fun OdifyProfile(
     onDriveConnect: () -> Unit,
     onDriveSync: () -> Unit,
     onDriveFolderChange: (String) -> Unit,
-    onMasterUpdated: (List<MasterTrack>) -> Unit
+    onMasterUpdated: (List<MasterTrack>) -> Unit,
+    uploadingToDrive: Boolean,
+    uploadStatus: String,
+    onUploadToDrive: () -> Unit
 ) {
     var showMaster by remember { mutableStateOf(false) }
     val cloudCount = songs.count { it.isCloud }
@@ -1025,6 +1031,15 @@ private fun OdifyProfile(
         )
         Spacer(Modifier.height(7.dp))
         OdifySourceRow(
+            icon = Icons.Default.CloudUpload,
+            title = if (uploadingToDrive) "선택한 음원 Drive 업로드 중…" else "음악을 Drive에 저장",
+            subtitle = "중복 MD5·Track ID·메타데이터 확인 · 앱 전용 폴더",
+            enabled = driveConnected && !uploadingToDrive,
+            onClick = onUploadToDrive
+        )
+        Text(uploadStatus, color = grey, fontSize = 10.sp, lineHeight = 14.sp)
+        Spacer(Modifier.height(7.dp))
+        OdifySourceRow(
             icon = Icons.Default.CloudDownload,
             title = "Drive 파일 개별 추가 (기존 방식)",
             subtitle = "파일 선택기를 통한 재생도 지원",
@@ -1093,7 +1108,7 @@ private fun OdifyProfile(
         }
         Spacer(Modifier.height(7.dp))
         OdifyInfoRow(Icons.Default.Info, "About",
-            "Odify Native · 15GB Pilot Preview 9")
+            "Odify Native · Preview 12 · Stable OAuth identity")
     }
     if (showMaster) {
         OdifyMasterScreen(
