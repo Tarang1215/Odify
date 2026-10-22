@@ -205,6 +205,7 @@ fun OdifyRoot(
     var playlistVersion by remember { mutableIntStateOf(0) }
     val playlists = remember(playlistVersion) { playlistStore.all() }
     var playlistDialogTrack by remember { mutableStateOf<OdifySong?>(null) }
+    var openLibraryPlaylists by remember { mutableIntStateOf(0) }
     fun createPlaylist(name: String): String = runCatching {
         playlistStore.create(name)
         playlistVersion++
@@ -336,12 +337,19 @@ fun OdifyRoot(
                     onSearch = { navigateTo(OdifyTab.Search) },
                     onProfile = { navigateTo(OdifyTab.Profile) },
                     onLibrary = { navigateTo(OdifyTab.Library) },
+                    onPlaylists = {
+                        openLibraryPlaylists++
+                        navigateTo(OdifyTab.Library)
+                    },
                     onPlay = ::playList,
                     playlists = playlists,
                     onPlaylistPlay = { list ->
                         val tracks = playlistStore.resolved(list, songs)
                         if (tracks.isNotEmpty()) playList(tracks, 0)
-                        else navigateTo(OdifyTab.Library)
+                        else {
+                            openLibraryPlaylists++
+                            navigateTo(OdifyTab.Library)
+                        }
                     }
                 )
                 OdifyTab.Search -> OdifySearch(songs, onImport, ::playList)
@@ -349,7 +357,8 @@ fun OdifyRoot(
                     songs = songs, liked = liked, onPlay = ::playList,
                     onImport = onImport, onRemove = onRemove, onEdit = onEdit,
                     onChooseArtwork = onChooseArtwork,
-                    playlists = playlists, onCreatePlaylist = ::createPlaylist,
+                    playlists = playlists, playlistFocus = openLibraryPlaylists,
+                    onCreatePlaylist = ::createPlaylist,
                     onDeletePlaylist = { id ->
                         playlistStore.delete(id); playlistVersion++
                     },
@@ -463,7 +472,10 @@ fun OdifyRoot(
         }
         if (queueOpen) {
             OdifyQueueDialog(
-                items=playback.queueIds.mapNotNull { id -> songs.firstOrNull { it.id == id } },
+                items=playback.queueIds.map { id ->
+                    songs.firstOrNull { it.id == id }
+                        ?: OdifySong(id, "라이브러리에서 숨긴 곡", "", "", "")
+                },
                 currentIndex=playback.currentQueueIndex,
                 onMove=onMoveQueue,
                 onSelect={ index -> onSelectQueue(index); queueOpen=false },
@@ -499,6 +511,7 @@ private fun OdifyHome(
     onSearch: () -> Unit,
     onProfile: () -> Unit,
     onLibrary: () -> Unit,
+    onPlaylists: () -> Unit,
     onPlay: (List<OdifySong>, Int) -> Unit,
     playlists: List<OdifyPlaylist>,
     onPlaylistPlay: (OdifyPlaylist) -> Unit
@@ -577,8 +590,8 @@ private fun OdifyHome(
         item {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.weight(1f)) { SectionTitle("내 플레이리스트") }
-                TextButton(onClick = onLibrary) {
-                    Text("라이브러리", color = grey, fontSize = 12.sp)
+                TextButton(onClick = onPlaylists) {
+                    Text("모두 보기", color = grey, fontSize = 12.sp)
                 }
             }
             Spacer(Modifier.height(8.dp))
@@ -895,12 +908,16 @@ private fun OdifyLibraryScreen(
     onEdit: (OdifySong, String, String, String) -> Unit,
     onChooseArtwork: (OdifySong) -> Unit,
     playlists: List<OdifyPlaylist>,
+    playlistFocus: Int,
     onCreatePlaylist: (String) -> String,
     onDeletePlaylist: (String) -> Unit,
     onRemoveFromPlaylist: (String, String) -> Unit
 ) {
     var editingSong by remember { mutableStateOf<OdifySong?>(null) }
     var selection by remember { mutableStateOf("Songs") }
+    LaunchedEffect(playlistFocus) {
+        if (playlistFocus > 0) selection = "Playlists"
+    }
     var showDuplicates by remember { mutableStateOf(false) }
     val modes = listOf("Songs", "Saved", "Playlists", "Albums", "Artists")
     val rawVisible = when (selection) {
@@ -1114,10 +1131,10 @@ private fun OdifyProfile(
             .padding(start = 21.dp, end = 21.dp, bottom = 170.dp)
     ) {
         Spacer(Modifier.height(24.dp))
-        Text("Your Space", fontSize = 25.sp, fontWeight = FontWeight.Bold,
+        Text("설정 및 계정", fontSize = 25.sp, fontWeight = FontWeight.Bold,
             color = ink, letterSpacing = (-0.6).sp)
         Spacer(Modifier.height(4.dp))
-        Text("Music for a calmer you.", fontSize = 12.sp, color = grey)
+        Text("음악 소스, 동기화, 재생 및 저장 공간 관리", fontSize = 12.sp, color = grey)
         Spacer(Modifier.height(27.dp))
         Row(
             Modifier.fillMaxWidth().clip(RoundedCornerShape(17.dp))
@@ -1141,7 +1158,7 @@ private fun OdifyProfile(
             }
         }
         Spacer(Modifier.height(33.dp))
-        Text("Music sources", color = ink, fontSize = 14.sp,
+        Text("음악 소스 및 연결", color = ink, fontSize = 14.sp,
             fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.height(13.dp))
         OdifySourceRow(
@@ -1231,7 +1248,7 @@ private fun OdifyProfile(
             color = grey, fontSize = 11.sp, lineHeight = 16.sp
         )
         Spacer(Modifier.height(28.dp))
-        Text("Playback & storage", color = ink, fontSize = 14.sp,
+        Text("재생 및 저장 공간", color = ink, fontSize = 14.sp,
             fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.height(15.dp))
         OdifyInfoRow(Icons.Default.Headphones, "Audio engine",
