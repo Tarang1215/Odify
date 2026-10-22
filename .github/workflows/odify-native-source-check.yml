@@ -10,6 +10,10 @@ on:
       - 'scripts/odify_retag_library.py'
       - 'scripts/tests/**'
       - '.github/workflows/odify-native-source-check.yml'
+  pull_request:
+    branches:
+      - feature/odify-v11-native-titles-artwork
+      - feature/odify-v12-master-db
   workflow_dispatch:
 
 permissions:
