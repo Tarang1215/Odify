@@ -3,7 +3,7 @@ package com.odify.nativeapp
 import android.content.Intent
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
-import androidx.media3.datasource.ResolvingDataSource
+import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.cache.CacheDataSource
@@ -29,6 +29,19 @@ class OdifyPlaybackService : MediaSessionService() {
 
     override fun onCreate() {
         super.onCreate()
+        // Authentication belongs to the upstream, independently of disk cache.
+        // A full/corrupt cache must never turn Drive requests into anonymous HTTP.
+        val httpFactory = DefaultHttpDataSource.Factory()
+            .setUserAgent("Odify-Native/12 Android")
+            .setConnectTimeoutMs(10_000)
+            .setReadTimeoutMs(20_000)
+            .setAllowCrossProtocolRedirects(false)
+        val sources = DefaultDataSource.Factory(this, httpFactory)
+        val authenticatedUpstream = DataSource.Factory {
+            OdifyDriveDataSource(sources.createDataSource(),
+                token = { DriveAuth.tokenBlocking(applicationContext) },
+                invalidate = { DriveAuth.invalidateBlocking(applicationContext, it) })
+        }
         val player = try {
             val provider = StandaloneDatabaseProvider(this)
             cacheDb = provider
@@ -38,29 +51,6 @@ class OdifyPlaybackService : MediaSessionService() {
                 provider
             )
             cache = diskCache
-            val httpFactory = DefaultHttpDataSource.Factory()
-                .setUserAgent("Odify-Native/9 Android")
-                .setConnectTimeoutMs(10_000)
-                .setReadTimeoutMs(20_000)
-                .setAllowCrossProtocolRedirects(false)
-            val authenticatedUpstream = ResolvingDataSource.Factory(
-                DefaultDataSource.Factory(this, httpFactory),
-                ResolvingDataSource.Resolver { spec ->
-                    val uri = spec.uri
-                    if (uri.scheme == "https" &&
-                        uri.host == "www.googleapis.com" &&
-                        uri.path?.startsWith("/drive/v3/files/") == true &&
-                        uri.getQueryParameter("alt") == "media") {
-                        val token = DriveAuth.tokenBlocking(applicationContext)
-                        spec.buildUpon()
-                            .setHttpRequestHeaders(
-                                spec.httpRequestHeaders + mapOf(
-                                    "Authorization" to "Bearer $token"
-                                )
-                            ).build()
-                    } else spec
-                }
-            )
             val cacheDataSource = CacheDataSource.Factory()
                 .setCache(diskCache)
                 .setUpstreamDataSourceFactory(authenticatedUpstream)
@@ -70,9 +60,11 @@ class OdifyPlaybackService : MediaSessionService() {
                 .build()
         } catch (e: Exception) {
             // Cache failure must not prevent otherwise valid offline playback.
-            cache?.release()
+            runCatching { cache?.release() }
             cache = null
-            ExoPlayer.Builder(this).build()
+            ExoPlayer.Builder(this)
+                .setMediaSourceFactory(DefaultMediaSourceFactory(authenticatedUpstream))
+                .build()
         }
         player.apply {
             setAudioAttributes(
@@ -82,6 +74,7 @@ class OdifyPlaybackService : MediaSessionService() {
                     .build(), true
             )
             setHandleAudioBecomingNoisy(true)
+            setWakeMode(C.WAKE_MODE_LOCAL)
         }
         session = MediaSession.Builder(this, player).build()
     }
@@ -90,7 +83,8 @@ class OdifyPlaybackService : MediaSessionService() {
         session
 
     override fun onTaskRemoved(rootIntent: Intent?) {
-        if (session?.player?.isPlaying != true) stopSelf()
+        // isPlaying is false during buffering and transient audio-focus loss.
+        if (!isPlaybackOngoing()) stopSelf()
     }
 
     override fun onDestroy() {

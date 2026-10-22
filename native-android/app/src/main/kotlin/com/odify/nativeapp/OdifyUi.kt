@@ -247,9 +247,12 @@ fun OdifyRoot(
     var interaction by remember { mutableIntStateOf(0) }
     // Navigation state is gesture-driven and the mini-player is a separate surface.
 
-    val active = songs.firstOrNull { it.id == playback.mediaId }
-    val recent = history.mapNotNull { id -> songs.firstOrNull { it.id == id } }
-    val displayed = OdifySongPresentation.visible(if (recent.isNotEmpty()) recent else songs.asReversed())
+    val songIndex = remember(songs) { songs.associateBy(OdifySong::id) }
+    val active = songIndex[playback.mediaId]
+    val recent = remember(history, songIndex) { history.mapNotNull(songIndex::get) }
+    val displayed = remember(recent, songs) {
+        OdifySongPresentation.visible(if (recent.isNotEmpty()) recent else songs.asReversed())
+    }
 
     fun playList(list: List<OdifySong>, index: Int) {
         if (index !in list.indices) return
@@ -442,12 +445,14 @@ fun OdifyRoot(
             ) {
                 OdifyNowPlaying(
                     song = active,
-                    previousSong = songs.firstOrNull { it.id == playback.previousMediaId },
-                    nextSong = songs.firstOrNull { it.id == playback.nextMediaId },
+                    previousSong = songIndex[playback.previousMediaId],
+                    nextSong = songIndex[playback.nextMediaId],
                     playing = playback.isPlaying,
                     position = playback.position,
                     duration = playback.duration.takeIf { it > 0 } ?: active.durationMs,
                     liked = active.id in liked,
+                    shuffleEnabled = playback.shuffleEnabled,
+                    repeatOne = playback.repeatOne,
                     onDismiss = { onExpandedChange(false) },
                     onToggle = onTogglePlayback,
                     onPrevious = onPrevious,
@@ -472,10 +477,11 @@ fun OdifyRoot(
         }
         if (queueOpen) {
             OdifyQueueDialog(
-                items=playback.queueIds.map { id ->
-                    songs.firstOrNull { it.id == id }
+                items=remember(playback.queueIds, songIndex) { playback.queueIds.map { id ->
+                    songIndex[id]
                         ?: OdifySong(id, "라이브러리에서 숨긴 곡", "", "", "")
-                },
+                } },
+                entryKeys=playback.queueKeys,
                 currentIndex=playback.currentQueueIndex,
                 onMove=onMoveQueue,
                 onSelect={ index -> onSelectQueue(index); queueOpen=false },

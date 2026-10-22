@@ -24,7 +24,8 @@ class OdifyDeviceExport(private val context: Context) {
         val candidates = listOfNotNull(cloudName, song.filePath, sourcePath)
         val ext = candidates.map { it.substringAfterLast('.', "").lowercase() }
             .firstOrNull { it in supported }
-            ?: when (song.sourceUri?.let { context.contentResolver.getType(Uri.parse(it)) }) {
+            ?: when (song.sourceUri?.let { runCatching {
+                context.contentResolver.getType(Uri.parse(it)) }.getOrNull() }) {
                 "audio/mpeg", "audio/mp3" -> "mp3"
                 "audio/mp4", "audio/x-m4a" -> "m4a"
                 "audio/flac", "audio/x-flac" -> "flac"
@@ -40,9 +41,11 @@ class OdifyDeviceExport(private val context: Context) {
 
     suspend fun save(song: OdifySong, destination: Uri): Long = withContext(Dispatchers.IO) {
         require(destination.scheme == "content") { "저장할 폴더/파일을 선택하세요." }
+        require(destination.toString() != song.sourceUri) { "원본 음원과 다른 저장 위치를 선택하세요." }
         val source = song.sourceUri?.let(Uri::parse)
         val stream: InputStream
         var connection: HttpURLConnection? = null
+        try {
         if (song.id.startsWith("gdrive:")) {
             val fileId = song.id.removePrefix("gdrive:")
             require(fileId.matches(Regex("[A-Za-z0-9_-]{10,200}"))) {
@@ -68,7 +71,6 @@ class OdifyDeviceExport(private val context: Context) {
             require(file.isFile && file.canRead()) { "로컬 음원 파일을 찾을 수 없습니다." }
             stream = FileInputStream(file)
         }
-        try {
             var written = 0L
             stream.use { input ->
                 val output = context.contentResolver.openOutputStream(destination, "w")

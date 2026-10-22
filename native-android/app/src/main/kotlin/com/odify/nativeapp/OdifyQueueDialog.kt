@@ -32,12 +32,12 @@ import androidx.compose.ui.window.DialogProperties
  */
 private data class QueuedTrack(val key: String, val song: OdifySong)
 
-private fun queueInstances(items: List<OdifySong>): List<QueuedTrack> {
+private fun queueInstances(items: List<OdifySong>, keys: List<String>): List<QueuedTrack> {
     val seen = mutableMapOf<String, Int>()
-    return items.map { song ->
+    return items.mapIndexed { index, song ->
         val occurrence = seen.getOrDefault(song.id, 0)
         seen[song.id] = occurrence + 1
-        QueuedTrack("${song.id}#${occurrence}", song)
+        QueuedTrack(keys.getOrNull(index) ?: "${song.id}#${occurrence}", song)
     }
 }
 
@@ -49,17 +49,17 @@ private fun queueInstances(items: List<OdifySong>): List<QueuedTrack> {
 fun OdifyQueueDialog(
     items: List<OdifySong>, currentIndex: Int,
     onMove: (Int, Int) -> Unit, onSelect: (Int) -> Unit,
-    onClose: () -> Unit
+    onClose: () -> Unit, entryKeys: List<String> = emptyList()
 ) {
-    val incoming = queueInstances(items)
+    val incoming = remember(items, entryKeys) { queueInstances(items, entryKeys) }
     var ordered by remember { mutableStateOf(incoming) }
-    val ids = incoming.map { it.key }
-    LaunchedEffect(ids) {
-        if (ordered.map { it.key } != ids) ordered = incoming
+    LaunchedEffect(incoming) {
+        if (ordered != incoming) ordered = incoming
     }
     var dragging by remember { mutableStateOf<String?>(null) }
     var displacement by remember { mutableFloatStateOf(0f) }
-    val rowHeight = with(LocalDensity.current) { 70.dp.toPx() }
+    val rowHeight = with(LocalDensity.current) { 71.dp.toPx() }
+    val latestOnMove by rememberUpdatedState(onMove)
     Dialog(onDismissRequest=onClose,
         properties=DialogProperties(usePlatformDefaultWidth=false)) {
         Surface(
@@ -137,7 +137,7 @@ fun OdifyQueueDialog(
                                                     val moved=modified.removeAt(from)
                                                     modified.add(to,moved)
                                                     ordered=modified
-                                                    onMove(from,to)
+                                                    latestOnMove(from,to)
                                                     from=to
                                                     displacement-=rowHeight
                                                 }
@@ -147,7 +147,7 @@ fun OdifyQueueDialog(
                                                     val moved=modified.removeAt(from)
                                                     modified.add(to,moved)
                                                     ordered=modified
-                                                    onMove(from,to)
+                                                    latestOnMove(from,to)
                                                     from=to
                                                     displacement+=rowHeight
                                                 }

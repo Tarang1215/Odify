@@ -40,6 +40,9 @@ data class OdifySong(
                 .setTitle(title)
                 .setArtist(artist)
                 .setAlbumTitle(album)
+                    .setExtras(android.os.Bundle().apply {
+                        putString("odify.queueEntry", java.util.UUID.randomUUID().toString())
+                    })
                 .apply {
                     if (!artworkPath.isNullOrBlank()) {
                         setArtworkUri(Uri.fromFile(File(artworkPath)))

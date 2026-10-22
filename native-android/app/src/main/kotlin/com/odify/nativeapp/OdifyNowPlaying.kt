@@ -10,6 +10,8 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
@@ -63,6 +65,8 @@ fun OdifyNowPlaying(
     position: Long,
     duration: Long,
     liked: Boolean,
+    shuffleEnabled: Boolean,
+    repeatOne: Boolean,
     onDismiss: () -> Unit,
     onToggle: () -> Unit,
     onPrevious: () -> Unit,
@@ -134,9 +138,12 @@ fun OdifyNowPlaying(
         BoxWithConstraints(
             Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()
         ) {
-            val artSize = minOf(maxWidth - 62.dp, maxHeight * 0.39f)
+            val compact = maxHeight < 620.dp
+            val artSize = minOf(maxWidth - 62.dp, maxHeight * 0.39f).coerceAtLeast(80.dp)
             Column(
-                Modifier.fillMaxSize().padding(horizontal = 25.dp),
+                Modifier.fillMaxWidth()
+                    .heightIn(min = maxHeight)
+                    .verticalScroll(rememberScrollState()).padding(horizontal = 25.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Row(
@@ -188,7 +195,7 @@ fun OdifyNowPlaying(
                     }
                 }
 
-                Spacer(Modifier.weight(0.8f))
+                Spacer(Modifier.height(if (compact) 8.dp else 24.dp))
                 val artWidthPx = with(LocalDensity.current) { artSize.toPx() }
                 val artGapPx = with(LocalDensity.current) { 12.dp.toPx() }
                 // Three covers share one clipped viewport. As the user swipes,
@@ -323,7 +330,8 @@ fun OdifyNowPlaying(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     IconButton(onClick = onShuffle) {
-                        Icon(Icons.Default.Shuffle, "셔플", tint = playerSecondary,
+                        Icon(Icons.Default.Shuffle, if (shuffleEnabled) "셔플 끄기" else "셔플 켜기",
+                            tint = if (shuffleEnabled) Color(0xFF9BEFC4) else playerSecondary,
                             modifier = Modifier.size(22.dp))
                     }
                     IconButton(onClick = onPrevious) {
@@ -349,11 +357,13 @@ fun OdifyNowPlaying(
                             tint = playerWhite, modifier = Modifier.size(28.dp))
                     }
                     IconButton(onClick = onRepeat) {
-                        Icon(Icons.Default.Repeat, "반복 재생", tint = playerSecondary,
+                        Icon(if (repeatOne) Icons.Default.RepeatOne else Icons.Default.Repeat,
+                            if (repeatOne) "한 곡 반복 끄기" else "한 곡 반복 켜기",
+                            tint = if (repeatOne) Color(0xFF9BEFC4) else playerSecondary,
                             modifier = Modifier.size(22.dp))
                     }
                 }
-                Spacer(Modifier.weight(1f))
+                Spacer(Modifier.height(if (compact) 12.dp else 28.dp))
                 // Precisely center the AUDIO pill on the same x-axis as Play.
                 Box(
                     Modifier.fillMaxWidth().height(53.dp)

@@ -42,6 +42,7 @@ fun OdifyYoutubeScreen(
     var videos by remember {mutableStateOf<List<YoutubeVideo>>(emptyList())}
     var entry by remember {mutableStateOf("")}
     var loading by remember {mutableStateOf(false)}
+    var requestNumber by remember { mutableIntStateOf(0) }
     var status by remember {mutableStateOf("공개 플레이리스트만 조회합니다.")}
     val masterRepo=remember {OdifyMasterDatabase(context.applicationContext)}
     var master by remember {mutableStateOf<List<MasterTrack>>(emptyList())}
@@ -68,44 +69,54 @@ fun OdifyYoutubeScreen(
 
     fun loadOwned() {
         if(!connected) {status="YouTube 계정을 먼저 연결하세요.";return}
+        val request = ++requestNumber
         scope.launch {
             loading=true
             runCatching {repo.ownedPublic()}
-                .onSuccess {playlists=it;status="공개 플레이리스트 ${it.size}개"}
-                .onFailure {status=it.message ?: "목록을 가져올 수 없습니다."}
-            loading=false
+                .onSuccess { if(request == requestNumber) {
+                    playlists=it;status="공개 플레이리스트 ${it.size}개" } }
+                .onFailure { if(request == requestNumber) status=it.message ?: "목록을 가져올 수 없습니다." }
+            if(request == requestNumber) loading=false
         }
     }
     fun loadPlaylist(id:String) {
         if(!connected) {status="YouTube 계정 연결이 필요합니다.";return}
+        val request = ++requestNumber
         selected=id
         videos=emptyList()
         scope.launch {
             loading=true
             runCatching {repo.playlist(id)}
-                .onSuccess {videos=it;status="${it.size}개 영상 조회"}
-                .onFailure {status=it.message ?: "플레이리스트 조회 실패"}
-            loading=false
+                .onSuccess { if(request == requestNumber) {videos=it;status="${it.size}개 영상 조회"} }
+                .onFailure { if(request == requestNumber) status=it.message ?: "플레이리스트 조회 실패" }
+            if(request == requestNumber) loading=false
         }
     }
-    LaunchedEffect(connected) {if(connected) loadOwned()}
-    fun match(song:YoutubeVideo):OdifySong? =
-        OdifyYouTubeMatcher.find(song,localSongs,master)
+    LaunchedEffect(connected) {
+        requestNumber++; selected=null; videos=emptyList(); playlists=emptyList(); loading=false
+        if(connected) loadOwned()
+    }
+    val matches by key(videos, localSongs, master) {
+        produceState<List<OdifySong?>>(emptyList()) {
+            value = withContext(Dispatchers.Default) {
+                videos.map { OdifyYouTubeMatcher.find(it,localSongs,master) }
+            }
+        }
+    }
+    fun back() {
+        requestNumber++; loading=false
+        if (selected != null) { selected=null; videos=emptyList() } else onClose()
+    }
     // Back from a playlist returns to the playlist overview before closing
     // the entire YouTube source screen.
-    Dialog(onDismissRequest={
-        if (selected != null) { selected = null; videos = emptyList() }
-        else onClose()
-    },
+    Dialog(onDismissRequest=::back,
         properties=DialogProperties(usePlatformDefaultWidth=false)) {
         Surface(Modifier.fillMaxSize().statusBarsPadding()
             .navigationBarsPadding().padding(10.dp),
             shape=RoundedCornerShape(22.dp),color=Color.White) {
             Column(Modifier.fillMaxSize().padding(16.dp)) {
                 Row(verticalAlignment=Alignment.CenterVertically) {
-                    IconButton(onClick={
-                        if(selected!=null) {selected=null;videos=emptyList()} else onClose()
-                    }) {Icon(Icons.Default.ArrowBack,"뒤로")}
+                    IconButton(onClick=::back) {Icon(Icons.Default.ArrowBack,"뒤로")}
                     Text(if(selected==null) "YouTube 공개 플레이리스트" else "플레이리스트 곡",
                         modifier=Modifier.weight(1f),fontSize=18.sp,
                         fontWeight=FontWeight.Bold)
@@ -136,11 +147,10 @@ fun OdifyYoutubeScreen(
                 Text(status,color=Color.Gray,fontSize=11.sp)
                 Spacer(Modifier.height(9.dp))
                 if(selected!=null) {
-                    val matchedQueue=videos.mapNotNull { match(it) }
-                        .distinctBy { it.id }
-                    val unmatched=videos.filter { match(it)==null }
+                    val matchedQueue=matches.filterNotNull()
+                    val unmatched=videos.filterIndexed { index, _ -> matches.getOrNull(index)==null }
                     OutlinedButton(
-                        enabled=videos.isNotEmpty(),
+                        enabled=videos.isNotEmpty() && matches.size==videos.size,
                         onClick={
                             val items=JSONArray()
                             unmatched.forEach { item ->
@@ -171,19 +181,20 @@ fun OdifyYoutubeScreen(
                         // The same YouTube video can legitimately occur more
                         // than once in a playlist. Its ID alone is not a unique
                         // Compose list key and can crash LazyColumn.
-                        itemsIndexed(videos,key={ index,v -> "${index}:${v.videoId}" }) { _,v ->
-                            val held=match(v)
+                        itemsIndexed(videos,key={ index,v -> "${index}:${v.videoId}" }) { videoIndex,v ->
+                            val held=matches.getOrNull(videoIndex)
                             Column(
                                 Modifier.fillMaxWidth()
                                     .clickable(enabled=held!=null) {
-                                        held?.let { track ->
-                                            val index=matchedQueue.indexOfFirst { it.id==track.id }
+                                        held?.let {
+                                            val index=matches.take(videoIndex).count { it != null }
                                             if(index>=0) onPlayLocal(matchedQueue,index)
                                         }
                                     }.padding(vertical=10.dp,horizontal=5.dp)
                             ) {
                                 Text(v.title,fontSize=13.sp,fontWeight=FontWeight.SemiBold)
-                                Text(if(held!=null) "Odify 음원 매칭 · 탭하여 재생"
+                                Text(if(matches.size!=videos.size) "보유 음원 매칭 중"
+                                    else if(held!=null) "Odify 음원 매칭 · 탭하여 재생"
                                     else "미보유 · 음원 추가 후 자동 연결",
                                     fontSize=11.sp,
                                     color=if(held!=null) Color(0xFF237A56) else Color.Gray)
@@ -206,7 +217,10 @@ fun OdifyYoutubeScreen(
                                     Text(p.title,fontSize=14.sp,fontWeight=FontWeight.SemiBold)
                                     Text("${p.channel} · ${p.count}개",fontSize=11.sp,color=Color.Gray)
                                 }
-                                Icon(Icons.Default.ChevronRight,null)
+                                IconButton(onClick={repo.toggleSaved(p.id);saved=repo.savedIds}) {
+                                    Icon(if(p.id in saved) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
+                                        if(p.id in saved) "저장한 목록에서 제거" else "플레이리스트 저장")
+                                }
                             }
                             HorizontalDivider()
                         }

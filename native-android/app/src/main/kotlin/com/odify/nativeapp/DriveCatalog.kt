@@ -86,13 +86,18 @@ class DriveCatalog(private val context: Context) {
                     BitmapFactory.Options().apply { inSampleSize = sample })
             } ?: error("사진을 열 수 없습니다.")
             val directory = File(context.filesDir, "manual_art").apply { mkdirs() }
-            val target = File(directory, "$fileId.jpg")
+            val target = File(directory, "$fileId-${System.nanoTime()}.jpg")
             try {
                 target.outputStream().use {
                     check(bitmap.compress(Bitmap.CompressFormat.JPEG, 88, it))
                 }
             } finally { bitmap.recycle() }
+            val previous = prefs.getString("manualArt:$fileId", null)
             prefs.edit().putString("manualArt:$fileId", target.absolutePath).apply()
+            previous?.let { old ->
+                val file = File(old)
+                if (file.parentFile == directory) file.delete()
+            }
         }
 
     /** Verified master video thumbnail is a display fallback, not original art. */
@@ -473,7 +478,7 @@ class DriveCatalog(private val context: Context) {
             }
         ) ?: return null
         val target = File(File(context.filesDir, "drive_art").apply { mkdirs() },
-            "$driveId.jpg")
+            "$driveId-${java.util.Arrays.hashCode(bytes)}.jpg")
         return try {
             target.outputStream().use {
                 if (!bitmap.compress(Bitmap.CompressFormat.JPEG, 86, it))

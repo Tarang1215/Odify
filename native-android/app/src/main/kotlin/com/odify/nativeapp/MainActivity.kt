@@ -22,6 +22,8 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
+import androidx.media3.common.Player
+import androidx.lifecycle.Lifecycle
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -62,7 +64,10 @@ data class OdifyPlaybackSnapshot(
     val previousMediaId: String? = null,
     val nextMediaId: String? = null,
     val queueIds: List<String> = emptyList(),
-    val currentQueueIndex: Int = -1
+    val currentQueueIndex: Int = -1,
+    val queueKeys: List<String> = emptyList(),
+    val shuffleEnabled: Boolean = false,
+    val repeatOne: Boolean = false
 )
 
 @Composable
@@ -88,7 +93,7 @@ private fun NativeOdify() {
     var driveBusy by remember { mutableStateOf(false) }
     var driveStatus by remember { mutableStateOf("Google Drive 계정을 연결하세요.") }
     var driveFolder by remember { mutableStateOf(driveCatalog.folderId) }
-    var songs by remember { mutableStateOf(library.songs()) }
+    var songs by remember { mutableStateOf<List<OdifySong>>(emptyList()) }
     var controller by remember { mutableStateOf<MediaController?>(null) }
     var playback by remember { mutableStateOf(OdifyPlaybackSnapshot()) }
     var expanded by remember { mutableStateOf(false) }
@@ -300,6 +305,8 @@ private fun NativeOdify() {
         } else youtubeStatus="YouTube 계정 승인 취소 또는 실패"
     }
     fun connectYoutube() {
+        youtubeConnected = false
+        youtubeStatus = "YouTube 계정을 선택 중입니다."
         OdifyYoutubeAuth.connect(
             activity=activity,
             onReady={youtubeConnected=true;youtubeStatus="YouTube 계정 연결 완료"},
@@ -312,7 +319,11 @@ private fun NativeOdify() {
 
     LaunchedEffect(Unit) {
         songs = withContext(Dispatchers.IO) {
-            library.songs() + driveCatalog.tracks() + phoneFolder.tracks()
+            library.songs() + runCatching { driveCatalog.tracks() }.getOrElse {
+                // Preserve the database for diagnosis; a broken Drive cache
+                // must not take the entire Home/local library down.
+                emptyList()
+            } + phoneFolder.tracks()
         }
         if (drivePrefs.getBoolean("enabled", false)) {
             // Silent renewal only. Never launch OAuth consent without interaction.
@@ -376,10 +387,11 @@ private fun NativeOdify() {
         onDispose { MediaController.releaseFuture(future) }
     }
 
-    LaunchedEffect(controller) {
-        val player = controller ?: return@LaunchedEffect
+    DisposableEffect(controller) {
+        val player = controller
         var lastError: String? = null
-        while (isActive) {
+        fun update() {
+            if (player == null) return
             val failure = player.playerError
             val failureCode = failure?.errorCodeName
             if (failureCode != null && lastError != failureCode) {
@@ -406,9 +418,32 @@ private fun NativeOdify() {
                 nextMediaId = if (nextIndex >= 0)
                     player.getMediaItemAt(nextIndex).mediaId else null,
                 currentQueueIndex = player.currentMediaItemIndex,
-                queueIds = (0 until player.mediaItemCount).map { player.getMediaItemAt(it).mediaId }
+                queueIds = (0 until player.mediaItemCount).map { player.getMediaItemAt(it).mediaId },
+                queueKeys = (0 until player.mediaItemCount).map { index ->
+                    player.getMediaItemAt(index).mediaMetadata.extras
+                        ?.getString("odify.queueEntry") ?: "legacy:$index"
+                },
+                shuffleEnabled = player.shuffleModeEnabled,
+                repeatOne = player.repeatMode == Player.REPEAT_MODE_ONE
             )
-            delay(350L)
+        }
+        val listener = object : Player.Listener {
+            override fun onEvents(player: Player, events: Player.Events) = update()
+        }
+        player?.addListener(listener)
+        update()
+        onDispose { player?.removeListener(listener) }
+    }
+    LaunchedEffect(controller) {
+        val player = controller ?: return@LaunchedEffect
+        while (isActive) {
+            // Only position ticks: don't rebuild a 5,000-song queue every 350ms.
+            // Background playback remains in the service while UI polling rests.
+            if (activity.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED) &&
+                player.isPlaying) {
+                playback = playback.copy(position = player.currentPosition.coerceAtLeast(0L))
+            }
+            delay(if (player.isPlaying) 350L else 1000L)
         }
     }
 
@@ -491,7 +526,13 @@ private fun NativeOdify() {
 
     fun toggle() {
         val player = controller ?: return
-        if (player.isPlaying) player.pause() else player.play()
+        if (player.isPlaying) player.pause() else {
+            // A failed/ended player needs preparation/rewind before play().
+            if (player.playerError != null || player.playbackState == Player.STATE_IDLE)
+                player.prepare()
+            if (player.playbackState == Player.STATE_ENDED) player.seekToDefaultPosition()
+            player.play()
+        }
     }
 
     LaunchedEffect(Unit) {
