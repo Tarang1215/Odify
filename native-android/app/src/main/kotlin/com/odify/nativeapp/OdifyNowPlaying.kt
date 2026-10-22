@@ -2,6 +2,10 @@ package com.odify.nativeapp
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -13,6 +17,8 @@ import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -35,6 +41,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.IntOffset
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlin.math.max
@@ -50,6 +57,8 @@ private val playerWhite = Color(0xFFF5F6F7)
 @Composable
 fun OdifyNowPlaying(
     song: OdifySong,
+    previousSong: OdifySong?,
+    nextSong: OdifySong?,
     playing: Boolean,
     position: Long,
     duration: Long,
@@ -69,7 +78,12 @@ fun OdifyNowPlaying(
     val threshold = with(LocalDensity.current) { 125.dp.toPx() }
     var showInfo by remember { mutableStateOf(false) }
     var albumSlide by remember(song.id) { mutableFloatStateOf(0f) }
+    var albumSettling by remember(song.id) { mutableStateOf(false) }
     val swipeThreshold = with(LocalDensity.current) { 68.dp.toPx() }
+    LaunchedEffect(song.id) {
+        albumSlide = 0f
+        albumSettling = false
+    }
     val waveform by produceState<List<Float>>(initialValue = emptyList(), song.id) {
         value = OdifyWaveformRepository.load(context = context, song = song)
     }
@@ -136,28 +150,94 @@ fun OdifyNowPlaying(
                 }
 
                 Spacer(Modifier.weight(0.8f))
-                AlbumArt(
-                    song,
+                val artWidthPx = with(LocalDensity.current) { artSize.toPx() }
+                val artGapPx = with(LocalDensity.current) { 12.dp.toPx() }
+                // Three covers share one clipped viewport. As the user swipes,
+                // the next cover enters continuously instead of popping in.
+                Box(
                     Modifier.size(artSize)
-                        .offset { IntOffset(albumSlide.roundToInt(), 0) }
-                        .pointerInput(song.id) {
+                        .clip(RoundedCornerShape(22.dp))
+                        .pointerInput(song.id, previousSong?.id, nextSong?.id) {
                             detectHorizontalDragGestures(
                                 onHorizontalDrag = { change, amount ->
-                                    change.consume()
-                                    albumSlide = (albumSlide + amount)
-                                        .coerceIn(-size.width.toFloat(), size.width.toFloat())
+                                    if (!albumSettling) {
+                                        val allowed = when {
+                                            amount < 0f -> nextSong != null
+                                            amount > 0f -> previousSong != null
+                                            else -> true
+                                        }
+                                        albumSlide = (albumSlide + if (allowed) amount
+                                            else amount * .20f)
+                                            .coerceIn(-artWidthPx, artWidthPx)
+                                        change.consume()
+                                    }
                                 },
                                 onDragEnd = {
-                                    if (albumSlide < -swipeThreshold) onNext()
-                                    else if (albumSlide > swipeThreshold) onPrevious()
-                                    albumSlide = 0f
+                                    if (albumSettling) return@detectHorizontalDragGestures
+                                    val direction = when {
+                                        albumSlide < -swipeThreshold && nextSong != null -> -1
+                                        albumSlide > swipeThreshold && previousSong != null -> 1
+                                        else -> 0
+                                    }
+                                    albumSettling = true
+                                    scope.launch {
+                                        val animate = Animatable(albumSlide)
+                                        val target = if (direction == 0) 0f
+                                            else direction * (artWidthPx + artGapPx)
+                                        animate.animateTo(target,
+                                            if (direction == 0)
+                                                spring(dampingRatio = .82f, stiffness = 520f)
+                                            else tween(240, easing = FastOutSlowInEasing)
+                                        ) { albumSlide = value }
+                                        if (direction < 0) onNext()
+                                        else if (direction > 0) onPrevious()
+                                        if (direction == 0) albumSettling = false
+                                    }
                                 },
-                                onDragCancel = { albumSlide = 0f }
+                                onDragCancel = {
+                                    scope.launch {
+                                        val animate = Animatable(albumSlide)
+                                        animate.animateTo(0f, tween(210,
+                                            easing = FastOutSlowInEasing)) {
+                                            albumSlide = value
+                                        }
+                                        albumSettling = false
+                                    }
+                                }
                             )
+                        }
+                ) {
+                    previousSong?.let { neighbor ->
+                        AlbumArt(
+                            neighbor,
+                            Modifier.fillMaxSize().offset {
+                                IntOffset((albumSlide - artWidthPx - artGapPx)
+                                    .roundToInt(), 0)
+                            },
+                            radius = RoundedCornerShape(22.dp),
+                            fallbackKey = neighbor.id.hashCode()
+                        )
+                    }
+                    nextSong?.let { neighbor ->
+                        AlbumArt(
+                            neighbor,
+                            Modifier.fillMaxSize().offset {
+                                IntOffset((albumSlide + artWidthPx + artGapPx)
+                                    .roundToInt(), 0)
+                            },
+                            radius = RoundedCornerShape(22.dp),
+                            fallbackKey = neighbor.id.hashCode()
+                        )
+                    }
+                    AlbumArt(
+                        song,
+                        Modifier.fillMaxSize().offset {
+                            IntOffset(albumSlide.roundToInt(), 0)
                         },
-                    radius = RoundedCornerShape(22.dp),
-                    fallbackKey = song.id.hashCode()
-                )
+                        radius = RoundedCornerShape(22.dp),
+                        fallbackKey = song.id.hashCode()
+                    )
+                }
                 Spacer(Modifier.height(22.dp))
 
                 Row(
@@ -294,51 +374,81 @@ private fun OdifyWaveformProgress(
     onSeek: (Long) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val playedFraction = if (duration > 0)
+    val actualFraction = if (duration > 0L)
         (position.toDouble() / duration).toFloat().coerceIn(0f, 1f) else 0f
-    val played = Color(0xFFF5F6F7)
-    val pending = Color(0xFF50545B)
-    val seek: (Float) -> Unit = { fraction ->
-        if (duration > 0L) {
-            onSeek((duration * fraction.coerceIn(0f, 1f)).toLong())
+    // Polling position updates at 350ms are interpolated smoothly on-screen.
+    val rollingFraction by animateFloatAsState(
+        targetValue = actualFraction,
+        animationSpec = tween(360, easing = LinearEasing),
+        label = "odify-playhead"
+    )
+    var scrubbing by remember { mutableStateOf<Float?>(null) }
+    var pendingSeek by remember { mutableStateOf<Float?>(null) }
+    LaunchedEffect(pendingSeek) {
+        if (pendingSeek != null) {
+            delay(750)
+            pendingSeek = null
         }
     }
+    val fraction = scrubbing ?: pendingSeek ?: rollingFraction
     Canvas(
         modifier.pointerInput(duration) {
-            detectTapGestures { offset ->
-                if (size.width > 0) seek(offset.x / size.width.toFloat())
-            }
-        }.pointerInput(duration) {
-            detectDragGestures(
-                onDragStart = { offset ->
-                    if (size.width > 0) seek(offset.x / size.width.toFloat())
-                },
-                onDrag = { change, _ ->
-                    if (size.width > 0) seek(change.position.x / size.width.toFloat())
-                    change.consume()
+            awaitEachGesture {
+                val down = awaitFirstDown(requireUnconsumed = false)
+                if (duration <= 0L || size.width <= 0) return@awaitEachGesture
+                var last = (down.position.x / size.width.toFloat()).coerceIn(0f, 1f)
+                scrubbing = last
+                var completed = false
+                while (!completed) {
+                    val event = awaitPointerEvent()
+                    val change = event.changes.firstOrNull { it.id == down.id }
+                        ?: break
+                    if (change.pressed) {
+                        last = (change.position.x / size.width.toFloat())
+                            .coerceIn(0f, 1f)
+                        scrubbing = last
+                        change.consume()
+                    } else {
+                        // Exactly ONE Media3 seekTo at release; never seek on each frame.
+                        pendingSeek = last
+                        scrubbing = null
+                        onSeek((duration * last).toLong())
+                        completed = true
+                    }
                 }
-            )
+                if (!completed) scrubbing = null
+            }
         }
     ) {
-        val mid = size.height / 2f
+        val center = size.height / 2f
+        val played = Color(0xFFF6F7F8)
+        val unplayed = Color(0xFF555961)
         if (waveform.size != 96) {
-            // Codec unsupported or analysis pending: honest seek line, no fake waves.
-            drawLine(pending, Offset(0f, mid), Offset(size.width, mid),
-                strokeWidth = 2.dp.toPx())
-            drawLine(played, Offset(0f, mid),
-                Offset(size.width * playedFraction, mid), strokeWidth = 2.dp.toPx())
+            drawLine(unplayed, Offset(0f, center),
+                Offset(size.width, center), strokeWidth = 2.dp.toPx())
+            drawLine(played, Offset(0f, center),
+                Offset(size.width * fraction, center), strokeWidth = 2.dp.toPx())
         } else {
             waveform.forEachIndexed { index, amplitude ->
-                val x = (index + 0.5f) / waveform.size * size.width
-                val h = max(2.dp.toPx(), amplitude * (size.height * 0.42f))
+                val x = (index + .5f) / waveform.size * size.width
+                val height = max(2.dp.toPx(), amplitude * size.height * .42f)
                 drawLine(
-                    color = if ((index + .5f) / waveform.size <= playedFraction)
-                        played else pending,
-                    start = Offset(x, mid - h),
-                    end = Offset(x, mid + h),
+                    color = if ((index + .5f) / waveform.size <= fraction)
+                        played else unplayed,
+                    start = Offset(x, center - height),
+                    end = Offset(x, center + height),
                     strokeWidth = 2.dp.toPx()
                 )
             }
+        }
+        // Thin position marker gives a continuous indicator between waveform bins.
+        if (duration > 0L) {
+            val x = fraction.coerceIn(0f, 1f) * size.width
+            drawCircle(
+                color = playerWhite,
+                radius = 2.7.dp.toPx(),
+                center = Offset(x, center)
+            )
         }
     }
 }
