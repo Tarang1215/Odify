@@ -65,15 +65,28 @@ jobs:
           curl --fail --location --retry 3 \
             https://raw.githubusercontent.com/orioncactus/pretendard/main/LICENSE \
             --output native-android/licenses/Pretendard-OFL.txt
-      - name: Optional stable debug signing certificate
+      - name: Restore mandatory stable signing identity
         env:
           ODIFY_DEBUG_KEYSTORE_BASE64: ${{ secrets.ODIFY_DEBUG_KEYSTORE_BASE64 }}
+        shell: bash
         run: |
-          if [ -n "$ODIFY_DEBUG_KEYSTORE_BASE64" ]; then
-            mkdir -p "$HOME/.android"
-            printf '%s' "$ODIFY_DEBUG_KEYSTORE_BASE64" | base64 --decode > "$HOME/.android/debug.keystore"
-            chmod 600 "$HOME/.android/debug.keystore"
+          set -euo pipefail
+          if [ -z "$ODIFY_DEBUG_KEYSTORE_BASE64" ]; then
+            echo '::error::ODIFY_DEBUG_KEYSTORE_BASE64 repository secret is required. Refusing to generate a fresh SHA-1 signing identity.'
+            exit 1
           fi
+          mkdir -p "$HOME/.android"
+          printf '%s' "$ODIFY_DEBUG_KEYSTORE_BASE64" | base64 --decode > "$HOME/.android/debug.keystore"
+          chmod 600 "$HOME/.android/debug.keystore"
+          # Pin the certificate fingerprint: a missing/wrong secret must fail
+          # before Gradle can produce an APK with an incompatible signature.
+          FOUND_SHA1="$(keytool -list -v -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey 2>/dev/null | sed -n 's/^[[:space:]]*SHA1: //p' | head -n 1 | tr -d '\r')"
+          EXPECTED_SHA1="65:6D:46:5E:5C:72:9B:DF:21:A4:02:6C:76:4D:FB:63:6F:18:99:E5"
+          if [ "$FOUND_SHA1" != "$EXPECTED_SHA1" ]; then
+            echo "::error::Signing certificate SHA-1 mismatch. Expected $EXPECTED_SHA1, got $FOUND_SHA1"
+            exit 1
+          fi
+          echo "Odify stable preview signing SHA-1: $FOUND_SHA1"
       - name: Verify audio metadata parser tests
         run: gradle -p native-android :app:testDebugUnitTest --stacktrace --no-daemon
       - name: Compile standalone preview APK
@@ -84,14 +97,14 @@ jobs:
           test -s "$APK"
           "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | grep "package: name='com.odify.music.nativepreview.v11.debug'"
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$APK"
-      - name: Show signing certificate SHA-1 for OAuth setup
+      - name: Verify stable certificate after build
         run: |
           keytool -list -v -keystore "$HOME/.android/debug.keystore" \
-            -storepass android -alias androiddebugkey | grep 'SHA1:' || true
+            -storepass android -alias androiddebugkey | grep 'SHA1:'
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Odify-Native-v11-Native-Titles-Artwork-debug
+          name: Odify-Native-Stable-Preview-debug
           path: native-android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
