@@ -1112,12 +1112,13 @@ private fun OdifyProfile(
     onUploadToDrive: () -> Unit
 ) {
     var showMaster by remember { mutableStateOf(false) }
+    var showAdvanced by remember { mutableStateOf(false) }
     val cloudCount = songs.count { it.isCloud }
     val offlineCount = songs.size - cloudCount
     val context = androidx.compose.ui.platform.LocalContext.current
     val clipboard = LocalClipboardManager.current
-    val pilotStatus by produceState<OdifyPilotStatus?>(null) {
-        while (true) {
+    val pilotStatus by produceState<OdifyPilotStatus?>(null, showAdvanced) {
+        while (showAdvanced) {
             value = OdifyDiagnostics.snapshot(context.applicationContext)
             delay(12_000)
         }
@@ -1248,6 +1249,17 @@ private fun OdifyProfile(
             color = grey, fontSize = 11.sp, lineHeight = 16.sp
         )
         Spacer(Modifier.height(28.dp))
+        OutlinedButton(
+            onClick = { showAdvanced = !showAdvanced },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Icon(if (showAdvanced) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                null, modifier = Modifier.size(19.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(if (showAdvanced) "고급 정보 접기" else "고급 재생·저장 공간·인증 진단")
+        }
+        if (showAdvanced) {
+        Spacer(Modifier.height(16.dp))
         Text("재생 및 저장 공간", color = ink, fontSize = 14.sp,
             fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.height(15.dp))
@@ -1298,6 +1310,7 @@ private fun OdifyProfile(
         Spacer(Modifier.height(7.dp))
         OdifyInfoRow(Icons.Default.Info, "About",
             "Odify Native · Preview 12 · Stable OAuth identity")
+        }
     }
     if (showMaster) {
         OdifyMasterScreen(
