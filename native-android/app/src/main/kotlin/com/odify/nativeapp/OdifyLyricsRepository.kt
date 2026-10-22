@@ -53,10 +53,67 @@ object LrcParser {
     }
 }
 
+/**
+ * Distinguish a romanized/Latin-only lyric from Korean original text.
+ * Never overwrite a user-selected .lrc and never invent translated lyrics.
+ */
+object KoreanOriginalLyrics {
+    private val hangul = Regex("[\\uAC00-\\uD7A3]")
+    private fun key(value: String): String = java.text.Normalizer
+        .normalize(value, java.text.Normalizer.Form.NFKC)
+        .lowercase(java.util.Locale.ROOT)
+        .replace(Regex("[^\\p{L}\\p{N}]"), "")
+
+    fun needsOriginal(song: OdifySong, current: String): Boolean {
+        if (current.isBlank()) return false
+        val likelyKorean = hangul.containsMatchIn(song.title + song.artist) ||
+            listOf("k-pop", "가요", "한국", "korean").any {
+                song.genre.contains(it, ignoreCase = true)
+            }
+        val content = LrcParser.parse(current).let {
+            if (it.isTimed) it.lines.joinToString(" ") { line -> line.text }
+            else current
+        }
+        return likelyKorean && !hangul.containsMatchIn(content) &&
+            content.count(Char::isLetter) >= 50
+    }
+
+    fun verifiedOriginal(song: OdifySong, matches: List<LyricCandidate>): LyricCandidate? {
+        val exact = matches.filter {
+            key(it.songTitle) == key(song.title) &&
+                key(it.artist) == key(song.artist) &&
+                it.text.count { ch -> ch in '\\uAC00'..'\\uD7A3' } >= 12 &&
+                (song.durationMs <= 0L || it.durationSec <= 0 ||
+                    kotlin.math.abs(it.durationSec * 1000L - song.durationMs) <= 6_000L)
+        }
+        // If two competing arrangements match the same metadata, do not
+        // silently choose a version that may have different lyrics/timing.
+        return exact.singleOrNull()
+    }
+}
+
 /** Lyrics are private per-song app files; an imported LRC overrides embedded tags. */
 class OdifyLyricsRepository(private val context: Context) {
     private val root = File(context.filesDir, "lyrics").apply { mkdirs() }
     private val userAgent = "Odify/12 (https://github.com/Tarang1215/Odify)"
+    private val retryPrefs = context.getSharedPreferences("odify_lyric_original_lookup", 0)
+
+    suspend fun recoverKoreanOriginal(song: OdifySong, current: String): String? =
+        withContext(Dispatchers.IO) {
+            if (!KoreanOriginalLyrics.needsOriginal(song, current) ||
+                storedFile(song).isFile) return@withContext null
+            val now = System.currentTimeMillis()
+            val last = retryPrefs.getLong(song.id, 0L)
+            if (now - last < 24 * 60 * 60 * 1000L) return@withContext null
+            // Limit external requests per song. Network failure is recoverable
+            // tomorrow; manual Korean LRC import works at any time.
+            retryPrefs.edit().putLong(song.id, now).apply()
+            val candidate = KoreanOriginalLyrics.verifiedOriginal(
+                song, search(song.title, song.artist)
+            ) ?: return@withContext null
+            save(song, candidate.text)
+            candidate.text
+        }
 
     private fun storedFile(song: OdifySong): File {
         val hash = MessageDigest.getInstance("SHA-256")
