@@ -81,6 +81,20 @@ fun OdifySplash() {
     }
 }
 
+/** Bound decoded artwork retained across adjacent-track transitions. */
+private object OdifyCoverMemory {
+    private val images = object : LinkedHashMap<String, ImageBitmap>(32, 0.75f, true) {
+        override fun removeEldestEntry(
+            eldest: MutableMap.MutableEntry<String, ImageBitmap>?
+        ): Boolean = size > 24
+    }
+    @Synchronized fun peek(path: String?): ImageBitmap? =
+        path?.let { images[it] }
+    @Synchronized fun put(path: String, art: ImageBitmap) {
+        images[path] = art
+    }
+}
+
 @Composable
 fun AlbumArt(
     song: OdifySong?,
@@ -89,14 +103,20 @@ fun AlbumArt(
     fallbackKey: Int = 0,
     muted: Boolean = false
 ) {
-    val image by produceState<ImageBitmap?>(initialValue = null, key1 = song?.artworkPath) {
-        value = withContext(Dispatchers.IO) {
+    val coverPath = song?.artworkPath
+    val image by produceState<ImageBitmap?>(
+        initialValue = OdifyCoverMemory.peek(coverPath),
+        key1 = coverPath
+    ) {
+        value = OdifyCoverMemory.peek(coverPath) ?: withContext(Dispatchers.IO) {
             runCatching {
-                song?.artworkPath?.let { path ->
+                coverPath?.let { path ->
                     val options = BitmapFactory.Options().apply {
                         inPreferredConfig = android.graphics.Bitmap.Config.RGB_565
                     }
-                    BitmapFactory.decodeFile(path, options)?.asImageBitmap()
+                    BitmapFactory.decodeFile(path, options)?.asImageBitmap()?.also { art ->
+                        OdifyCoverMemory.put(path, art)
+                    }
                 }
             }.getOrNull()
         }
