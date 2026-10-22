@@ -164,6 +164,10 @@ fun OdifyRoot(
     onExpandedChange: (Boolean) -> Unit,
     onImport: () -> Unit,
     onImportOffline: () -> Unit,
+    onConnectDrive: () -> Unit,
+    onRefreshDrive: () -> Unit,
+    driveStatus: String,
+    driveFolder: String,
     onPlay: (List<OdifySong>, Int) -> Unit,
     onTogglePlayback: () -> Unit,
     onPrevious: () -> Unit,
@@ -277,7 +281,10 @@ fun OdifyRoot(
                 OdifyTab.Library -> OdifyLibraryScreen(
                     songs, liked, ::playList, onImport, onRemove, onEdit
                 )
-                OdifyTab.Profile -> OdifyProfile(songs, onImport, onImportOffline, importing)
+                OdifyTab.Profile -> OdifyProfile(
+                    songs, onImport, onImportOffline, importing,
+                    onConnectDrive, onRefreshDrive, driveStatus, driveFolder
+                )
             }
         }
 
@@ -660,9 +667,17 @@ private fun OdifySearch(
     onPlay: (List<OdifySong>, Int) -> Unit
 ) {
     var query by remember { mutableStateOf("") }
-    val filtered = remember(songs, query) {
-        songs.filter { it.title.contains(query, true)
-            || it.artist.contains(query, true) || it.album.contains(query, true) }
+    var genre by remember { mutableStateOf("") }
+    val genres = remember(songs) {
+        songs.map { it.genre }.filter { it.isNotBlank() }
+            .distinct().sorted().take(20)
+    }
+    val filtered = remember(songs, query, genre) {
+        songs.filter { song ->
+            (genre.isBlank() || song.genre == genre) &&
+                (query.isBlank() || listOf(song.title, song.artist, song.album,
+                    song.genre, song.lyrics).any { it.contains(query, true) })
+        }
     }
     Column(Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
         Spacer(Modifier.height(24.dp))
@@ -680,7 +695,7 @@ private fun OdifySearch(
                 modifier = Modifier.weight(1f),
                 decorationBox = { inner ->
                     Box {
-                        if (query.isEmpty()) Text("노래, 아티스트, 앨범 검색",
+                        if (query.isEmpty()) Text("노래 · 아티스트 · 장르 · 가사 검색",
                             color = grey, fontSize = 13.sp)
                         inner()
                     }
@@ -689,7 +704,25 @@ private fun OdifySearch(
             if (query.isNotBlank()) Icon(Icons.Default.Close, "지우기",
                 modifier = Modifier.size(20.dp).clickable { query = "" }, tint = grey)
         }
-        Spacer(Modifier.height(22.dp))
+        Spacer(Modifier.height(13.dp))
+        if (genres.isNotEmpty()) {
+            androidx.compose.foundation.lazy.LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(7.dp)
+            ) {
+                items(listOf("전체") + genres) { label ->
+                    val chosen = if (label == "전체") "" else label
+                    val picked = chosen == genre
+                    Box(Modifier.clip(RoundedCornerShape(18.dp))
+                        .background(if (picked) ink else pale)
+                        .clickable { genre = chosen }
+                        .padding(horizontal = 13.dp, vertical = 8.dp)) {
+                        Text(label, fontSize = 12.sp,
+                            color = if (picked) white else ink)
+                    }
+                }
+            }
+        }
+        Spacer(Modifier.height(17.dp))
         Text(if (query.isEmpty()) "내 음악" else "검색 결과 · ${filtered.size}",
             fontSize = 16.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(11.dp))
@@ -863,7 +896,11 @@ private fun OdifyProfile(
     songs: List<OdifySong>,
     onImport: () -> Unit,
     onImportOffline: () -> Unit,
-    importing: Boolean
+    importing: Boolean,
+    onConnectDrive: () -> Unit,
+    onRefreshDrive: () -> Unit,
+    driveStatus: String,
+    driveFolder: String
 ) {
     val cloudCount = songs.count { it.isCloud }
     val offlineCount = songs.size - cloudCount
@@ -902,6 +939,24 @@ private fun OdifyProfile(
         Text("Music sources", color = ink, fontSize = 14.sp,
             fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.height(13.dp))
+        OdifySourceRow(
+            icon = Icons.Default.Cloud,
+            title = if (driveFolder.isBlank()) "Google Drive 음악 서버 연결"
+                else "음악 서버 · $driveFolder",
+            subtitle = "Google 계정 연결 후 폴더 자동 인덱싱",
+            enabled = !importing, onClick = onConnectDrive
+        )
+        if (driveFolder.isNotBlank()) {
+            OdifySourceRow(
+                icon = Icons.Default.Refresh,
+                title = "지금 라이브러리 동기화",
+                subtitle = driveStatus,
+                enabled = !importing, onClick = onRefreshDrive
+            )
+        } else {
+            Text(driveStatus, color = grey, fontSize = 11.sp)
+        }
+        HorizontalDivider(color = Color(0xFFF1F1F3))
         OdifySourceRow(
             icon = Icons.Default.CloudQueue,
             title = "Google Drive · 연결",
