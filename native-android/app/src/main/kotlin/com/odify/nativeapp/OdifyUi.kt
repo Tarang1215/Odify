@@ -581,8 +581,10 @@ private fun OdifyLibraryScreen(
     liked: Set<String>,
     onPlay: (List<OdifySong>, Int) -> Unit,
     onImport: () -> Unit,
-    onRemove: (OdifySong) -> Unit
+    onRemove: (OdifySong) -> Unit,
+    onEdit: (OdifySong, String, String, String) -> Unit
 ) {
+    var editingSong by remember { mutableStateOf<OdifySong?>(null) }
     var selection by remember { mutableStateOf("Songs") }
     val modes = listOf("Songs", "Saved", "Albums", "Artists")
     val visible = when (selection) {
@@ -636,6 +638,11 @@ private fun OdifyLibraryScreen(
                             DropdownMenu(expanded = showMenu,
                                 onDismissRequest = { showMenu = false }) {
                                 DropdownMenuItem(
+                                    text = { Text("곡 정보 수정") },
+                                    onClick = { showMenu = false; editingSong = song },
+                                    leadingIcon = { Icon(Icons.Default.Edit, null) }
+                                )
+                                DropdownMenuItem(
                                     text = { Text("가져온 파일 삭제") },
                                     onClick = { showMenu = false; onRemove(song) },
                                     leadingIcon = { Icon(Icons.Default.DeleteOutline, null) }
@@ -647,6 +654,50 @@ private fun OdifyLibraryScreen(
             }
         }
     }
+    editingSong?.let { track ->
+        OdifyTrackEditDialog(track,
+            onDismiss = { editingSong = null },
+            onSave = { title, artist, album ->
+                onEdit(track, title, artist, album)
+                editingSong = null
+            })
+    }
+}
+
+@Composable
+private fun OdifyTrackEditDialog(
+    song: OdifySong,
+    onDismiss: () -> Unit,
+    onSave: (String, String, String) -> Unit
+) {
+    var title by remember(song.id) { mutableStateOf(song.title) }
+    var artist by remember(song.id) { mutableStateOf(song.artist) }
+    var album by remember(song.id) { mutableStateOf(song.album) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("곡 정보 수정", fontWeight = FontWeight.SemiBold, color = ink) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("원본 파일은 변경되지 않고 Odify의 표시 정보만 수정됩니다.",
+                    fontSize = 12.sp, color = grey)
+                OutlinedTextField(title, { title = it }, label = { Text("곡명") },
+                    singleLine = true)
+                OutlinedTextField(artist, { artist = it }, label = { Text("아티스트") },
+                    singleLine = true)
+                OutlinedTextField(album, { album = it }, label = { Text("앨범") },
+                    singleLine = true)
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onSave(title.trim(), artist.trim(), album.trim()) },
+                enabled = title.isNotBlank()
+            ) { Text("저장", color = ink) }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("취소", color = grey) } },
+        containerColor = white,
+        shape = RoundedCornerShape(22.dp)
+    )
 }
 
 @Composable
@@ -677,27 +728,93 @@ private fun OdifySongRow(
 
 @Composable
 private fun OdifyProfile(songCount: Int, onImport: () -> Unit, importing: Boolean) {
-    Column(Modifier.fillMaxSize().padding(22.dp)) {
-        Spacer(Modifier.height(15.dp))
-        Text("Odify", fontSize = 32.sp, fontWeight = FontWeight.Bold, color = ink)
-        Text("Music for a calmer you.", fontSize = 13.sp, color = grey)
+    Column(Modifier.fillMaxSize().padding(horizontal = 21.dp)) {
+        Spacer(Modifier.height(24.dp))
+        Text("Your Space", fontSize = 25.sp, fontWeight = FontWeight.Bold,
+            color = ink, letterSpacing = (-0.6).sp)
+        Spacer(Modifier.height(4.dp))
+        Text("Music for a calmer you.", fontSize = 12.sp, color = grey)
+
         Spacer(Modifier.height(27.dp))
-        Text("My Music", fontSize = 19.sp, fontWeight = FontWeight.SemiBold)
-        Spacer(Modifier.height(10.dp))
-        Text("${songCount}곡이 안전하게 기기 안에 저장되어 있습니다.",
-            fontSize = 13.sp, color = grey)
-        Spacer(Modifier.height(20.dp))
-        Button(onClick = onImport, enabled = !importing,
-            colors = ButtonDefaults.buttonColors(containerColor = ink),
-            shape = RoundedCornerShape(14.dp)) {
-            Icon(Icons.Default.CloudDownload, null)
-            Spacer(Modifier.width(9.dp))
-            Text(if (importing) "가져오는 중…" else "Google Drive에서 음악 선택")
+        Row(Modifier.fillMaxWidth()
+            .clip(RoundedCornerShape(17.dp))
+            .background(pale)
+            .padding(horizontal = 19.dp, vertical = 20.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(Modifier.size(49.dp).clip(RoundedCornerShape(15.dp))
+                .background(ink), contentAlignment = Alignment.Center) {
+                Icon(Icons.Default.MusicNote, null, tint = white,
+                    modifier = Modifier.size(27.dp))
+            }
+            Spacer(Modifier.width(14.dp))
+            Column {
+                Text("My Music", color = ink, fontSize = 16.sp,
+                    fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.height(4.dp))
+                Text("${songCount}곡 · 오프라인에서 재생 가능", color = grey, fontSize = 11.sp)
+            }
         }
-        Spacer(Modifier.height(23.dp))
-        Text("로그인·광범위 저장소 권한 없이 Android 파일 선택기만 사용합니다.",
-            fontSize = 12.sp, color = grey, lineHeight = 17.sp)
-        Text("Mornye 및 YouTube 플레이어와 분리된 독립 테스트 앱입니다.",
-            fontSize = 12.sp, color = grey, lineHeight = 17.sp)
+
+        Spacer(Modifier.height(33.dp))
+        Text("Music sources", color = ink, fontSize = 14.sp,
+            fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.height(11.dp))
+        Row(
+            Modifier.fillMaxWidth()
+                .clip(RoundedCornerShape(13.dp))
+                .clickable(enabled = !importing, onClick = onImport)
+                .padding(vertical = 13.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(Modifier.size(37.dp).clip(RoundedCornerShape(11.dp))
+                .background(pale), contentAlignment = Alignment.Center) {
+                Icon(Icons.Default.CloudDownload, null, tint = ink,
+                    modifier = Modifier.size(20.dp))
+            }
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f)) {
+                Text("Google Drive", fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold, color = ink)
+                Text(if (importing) "음악을 가져오는 중…" else "음원 선택 및 보관",
+                    fontSize = 11.sp, color = grey)
+            }
+            Icon(Icons.Default.ChevronRight, null, tint = grey)
+        }
+        HorizontalDivider(color = Color(0xFFF1F1F3))
+        Spacer(Modifier.height(30.dp))
+
+        Text("Playback & storage", color = ink, fontSize = 14.sp,
+            fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.height(15.dp))
+        OdifyInfoRow(Icons.Default.Headphones, "Audio engine",
+            "Android Media3 · background playback")
+        Spacer(Modifier.height(7.dp))
+        OdifyInfoRow(Icons.Default.OfflinePin, "Offline library",
+            "${songCount} files stored on this device")
+        Spacer(Modifier.height(7.dp))
+        OdifyInfoRow(Icons.Default.InfoOutline, "About",
+            "Odify Native · UI Preview 2")
+    }
+}
+
+@Composable
+private fun OdifyInfoRow(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    title: String,
+    subtitle: String
+) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(37.dp).clip(RoundedCornerShape(11.dp))
+            .background(pale), contentAlignment = Alignment.Center) {
+            Icon(icon, null, tint = ink, modifier = Modifier.size(19.dp))
+        }
+        Spacer(Modifier.width(13.dp))
+        Column {
+            Text(title, color = ink, fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold)
+            Text(subtitle, color = grey, fontSize = 11.sp)
+        }
     }
 }
