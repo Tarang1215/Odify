@@ -13,7 +13,7 @@ Usage:
 
 The search endpoint costs 100 YouTube quota units per unique query. At the
 default 10,000 units/day this limits new searches to ~100/day; cached queries
-and batched videos.list details reduce redundant requests, not quota prices.
+10,000-unit general read bucket. Cache hits reduce the number of calls.
 """
 from __future__ import annotations
 
@@ -152,7 +152,7 @@ def run(master: Path, output: Path, cache_file: Path, year: str | None,
     summary = {"pending_tracks": len(todo), "unique_queries": len(queries),
                "cached_queries": len(queries) - len(missing),
                "new_searches": len(chosen),
-               "estimated_search_quota": 100 * len(chosen)}
+               "planned_search_calls": len(chosen)}
     if dry_run:
         return summary
     if not key and todo:
