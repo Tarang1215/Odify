@@ -764,13 +764,15 @@ private fun OdifyLibraryScreen(
 ) {
     var editingSong by remember { mutableStateOf<OdifySong?>(null) }
     var selection by remember { mutableStateOf("Songs") }
+    var showDuplicates by remember { mutableStateOf(false) }
     val modes = listOf("Songs", "Saved", "Albums", "Artists")
-    val visible = when (selection) {
+    val rawVisible = when (selection) {
         "Saved" -> songs.filter { it.id in liked }
         "Albums" -> songs.distinctBy { it.album.ifEmpty { it.title } }
         "Artists" -> songs.distinctBy { it.artist }
         else -> songs
     }
+    val visible = OdifySongPresentation.visible(rawVisible, showDuplicates)
     Column(Modifier.fillMaxSize().padding(start = 20.dp, end = 20.dp)) {
         Spacer(Modifier.height(23.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -790,7 +792,14 @@ private fun OdifyLibraryScreen(
                 }
             }
         }
-        Spacer(Modifier.height(24.dp))
+        Spacer(Modifier.height(12.dp))
+        Text(
+            if (showDuplicates) "중복 파일 숨기기" else "MP3 / M4A 중복 파일 모두 보기",
+            color = grey, fontSize = 11.sp,
+            modifier = Modifier.clickable { showDuplicates = !showDuplicates }
+                .padding(vertical = 7.dp)
+        )
+        Spacer(Modifier.height(12.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Recently added", fontSize = 12.sp, color = grey,
                 modifier = Modifier.weight(1f))
@@ -803,8 +812,7 @@ private fun OdifyLibraryScreen(
                 OdifySongRow(
                     song = song,
                     onClick = {
-                        val queue = if (selection == "Songs" || selection == "Saved")
-                            visible else songs
+                        val queue = visible
                         onPlay(queue, queue.indexOf(song))
                     },
                     trailing = {
