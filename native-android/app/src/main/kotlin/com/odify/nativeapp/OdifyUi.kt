@@ -3,6 +3,8 @@ package com.odify.nativeapp
 import android.graphics.BitmapFactory
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
@@ -24,6 +26,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.unit.IntOffset
+import kotlin.math.roundToInt
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.Brush
@@ -51,7 +55,7 @@ private val grey = Color(0xFF83868D)
 private val pale = Color(0xFFF4F4F6)
 private val white = Color.White
 private val glass = Brush.horizontalGradient(
-    listOf(Color(0xEC24272C), Color(0xF02B2E34))
+    listOf(Color(0xF22C3036), Color(0xF026292E))
 )
 
 enum class OdifyTab { Home, Search, Library, Profile }
@@ -167,105 +171,117 @@ fun OdifyRoot(
         prefs.edit().putStringSet("likes", liked).apply()
     }
 
-    // User gesture drives hiding, not a heavy constantly-running animation.
-    val scrollConnection = remember(active?.id) {
-        object : NestedScrollConnection {
-            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                if (source == NestedScrollSource.UserInput) {
-                    scrollDistance += available.y
-                    if (abs(scrollDistance) >= 18f) {
-                        interaction++
-                        if (active != null) {
-                            navVisible = scrollDistance > 0f // finger down = show
-                        } else navVisible = true
-                        scrollDistance = 0f
-                    }
-                }
-                return Offset.Zero
-            }
-        }
-    }
-    // Idle navigation applies whenever a song is loaded, even when paused.
-    LaunchedEffect(active?.id, interaction, selectedTab) {
-        if (active != null) {
-            delay(3300)
-            navVisible = false
-        } else {
+
+    // Both controls live in a stable overlay. Animating layout height caused
+    // the old mini-player to snap down after the navigation animation finished.
+    val navShown = navVisible || active == null
+    val navFraction by animateFloatAsState(
+        targetValue = if (navShown) 1f else 0f,
+        animationSpec = tween(durationMillis = 360, easing = FastOutSlowInEasing),
+        label = "odify-nav-and-mini-linked"
+    )
+    LaunchedEffect(active?.id, interaction, selectedTab, expanded) {
+        if (active == null) {
             navVisible = true
+        } else if (!expanded) {
+            delay(3400)
+            navVisible = false
         }
     }
     LaunchedEffect(selectedTab) { navVisible = true }
 
+    val barHeight = 66.dp
+    val barHeightPx = with(androidx.compose.ui.platform.LocalDensity.current) {
+        barHeight.toPx()
+    }
     Box(Modifier.fillMaxSize().background(white)) {
-        Column(
+        // Only the light screens are inset. Fullscreen player must retain
+        // status-bar background and apply its own insets exactly once.
+        Box(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
+        Box(
             Modifier.fillMaxSize()
-                .statusBarsPadding().navigationBarsPadding()
-                .nestedScroll(scrollConnection)
-                // Observe gestures without consuming them. Works even when a 5-song
-                // library is too short to scroll or LazyColumn hits its boundary.
+                // Stable bottom padding: the content never reflows when nav hides.
+                .padding(bottom = if (active == null) 80.dp else 135.dp)
                 .pointerInput(active?.id, selectedTab) {
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
                         var previousY = down.position.y
-                        var deltaY = 0f
+                        var net = 0f
                         while (true) {
                             val event = awaitPointerEvent(PointerEventPass.Initial)
-                            val current = event.changes.firstOrNull { it.id == down.id }
+                            val pointer = event.changes.firstOrNull { it.id == down.id }
                                 ?: break
-                            if (!current.pressed) break
-                            deltaY += current.position.y - previousY
-                            previousY = current.position.y
-                            if (kotlin.math.abs(deltaY) > 22.dp.toPx()) {
+                            if (!pointer.pressed) break
+                            net += pointer.position.y - previousY
+                            previousY = pointer.position.y
+                            if (kotlin.math.abs(net) >= 27.dp.toPx()) {
                                 if (active != null) {
-                                    navVisible = deltaY > 0f // swipe down => reveal
+                                    val shouldShow = net > 0f
+                                    if (navVisible != shouldShow) {
+                                        navVisible = shouldShow
+                                    }
                                     interaction++
                                 }
-                                deltaY = 0f
+                                net = 0f
                             }
                         }
                     }
                 }
         ) {
-            Box(Modifier.weight(1f)) {
-                when (selectedTab) {
-                    OdifyTab.Home -> OdifyHome(
-                        songs, displayed, recent.isNotEmpty(), onImport, importing,
-                        onSearch = { selectedTab = OdifyTab.Search },
-                        onPlay = ::playList
-                    )
-                    OdifyTab.Search -> OdifySearch(songs, onImport, ::playList)
-                    OdifyTab.Library -> OdifyLibraryScreen(
-                        songs, liked, ::playList, onImport, onRemove, onEdit
-                    )
-                    OdifyTab.Profile -> OdifyProfile(songs.size, onImport, importing)
-                }
+            when (selectedTab) {
+                OdifyTab.Home -> OdifyHome(
+                    songs, displayed, recent.isNotEmpty(), onImport, importing,
+                    onSearch = { selectedTab = OdifyTab.Search },
+                    onPlay = ::playList
+                )
+                OdifyTab.Search -> OdifySearch(songs, onImport, ::playList)
+                OdifyTab.Library -> OdifyLibraryScreen(
+                    songs, liked, ::playList, onImport, onRemove, onEdit
+                )
+                OdifyTab.Profile -> OdifyProfile(songs.size, onImport, importing)
             }
-            if (active != null) {
+        }
+
+        // Nav slides out of the screen while mini-player moves down by the same
+        // animated fraction. Both use one clock/easing: no second abrupt jump.
+        Box(
+            Modifier.align(Alignment.BottomCenter)
+                .offset {
+                    IntOffset(0, ((1f - navFraction) * barHeightPx).roundToInt())
+                }
+        ) {
+            OdifyBottomBar(selectedTab) {
+                selectedTab = it
+                navVisible = true
+                interaction++
+            }
+        }
+        if (active != null) {
+            Box(
+                Modifier.align(Alignment.BottomCenter)
+                    .offset {
+                        IntOffset(0, (-navFraction * barHeightPx).roundToInt())
+                    }
+            ) {
                 OdifyMiniPlayer(active, playback.isPlaying, active.id in liked,
                     onExpand = { onExpandedChange(true) },
                     onToggle = onTogglePlayback,
                     onLike = { toggleLike(active.id) })
             }
-            AnimatedVisibility(
-                visible = navVisible || active == null,
-                enter = slideInVertically(tween(250)) { it } + fadeIn(tween(250)),
-                exit = slideOutVertically(tween(220)) { it } + fadeOut(tween(220))
-            ) {
-                OdifyBottomBar(selectedTab) {
-                    selectedTab = it
-                    navVisible = true
-                }
-            }
         }
+
+        } // light UI layer; mini and nav share safe-area coordinates
         AnimatedVisibility(
             visible = expanded,
-            enter = slideInVertically(tween(310)) { it },
-            exit = slideOutVertically(tween(270)) { it },
+            enter = slideInVertically(tween(340, easing = FastOutSlowInEasing)) { it },
+            exit = slideOutVertically(tween(320, easing = FastOutSlowInEasing)) { it },
             modifier = Modifier.fillMaxSize()
         ) {
             if (active != null) {
                 OdifyNowPlaying(
                     song = active,
+                    previousSong = songs.firstOrNull { it.id == playback.previousMediaId },
+                    nextSong = songs.firstOrNull { it.id == playback.nextMediaId },
                     playing = playback.isPlaying,
                     position = playback.position,
                     duration = playback.duration.takeIf { it > 0 } ?: active.durationMs,
@@ -485,9 +501,16 @@ private fun EmptyMusicPrompt(onImport: () -> Unit, importing: Boolean) {
 
 @Composable
 private fun OdifyBottomBar(selected: OdifyTab, onSelected: (OdifyTab) -> Unit) {
+    val navShape = RoundedCornerShape(topStart = 23.dp, topEnd = 23.dp)
     Row(Modifier.fillMaxWidth()
-        .background(Color(0xFCFAFAFB))
-        .height(59.dp).padding(horizontal = 12.dp),
+        .height(66.dp)
+        .shadow(10.dp, navShape, clip = false)
+        .clip(navShape)
+        .background(Brush.verticalGradient(listOf(
+            Color(0xF9FFFFFF), Color(0xF4F6F6F8)
+        )))
+        .border(0.7.dp, Color(0xFFE9E9EB), navShape)
+        .padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         val icons = mapOf(
@@ -528,12 +551,12 @@ private fun OdifyMiniPlayer(
     onLike: () -> Unit
 ) {
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 5.dp)
-            .height(55.dp)
-            .shadow(5.dp, RoundedCornerShape(19.dp))
-            .clip(RoundedCornerShape(19.dp))
+        Modifier.fillMaxWidth().padding(horizontal = 11.dp, vertical = 5.dp)
+            .height(56.dp)
+            .shadow(8.dp, RoundedCornerShape(22.dp))
+            .clip(RoundedCornerShape(22.dp))
             .background(glass)
-            .border(0.7.dp, white.copy(alpha = .27f), RoundedCornerShape(19.dp))
+            .border(0.8.dp, white.copy(alpha = .30f), RoundedCornerShape(22.dp))
             .clickable(onClick = onExpand)
             .padding(horizontal = 8.dp),
         verticalAlignment = Alignment.CenterVertically
