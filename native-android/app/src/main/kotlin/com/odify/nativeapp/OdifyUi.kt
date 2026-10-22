@@ -58,12 +58,12 @@ fun OdifySplash() {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             // Reuse the precise monochrome Odify icon in the system launcher.
             androidx.compose.foundation.Image(
-                painter = androidx.compose.ui.res.painterResource(R.drawable.odify_mark),
+                painter = androidx.compose.ui.res.painterResource(R.drawable.odify_symbol_black),
                 contentDescription = "Odify",
-                modifier = Modifier.size(90.dp)
+                modifier = Modifier.size(96.dp)
             )
             Spacer(Modifier.height(16.dp))
-            Text("Odify", fontSize = 32.sp, fontWeight = FontWeight.Bold,
+            Text("Odify", fontSize = 29.sp, fontWeight = FontWeight.Bold,
                 letterSpacing = (-1.3).sp, color = ink)
         }
     }
