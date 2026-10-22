@@ -47,7 +47,9 @@ data class OdifyPlaybackSnapshot(
     val mediaId: String? = null,
     val isPlaying: Boolean = false,
     val position: Long = 0L,
-    val duration: Long = 0L
+    val duration: Long = 0L,
+    val previousMediaId: String? = null,
+    val nextMediaId: String? = null
 )
 
 @Composable
@@ -77,11 +79,17 @@ private fun NativeOdify() {
         val player = controller ?: return@LaunchedEffect
         while (isActive) {
             val currentDuration = player.duration
+            val previousIndex = player.previousMediaItemIndex
+            val nextIndex = player.nextMediaItemIndex
             playback = OdifyPlaybackSnapshot(
                 mediaId = player.currentMediaItem?.mediaId,
                 isPlaying = player.isPlaying,
                 position = player.currentPosition.coerceAtLeast(0L),
-                duration = if (currentDuration > 0L) currentDuration else 0L
+                duration = if (currentDuration > 0L) currentDuration else 0L,
+                previousMediaId = if (previousIndex >= 0)
+                    player.getMediaItemAt(previousIndex).mediaId else null,
+                nextMediaId = if (nextIndex >= 0)
+                    player.getMediaItemAt(nextIndex).mediaId else null
             )
             delay(350L)
         }
