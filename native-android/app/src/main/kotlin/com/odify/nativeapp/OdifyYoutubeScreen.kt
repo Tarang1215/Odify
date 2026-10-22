@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -90,7 +91,12 @@ fun OdifyYoutubeScreen(
     LaunchedEffect(connected) {if(connected) loadOwned()}
     fun match(song:YoutubeVideo):OdifySong? =
         OdifyYouTubeMatcher.find(song,localSongs,master)
-    Dialog(onDismissRequest=onClose,
+    // Back from a playlist returns to the playlist overview before closing
+    // the entire YouTube source screen.
+    Dialog(onDismissRequest={
+        if (selected != null) { selected = null; videos = emptyList() }
+        else onClose()
+    },
         properties=DialogProperties(usePlatformDefaultWidth=false)) {
         Surface(Modifier.fillMaxSize().statusBarsPadding()
             .navigationBarsPadding().padding(10.dp),
@@ -162,7 +168,10 @@ fun OdifyYoutubeScreen(
                         fontSize=10.sp,color=Color.Gray,lineHeight=16.sp)
                     Spacer(Modifier.height(7.dp))
                     LazyColumn {
-                        items(videos,key={it.videoId}) { v ->
+                        // The same YouTube video can legitimately occur more
+                        // than once in a playlist. Its ID alone is not a unique
+                        // Compose list key and can crash LazyColumn.
+                        itemsIndexed(videos,key={ index,v -> "${index}:${v.videoId}" }) { _,v ->
                             val held=match(v)
                             Column(
                                 Modifier.fillMaxWidth()
