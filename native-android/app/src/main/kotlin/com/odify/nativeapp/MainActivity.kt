@@ -6,6 +6,21 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.result.IntentSenderRequest
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.clickable
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.font.FontWeight
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import com.google.android.gms.auth.api.identity.Identity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
@@ -71,17 +86,29 @@ private fun NativeOdify() {
     var importing by remember { mutableStateOf(false) }
     var importAsOffline by remember { mutableStateOf(false) }
     var startup by remember { mutableStateOf(true) }
+    val drive = remember { OdifyDriveSync(context.applicationContext) }
+    var showDriveFolderPicker by remember { mutableStateOf(false) }
+    var driveStatus by remember { mutableStateOf(
+        if (drive.folderId.isNotBlank()) "Drive folder: ${drive.folderName}"
+        else "Drive account not linked"
+    ) }
+    var refreshCounter by remember { mutableIntStateOf(0) }
     val scope = rememberCoroutineScope()
 
     // Prime waveform caches while the user browses the library, rather than
     // starting a multi-minute PCM decode when Now Playing is first opened.
     // Analyze one track at a time off the UI thread; prioritize the current
     // track and cap work to protect large music libraries/battery.
-    LaunchedEffect(songs, playback.mediaId) {
+    LaunchedEffect(playback.mediaId) {
         val active = songs.firstOrNull { it.id == playback.mediaId }
+        if (active?.id?.startsWith("gdrive-") == true) {
+            // Fetch only cover metadata for the playing file, never full audio.
+            val cover = OdifyDriveArtwork.warm(context.applicationContext, active)
+            if (cover != null) songs = library.songs()
+        }
         // Never prefetch the entire remote collection. Only analyze the one
         // currently requested Drive track, and keep that expensive read off UI.
-        if (active?.isCloud == true) {
+        if (active?.isCloud == true && !active.id.startsWith("gdrive-")) {
             kotlinx.coroutines.delay(1250L)
             OdifyWaveformRepository.load(context.applicationContext, active)
         } else {
@@ -91,6 +118,21 @@ private fun NativeOdify() {
                 OdifyWaveformRepository.load(context.applicationContext, track)
                 kotlinx.coroutines.yield()
             }
+        }
+    }
+
+    // Refresh catalog when returning to the app, and after background worker sync.
+    LaunchedEffect(Unit) {
+        if (drive.folderId.isNotBlank()) {
+            runCatching { drive.refresh(library) }.onSuccess { count ->
+                songs = library.songs()
+                driveStatus = "$count tracks indexed · ${drive.folderName}"
+            }.onFailure { driveStatus = "Drive sync: ${it.message}" }
+        }
+        OdifyDriveScheduler.enable(context.applicationContext)
+        while (true) {
+            delay(60_000L)
+            if (drive.folderId.isNotBlank()) songs = library.songs()
         }
     }
 
@@ -121,6 +163,56 @@ private fun NativeOdify() {
                     player.getMediaItemAt(nextIndex).mediaId else null
             )
             delay(350L)
+        }
+    }
+
+    val consentLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartIntentSenderForResult()
+    ) { result ->
+        runCatching {
+            require(result.resultCode == android.app.Activity.RESULT_OK)
+            OdifyDriveAuth.finish(context, result.data)
+        }.onSuccess {
+            driveStatus = "Drive permission granted"
+            showDriveFolderPicker = true
+        }.onFailure { driveStatus = "Google Drive login failed: ${it.message}" }
+    }
+
+    fun connectDrive() {
+        driveStatus = "Requesting Google Drive read-only permission…"
+        OdifyDriveAuth.authorize(activity) { result, error ->
+            when {
+                error != null -> driveStatus = "Google Drive: ${error.message}"
+                result == null -> driveStatus = "Google Drive authorization unavailable"
+                result.hasResolution() -> {
+                    val pending = result.pendingIntent
+                    if (pending != null) {
+                        consentLauncher.launch(
+                            IntentSenderRequest.Builder(pending.intentSender).build()
+                        )
+                    } else driveStatus = "Google Drive consent unavailable"
+                }
+                else -> {
+                    driveStatus = "Drive connected. Choose your music folder."
+                    showDriveFolderPicker = true
+                }
+            }
+        }
+    }
+
+    fun refreshDrive() {
+        if (drive.folderId.isBlank()) {
+            connectDrive()
+            return
+        }
+        scope.launch {
+            importing = true
+            driveStatus = "Scanning Google Drive music folder…"
+            runCatching { drive.refresh(library) }.onSuccess { count ->
+                songs = library.songs()
+                driveStatus = "$count tracks indexed · ${drive.folderName}"
+            }.onFailure { driveStatus = "Drive sync error: ${it.message}" }
+            importing = false
         }
     }
 
@@ -183,6 +275,17 @@ private fun NativeOdify() {
         insets.isAppearanceLightNavigationBars = !expanded
     }
 
+    if (showDriveFolderPicker) {
+        OdifyDriveFolderDialog(
+            onDismiss = { showDriveFolderPicker = false },
+            onSelect = { id, name ->
+                drive.setFolder(id, name)
+                showDriveFolderPicker = false
+                refreshDrive()
+            }
+        )
+    }
+
     if (startup) {
         OdifySplash()
     } else {
@@ -200,6 +303,10 @@ private fun NativeOdify() {
                 importAsOffline = true
                 picker.launch(arrayOf("audio/*"))
             },
+            onConnectDrive = { connectDrive() },
+            onRefreshDrive = { refreshDrive() },
+            driveStatus = driveStatus,
+            driveFolder = drive.folderName,
             onPlay = { list, index -> playFrom(list, index) },
             onTogglePlayback = { toggle() },
             onPrevious = { controller?.seekToPreviousMediaItem() },
