@@ -69,6 +69,8 @@ private fun NativeOdify() {
     val activity = context as ComponentActivity
     val library = remember { OdifyLibrary(context.applicationContext) }
     val driveCatalog = remember { DriveCatalog(context.applicationContext) }
+    val masterDb = remember { OdifyMasterDatabase(context.applicationContext) }
+    val artworkFallback = remember { OdifyArtworkFallback(context.applicationContext) }
     val drivePrefs = remember {
         context.getSharedPreferences("odify_drive_consent_state", 0)
     }
@@ -103,6 +105,27 @@ private fun NativeOdify() {
                 songs = merged
                 driveConnected = true
                 driveStatus = "음악 ${n}곡 동기화 완료"
+                // MASTER is a Google Sheet; after ordinary Drive indexing,
+                // use its previously verified YouTube Art Track links only
+                // when the audio itself has no cover image.
+                scope.launch {
+                    runCatching {
+                        withContext(Dispatchers.IO) {
+                            val master = runCatching { masterDb.sync() }
+                                .getOrElse { masterDb.loadCached() }
+                            if (master.isNotEmpty()) {
+                                val syncedSongs = driveCatalog.tracks()
+                                artworkFallback.warm(driveCatalog, syncedSongs, master, 14)
+                            } else 0
+                        }
+                    }.onSuccess { refreshed ->
+                        if (refreshed > 0) {
+                            songs = withContext(Dispatchers.IO) {
+                                library.songs() + driveCatalog.tracks()
+                            }
+                        }
+                    }
+                }
                 // A few covers become visible in Search/Home before first play.
                 // This runs after sync, off the UI thread, with daily retry caps.
                 scope.launch {
@@ -361,6 +384,18 @@ private fun NativeOdify() {
                     songs = library.songs()
                     if (driveConnected) refreshCatalog()
                 }.onFailure { driveStatus = it.message ?: "폴더 ID를 확인하세요." }
+            },
+            onMasterUpdated = { master ->
+                scope.launch {
+                    val count = withContext(Dispatchers.IO) {
+                        artworkFallback.warm(
+                            driveCatalog, driveCatalog.tracks(), master, 18
+                        )
+                    }
+                    if (count > 0) songs = withContext(Dispatchers.IO) {
+                        library.songs() + driveCatalog.tracks()
+                    }
+                }
             },
             importing = importing,
             expanded = expanded,
