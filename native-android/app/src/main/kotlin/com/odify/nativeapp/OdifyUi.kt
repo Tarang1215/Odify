@@ -106,23 +106,29 @@ fun AlbumArt(
     muted: Boolean = false
 ) {
     val coverPath = song?.artworkPath
-    val image by produceState<ImageBitmap?>(
-        initialValue = OdifyCoverMemory.peek(coverPath),
-        key1 = coverPath
-    ) {
-        value = OdifyCoverMemory.peek(coverPath) ?: withContext(Dispatchers.IO) {
-            runCatching {
-                coverPath?.let { path ->
-                    val options = BitmapFactory.Options().apply {
-                        inPreferredConfig = android.graphics.Bitmap.Config.RGB_565
+    // produceState(key1=...) restarts its loader but keeps the OLD image value
+    // for a frame when the song changes. remember(key) recreates state, so
+    // neighbor transitions can never flash the previously selected cover.
+    val imageState = remember(coverPath) {
+        mutableStateOf(OdifyCoverMemory.peek(coverPath))
+    }
+    LaunchedEffect(coverPath) {
+        if (imageState.value == null) {
+            imageState.value = withContext(Dispatchers.IO) {
+                runCatching {
+                    coverPath?.let { path ->
+                        val options = BitmapFactory.Options().apply {
+                            inPreferredConfig = android.graphics.Bitmap.Config.RGB_565
+                        }
+                        BitmapFactory.decodeFile(path, options)?.asImageBitmap()?.also { art ->
+                            OdifyCoverMemory.put(path, art)
+                        }
                     }
-                    BitmapFactory.decodeFile(path, options)?.asImageBitmap()?.also { art ->
-                        OdifyCoverMemory.put(path, art)
-                    }
-                }
-            }.getOrNull()
+                }.getOrNull()
+            }
         }
     }
+    val image = imageState.value
     val neutralPalette = listOf(
         listOf(Color(0xFF393D44), Color(0xFF858C94)),
         listOf(Color(0xFF242E39), Color(0xFF868A88)),
