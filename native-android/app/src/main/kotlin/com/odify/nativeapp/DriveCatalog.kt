@@ -215,6 +215,11 @@ class DriveCatalog(private val context: Context) {
         db.writableDatabase.update("tracks", cv, "id=?", arrayOf(id))
     }
 
+    /** Original extension for device export; the user's title may omit it. */
+    fun filename(fileId: String): String? = db.readableDatabase.rawQuery(
+        "SELECT name FROM tracks WHERE id=? LIMIT 1", arrayOf(fileId)
+    ).use { c -> if (c.moveToFirst()) c.getString(0) else null }
+
     fun tracks(): List<OdifySong> {
         val result = ArrayList<OdifySong>()
         val hidden = prefs.getStringSet("hidden", emptySet()) ?: emptySet()
