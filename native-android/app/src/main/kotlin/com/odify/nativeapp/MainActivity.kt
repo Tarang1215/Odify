@@ -6,6 +6,10 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.result.IntentSenderRequest
+import android.app.Activity
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
@@ -64,6 +68,14 @@ private fun NativeOdify() {
     val context = LocalContext.current
     val activity = context as ComponentActivity
     val library = remember { OdifyLibrary(context.applicationContext) }
+    val driveCatalog = remember { DriveCatalog(context.applicationContext) }
+    val drivePrefs = remember {
+        context.getSharedPreferences("odify_drive_consent_state", 0)
+    }
+    var driveConnected by remember { mutableStateOf(false) }
+    var driveBusy by remember { mutableStateOf(false) }
+    var driveStatus by remember { mutableStateOf("Google Drive 계정을 연결하세요.") }
+    var driveFolder by remember { mutableStateOf(driveCatalog.folderId) }
     var songs by remember { mutableStateOf(library.songs()) }
     var controller by remember { mutableStateOf<MediaController?>(null) }
     var playback by remember { mutableStateOf(OdifyPlaybackSnapshot()) }
@@ -72,6 +84,94 @@ private fun NativeOdify() {
     var importAsOffline by remember { mutableStateOf(false) }
     var startup by remember { mutableStateOf(true) }
     val scope = rememberCoroutineScope()
+
+    fun refreshCatalog(showProgress: Boolean = true) {
+        if (driveBusy || !DriveAuth.connected) return
+        scope.launch {
+            driveBusy = true
+            if (showProgress) driveStatus = "Drive 음악 목록을 업데이트하고 있습니다."
+            try {
+                val (n, merged) = withContext(Dispatchers.IO) {
+                    val count = driveCatalog.sync()
+                    count to (library.songs() + driveCatalog.tracks())
+                }
+                songs = merged
+                driveConnected = true
+                driveStatus = "음악 ${n}곡 동기화 완료"
+            } catch (e: Exception) {
+                driveStatus = "Drive 동기화 실패: ${e.message ?: "연결 확인 필요"}"
+            } finally {
+                driveBusy = false
+            }
+        }
+    }
+
+    val driveAuthorization = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartIntentSenderForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            val token = runCatching { DriveAuth.resolve(activity, result.data) }.getOrNull()
+            if (!token.isNullOrBlank()) {
+                driveConnected = true
+                drivePrefs.edit().putBoolean("enabled", true).apply()
+                refreshCatalog()
+            } else driveStatus = "Google 인증이 완료되지 않았습니다."
+        } else driveStatus = "Google Drive 권한 요청이 취소되었습니다."
+    }
+
+    fun connectDrive() {
+        driveStatus = "Google Drive 권한을 확인 중입니다."
+        DriveAuth.authorize(activity,
+            onToken = {
+                driveConnected = true
+                drivePrefs.edit().putBoolean("enabled", true).apply()
+                refreshCatalog()
+            },
+            onResolution = { pending ->
+                driveAuthorization.launch(
+                    IntentSenderRequest.Builder(pending.intentSender).build()
+                )
+            },
+            onError = { driveStatus = "Google 로그인 실패: $it" }
+        )
+    }
+
+    LaunchedEffect(Unit) {
+        songs = withContext(Dispatchers.IO) {
+            library.songs() + driveCatalog.tracks()
+        }
+        if (drivePrefs.getBoolean("enabled", false)) {
+            // Silent renewal only. Never launch OAuth consent without interaction.
+            DriveAuth.authorize(activity,
+                onToken = {
+                    driveConnected = true
+                    refreshCatalog(showProgress = false)
+                },
+                onResolution = { driveStatus = "Drive 연결 버튼을 눌러 로그인하세요." },
+                onError = { driveStatus = "Drive 연결 버튼을 눌러 다시 로그인하세요." }
+            )
+        }
+    }
+    LaunchedEffect(driveConnected) {
+        while (driveConnected && isActive) {
+            delay(15L * 60L * 1000L)
+            refreshCatalog(showProgress = false)
+        }
+    }
+    LaunchedEffect(playback.mediaId) {
+        val track = songs.firstOrNull { it.id == playback.mediaId }
+        if (track != null && track.id.startsWith("gdrive:") &&
+            track.artworkPath == null && driveConnected) {
+            val found = runCatching { driveCatalog.ensureCover(track) }.getOrDefault(false)
+            if (found) {
+                val reloaded = withContext(Dispatchers.IO) { driveCatalog.tracks() }
+                val art = reloaded.firstOrNull { it.id == track.id }?.artworkPath
+                if (art != null) songs = songs.map {
+                    if (it.id == track.id) it.copy(artworkPath = art) else it
+                }
+            }
+        }
+    }
 
     // Prime waveform caches while the user browses the library, rather than
     // starting a multi-minute PCM decode when Now Playing is first opened.
@@ -132,7 +232,9 @@ private fun NativeOdify() {
                 importing = true
                 val result = if (importAsOffline) library.importFiles(uris)
                     else library.linkCloudDocuments(uris)
-                songs = library.songs()
+                songs = withContext(Dispatchers.IO) {
+                    library.songs() + driveCatalog.tracks()
+                }
                 importing = false
                 result.onSuccess {
                     Toast.makeText(context,
@@ -189,6 +291,20 @@ private fun NativeOdify() {
         OdifyRoot(
             songs = songs,
             playback = playback,
+            driveConnected = driveConnected,
+            driveBusy = driveBusy,
+            driveStatus = driveStatus,
+            driveFolder = driveFolder,
+            onDriveConnect = { connectDrive() },
+            onDriveSync = { refreshCatalog() },
+            onDriveFolderChange = { newId ->
+                runCatching {
+                    driveCatalog.setFolder(newId)
+                    driveFolder = newId
+                    songs = library.songs()
+                    if (driveConnected) refreshCatalog()
+                }.onFailure { driveStatus = it.message ?: "폴더 ID를 확인하세요." }
+            },
             importing = importing,
             expanded = expanded,
             onExpandedChange = { expanded = it },
@@ -216,8 +332,17 @@ private fun NativeOdify() {
             },
             onEdit = { song, title, artist, album ->
                 scope.launch {
-                    runCatching { library.updateMetadata(song, title, artist, album) }
-                        .onSuccess { songs = library.songs() }
+                    runCatching {
+                        if (song.id.startsWith("gdrive:")) {
+                            withContext(Dispatchers.IO) {
+                                driveCatalog.updateMetadata(song, title, artist, album)
+                            }
+                        } else library.updateMetadata(song, title, artist, album)
+                    }.onSuccess {
+                        songs = withContext(Dispatchers.IO) {
+                            library.songs() + driveCatalog.tracks()
+                        }
+                    }
                         .onFailure {
                             Toast.makeText(context, it.message ?: "정보 저장 실패",
                                 Toast.LENGTH_LONG).show()
@@ -227,8 +352,12 @@ private fun NativeOdify() {
             onRemove = { track ->
                 scope.launch {
                     if (playback.mediaId == track.id) controller?.stop()
-                    library.delete(track)
-                    songs = library.songs()
+                    if (track.id.startsWith("gdrive:")) {
+                        withContext(Dispatchers.IO) { driveCatalog.hideTrack(track) }
+                    } else library.delete(track)
+                    songs = withContext(Dispatchers.IO) {
+                        library.songs() + driveCatalog.tracks()
+                    }
                 }
             }
         )
