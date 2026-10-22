@@ -160,15 +160,25 @@ def tag_audio(path: Path, song: dict, original_url: str) -> None:
         print(f"  ! 태그 저장 실패 ({exc}); 오디오 파일은 보관됩니다.")
 
 
-def remote_hashes(remote: str) -> set[str]:
+def remote_index(remote: str) -> tuple[set[str], dict[str, str]]:
     print(f"Drive MD5 인덱스 읽는 중: {remote}")
     p = subprocess.run(
         ["rclone", "lsjson", remote, "--recursive", "--hash"],
         capture_output=True, text=True, check=True
     )
     data = json.loads(p.stdout)
-    return {x.get("Hashes", {}).get("MD5", "").lower() for x in data
-            if x.get("Hashes", {}).get("MD5")}
+    hashes = set()
+    names = {}
+    for item in data:
+        if item.get("IsDir"):
+            continue
+        fingerprint = item.get("Hashes", {}).get("MD5", "").lower()
+        relative = str(item.get("Path", ""))
+        if relative:
+            names[relative] = fingerprint
+        if fingerprint:
+            hashes.add(fingerprint)
+    return hashes, names
 
 
 def download_audio(video_id: str, folder: Path) -> Path:
@@ -209,7 +219,10 @@ def ingest(args: argparse.Namespace) -> int:
     database = connection(args.output / "odify_ingest.sqlite3")
     master = master_index(args.master_csv)
     known = known_tracks(args.output, database)
-    remote_md5 = remote_hashes(args.drive_remote) if args.drive_remote and args.run else set()
+    remote_md5, remote_names = (
+        remote_index(args.drive_remote) if args.drive_remote and args.run
+        else (set(), {})
+    )
     complete = skipped = failures = 0
     for i, item in enumerate(tracks, 1):
         vid = str(item.get("youtube_video_id", ""))
@@ -261,15 +274,31 @@ def ingest(args: argparse.Namespace) -> int:
                 if audio_md5 in remote_md5:
                     upload_done = 1
                     print("  = Drive에 정확히 동일한 파일이 이미 존재")
+                elif target.name in remote_names:
+                    # Do not silently claim success when --ignore-existing
+                    # leaves a different file under the exact same filename.
+                    raise RuntimeError(
+                        f"Drive 파일명 충돌: {target.name}. 기존 파일은 수정하지 않았습니다."
+                    )
                 else:
+                    destination = args.drive_remote.rstrip("/") + "/" + target.name
                     subprocess.run(
-                        ["rclone", "copyto", str(target),
-                         args.drive_remote.rstrip("/") + "/" + target.name,
+                        ["rclone", "copyto", str(target), destination,
                          "--ignore-existing"], check=True
                     )
+                    confirm = subprocess.run(
+                        ["rclone", "md5sum", destination],
+                        capture_output=True, text=True, check=True
+                    )
+                    actual = confirm.stdout.strip().split(" ")[0].lower()
+                    if actual != audio_md5:
+                        raise RuntimeError(
+                            "Drive 업로드 결과 MD5 검증 실패. 파일을 중복 등록하지 않습니다."
+                        )
                     remote_md5.add(audio_md5)
+                    remote_names[target.name] = audio_md5
                     upload_done = 1
-                    print("  + Drive에 저장 완료")
+                    print("  + Drive 저장 및 원격 MD5 확인 완료")
             database.execute("""INSERT INTO tracks(
                 video_id,title,artist,album,version,sha256,md5,file_name,uploaded
                 ) VALUES(?,?,?,?,?,?,?,?,?)""",
