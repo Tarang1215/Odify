@@ -15,6 +15,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
@@ -24,6 +26,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.unit.IntOffset
@@ -152,7 +156,7 @@ fun OdifyRoot(
     }
     var navVisible by remember { mutableStateOf(true) }
     var interaction by remember { mutableIntStateOf(0) }
-    var scrollDistance by remember { mutableFloatStateOf(0f) }
+    // Navigation state is gesture-driven and the mini-player is a separate surface.
 
     val active = songs.firstOrNull { it.id == playback.mediaId }
     val recent = history.mapNotNull { id -> songs.firstOrNull { it.id == id } }
@@ -197,11 +201,12 @@ fun OdifyRoot(
     Box(Modifier.fillMaxSize().background(white)) {
         // Only the light screens are inset. Fullscreen player must retain
         // status-bar background and apply its own insets exactly once.
-        Box(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
+        Box(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()
+            .clipToBounds()) {
         Box(
             Modifier.fillMaxSize()
-                // Stable bottom padding: the content never reflows when nav hides.
-                .padding(bottom = if (active == null) 80.dp else 135.dp)
+                // Scroll content fills the screen: no fixed opaque 135dp bottom slab.
+                // Each scrollable page owns its last-item clearance instead.
                 .pointerInput(active?.id, selectedTab) {
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
@@ -242,12 +247,14 @@ fun OdifyRoot(
             }
         }
 
-        // Nav slides out of the screen while mini-player moves down by the same
-        // animated fraction. Both use one clock/easing: no second abrupt jump.
+        // Two visually separate floating surfaces on ONE animation timeline.
+        // Fade the navigation as it exits instead of dragging its solid panel
+        // across scrollable content or leaving an opaque rectangular ghost.
         Box(
             Modifier.align(Alignment.BottomCenter)
-                .offset {
-                    IntOffset(0, ((1f - navFraction) * barHeightPx).roundToInt())
+                .graphicsLayer {
+                    translationY = (1f - navFraction) * barHeightPx
+                    alpha = navFraction
                 }
         ) {
             OdifyBottomBar(selectedTab) {
@@ -259,8 +266,8 @@ fun OdifyRoot(
         if (active != null) {
             Box(
                 Modifier.align(Alignment.BottomCenter)
-                    .offset {
-                        IntOffset(0, (-navFraction * barHeightPx).roundToInt())
+                    .graphicsLayer {
+                        translationY = -navFraction * barHeightPx
                     }
             ) {
                 OdifyMiniPlayer(active, playback.isPlaying, active.id in liked,
@@ -312,7 +319,7 @@ private fun OdifyHome(
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 20.dp, end = 0.dp, top = 17.dp, bottom = 24.dp),
+        contentPadding = PaddingValues(start = 20.dp, end = 0.dp, top = 17.dp, bottom = 156.dp),
         verticalArrangement = Arrangement.spacedBy(0.dp)
     ) {
         item {
@@ -627,7 +634,7 @@ private fun OdifySearch(
         if (filtered.isEmpty()) {
             EmptyMusicPrompt(onImport, false)
         } else {
-            LazyColumn {
+            LazyColumn(contentPadding = PaddingValues(bottom = 155.dp)) {
                 items(filtered, key = { it.id }) { song ->
                     OdifySongRow(song, onClick = {
                         onPlay(filtered, filtered.indexOf(song))
@@ -683,7 +690,7 @@ private fun OdifyLibraryScreen(
         }
         Spacer(Modifier.height(9.dp))
         if (visible.isEmpty()) EmptyMusicPrompt(onImport, false)
-        else LazyColumn {
+        else LazyColumn(contentPadding = PaddingValues(bottom = 155.dp)) {
             items(visible, key = { it.id }) { song ->
                 OdifySongRow(
                     song = song,
@@ -791,7 +798,8 @@ private fun OdifySongRow(
 
 @Composable
 private fun OdifyProfile(songCount: Int, onImport: () -> Unit, importing: Boolean) {
-    Column(Modifier.fillMaxSize().padding(horizontal = 21.dp)) {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())
+        .padding(start = 21.dp, end = 21.dp, bottom = 158.dp)) {
         Spacer(Modifier.height(24.dp))
         Text("Your Space", fontSize = 25.sp, fontWeight = FontWeight.Bold,
             color = ink, letterSpacing = (-0.6).sp)

@@ -84,7 +84,9 @@ fun OdifyNowPlaying(
         albumSlide = 0f
         albumSettling = false
     }
-    val waveform by produceState<List<Float>>(initialValue = emptyList(), song.id) {
+    val waveform by produceState<List<Float>>(
+        initialValue = OdifyWaveformRepository.peek(song.id), song.id
+    ) {
         value = OdifyWaveformRepository.load(context = context, song = song)
     }
     val dragState = rememberDraggableState { delta ->
@@ -391,6 +393,11 @@ private fun OdifyWaveformProgress(
         }
     }
     val fraction = scrubbing ?: pendingSeek ?: rollingFraction
+    val reveal by animateFloatAsState(
+        targetValue = if (waveform.size == 96) 1f else 0f,
+        animationSpec = tween(300, easing = FastOutSlowInEasing),
+        label = "odify-waveform-crossfade"
+    )
     Canvas(
         modifier.pointerInput(duration) {
             awaitEachGesture {
@@ -423,18 +430,19 @@ private fun OdifyWaveformProgress(
         val center = size.height / 2f
         val played = Color(0xFFF6F7F8)
         val unplayed = Color(0xFF555961)
-        if (waveform.size != 96) {
-            drawLine(unplayed, Offset(0f, center),
+        if (reveal < 1f) {
+            drawLine(unplayed.copy(alpha = 1f - reveal), Offset(0f, center),
                 Offset(size.width, center), strokeWidth = 2.dp.toPx())
-            drawLine(played, Offset(0f, center),
+            drawLine(played.copy(alpha = 1f - reveal), Offset(0f, center),
                 Offset(size.width * fraction, center), strokeWidth = 2.dp.toPx())
-        } else {
+        }
+        if (waveform.size == 96 && reveal > 0f) {
             waveform.forEachIndexed { index, amplitude ->
                 val x = (index + .5f) / waveform.size * size.width
                 val height = max(2.dp.toPx(), amplitude * size.height * .42f)
                 drawLine(
-                    color = if ((index + .5f) / waveform.size <= fraction)
-                        played else unplayed,
+                    color = (if ((index + .5f) / waveform.size <= fraction)
+                        played else unplayed).copy(alpha = reveal),
                     start = Offset(x, center - height),
                     end = Offset(x, center + height),
                     strokeWidth = 2.dp.toPx()
