@@ -57,7 +57,7 @@ class LinkBatchTests(unittest.TestCase):
             result = links.run(master, Path(td)/"candidates.csv", Path(td)/"cache.json",
                                "2026", 25, 4, "", True)
             self.assertEqual(1, result["new_searches"])
-            self.assertEqual(100, result["estimated_search_quota"])
+            self.assertEqual(1, result["planned_search_calls"])
             self.assertFalse((Path(td)/"candidates.csv").exists())
 
 
