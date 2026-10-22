@@ -1,0 +1,99 @@
+name: Odify music collection and Drive pilot checks
+
+on:
+  push:
+    branches:
+      - feature/drive-music-pilot-20261022
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Music catalog offline tests
+        run: python3 -m unittest discover -s tools -p 'test_*.py' -v
+      - name: Odify overlay regression tests
+        run: python3 -m unittest discover -s tests -p 'test_*.py' -v
+  flutter:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - name: Assemble locked Odify
+        run: python3 scripts/assemble_v521.py
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version-file: build/Odify/.fvmrc
+          cache: true
+      - name: Fetch Flutter dependencies
+        working-directory: build/Odify
+        run: flutter pub get
+      - name: Analyze Odify Dart sources
+        working-directory: build/Odify
+        run: flutter analyze --no-fatal-infos
+      - name: Run existing core widget tests
+        working-directory: build/Odify
+        run: flutter test test/odify_quick_access_test.dart test/odify_drive_transport_test.dart test/odify_home_widget_test.dart
+  android:
+    name: Android ARM64 Drive pilot debug APK
+    needs: [python, flutter]
+    runs-on: ubuntu-latest
+    timeout-minutes: 110
+    env:
+      MORNYE_DISCORD_SDK: '0'
+      MORNYE_RUST_ANDROID_ABIS: 'arm64-v8a'
+      SPOTIFLAC_DISCORD_SDK: '0'
+      SPOTIFLAC_RUST_ANDROID_ABIS: 'arm64-v8a'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Assemble locked Odify 5.2.1
+        run: python3 scripts/assemble_v521.py
+      - name: Set up Java 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version-file: build/Odify/.fvmrc
+          cache: true
+      - name: Flutter dependencies
+        working-directory: build/Odify
+        run: flutter pub get
+      - name: Set up Gradle 9.8.1
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.8.1'
+      - name: Android NDK and SDK
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;30.0.16248370" "platforms;android-37.0" "build-tools;37.0.0" "cmake;4.1.2"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/30.0.16248370" >> "$GITHUB_ENV"
+      - name: Native Rust and FFmpeg dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y libclang-dev ffmpeg
+          printf 'flutter.sdk=%s\nflutter.versionName=0.9.0\nflutter.versionCode=170\n' "$FLUTTER_ROOT" > build/Odify/android/local.properties
+      - name: Compile debug APK
+        working-directory: build/Odify
+        run: flutter build apk --debug --target-platform android-arm64 --split-per-abi
+      - name: Verify generated APK
+        run: |
+          APK=$(find build/Odify/build/app/outputs/apk/debug -name '*arm64-v8a*.apk' | head -1)
+          test -n "$APK"
+          python3 scripts/verify_android_apk.py "$APK"
+      - name: Upload Drive pilot APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: odify-drive-pilot-debug-arm64
+          if-no-files-found: error
+          retention-days: 14
+          path: build/Odify/build/app/outputs/apk/debug/*arm64-v8a*.apk

@@ -1,0 +1,26 @@
+name: Odify 2026 YouTube extract connectivity probe
+on:
+  push:
+    branches: [feature/drive-music-pilot-20261022]
+    paths: ['.github/workflows/odify-2026-extraction-probe.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  extract_one:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Python and yt-dlp
+        run: |
+          python -m pip install -U "yt-dlp[default]" 
+          yt-dlp --version
+          ffmpeg -version | head -1
+      - name: Try a verified 2026 YouTube link
+        run: |
+          mkdir -p "/tmp/odifyprobe"
+          yt-dlp --no-playlist --no-progress --retries 2 --socket-timeout 20 --extract-audio --audio-format mp3 --audio-quality 192K -o "/tmp/odifyprobe/ODF000006.%(ext)s" "https://www.youtube.com/watch?v=3F9jlnANW08"
+          test -s /tmp/odifyprobe/ODF000006.mp3
+          sha256sum /tmp/odifyprobe/ODF000006.mp3
+          ls -lh /tmp/odifyprobe
+          # Do not publish copyrighted test media in a public repository artifact.

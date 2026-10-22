@@ -1,0 +1,8 @@
+.local/
+__pycache__/
+*.pyc
+*client_secret*.json
+oauth-client.json
+rclone.conf
+rclone.conf.*
+dist/
