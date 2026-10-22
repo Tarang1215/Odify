@@ -17,9 +17,24 @@ android {
         versionCode = 12
         versionName = "1.0.0-preview12"
     }
+    // Always use the one permanent signing certificate restored by CI.
+    // Gradle's implicit debug signer may otherwise generate a different key
+    // even when the fixed keystore exists in the runner's home directory.
+    signingConfigs {
+        create("odifyFixedDebug") {
+            val userHome = System.getenv("HOME") ?: System.getProperty("user.home")
+            storeFile = file("$userHome/.android/debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
     buildTypes {
         release { isMinifyEnabled = false }
-        debug { applicationIdSuffix = ".debug" }
+        debug {
+            applicationIdSuffix = ".debug"
+            signingConfig = signingConfigs.getByName("odifyFixedDebug")
+        }
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
