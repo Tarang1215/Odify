@@ -24,6 +24,16 @@ class LinkBatchTests(unittest.TestCase):
         self.assertEqual(["ODF000002"], [x["Track ID"] for x in links.pending(rows, "2026")])
         self.assertEqual(2, len(links.pending(rows)))
 
+    def test_existing_video_id_can_be_verified_without_search(self):
+        self.assertEqual("abcdefghijk", links.existing_video_id(
+            "https://www.youtube.com/watch?v=abcdefghijk"))
+        self.assertEqual("abcdefghijk", links.existing_video_id(
+            "https://youtu.be/abcdefghijk"))
+        self.assertIsNone(links.existing_video_id(
+            "https://untrusted.example/watch?v=abcdefghijk"))
+        self.assertIsNone(links.existing_video_id(
+            "http://www.youtube.com/watch?v=abcdefghijk"))
+
     def test_artist_and_title_must_match_before_priority(self):
         target = {"아티스트": "아이유", "곡명": "밤편지"}
         valid = {"title": "아이유 - 밤편지 (Official Audio)", "channelTitle": "IU - Topic"}
