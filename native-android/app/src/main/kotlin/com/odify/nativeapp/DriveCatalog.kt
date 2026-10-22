@@ -183,6 +183,39 @@ class DriveCatalog(private val context: Context) {
         collected.size
     }
 
+    /**
+     * Warm only a few MP3 covers after catalog sync, so Home/Search can show
+     * thumbnails without playing each song. Failed cover requests are not
+     * repeated for 24 hours: protects the free 15GB pilot and phone battery.
+     */
+    suspend fun prefetchArtwork(limit: Int = 4): Int = withContext(Dispatchers.IO) {
+        val candidates = ArrayList<OdifySong>()
+        db.readableDatabase.rawQuery(
+            "SELECT id,title,artist FROM tracks WHERE cover='' AND LOWER(name) LIKE '%.mp3' ORDER BY modified DESC LIMIT 20",
+            null
+        ).use { cursor ->
+            while (cursor.moveToNext()) {
+                val id = cursor.getString(0)
+                val lastTry = prefs.getLong("coverChecked:$id", 0L)
+                if (System.currentTimeMillis() - lastTry < 24L * 60L * 60L * 1000L) continue
+                candidates += OdifySong(
+                    id = "gdrive:$id", title = cursor.getString(1),
+                    artist = cursor.getString(2), album = "",
+                    filePath = "", sourceUri =
+                        "https://www.googleapis.com/drive/v3/files/$id?alt=media"
+                )
+                if (candidates.size >= limit.coerceIn(1, 8)) break
+            }
+        }
+        var found = 0
+        for (song in candidates) {
+            val id = song.id.removePrefix("gdrive:")
+            prefs.edit().putLong("coverChecked:$id", System.currentTimeMillis()).apply()
+            if (ensureCover(song)) found++
+        }
+        found
+    }
+
     /** Album art is embedded in MP3 ID3v2 frames; pull ONLY first up to 1MiB. */
     suspend fun ensureCover(song: OdifySong): Boolean = withContext(Dispatchers.IO) {
         val driveId = song.id.removePrefix("gdrive:")
