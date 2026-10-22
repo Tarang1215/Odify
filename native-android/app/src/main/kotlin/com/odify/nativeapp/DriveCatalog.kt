@@ -89,6 +89,15 @@ class DriveCatalog(private val context: Context) {
             prefs.edit().putString("manualArt:$fileId", target.absolutePath).apply()
         }
 
+    /** Verified master video thumbnail is a display fallback, not original art. */
+    fun setFallbackArtwork(fileId: String, picturePath: String) {
+        if (!File(picturePath).isFile) return
+        db.writableDatabase.execSQL(
+            "UPDATE tracks SET cover=? WHERE id=? AND cover=''",
+            arrayOf(picturePath, fileId)
+        )
+    }
+
     fun hideTrack(song: OdifySong) {
         val hidden = prefs.getStringSet("hidden", emptySet())?.toMutableSet()
             ?: mutableSetOf()
