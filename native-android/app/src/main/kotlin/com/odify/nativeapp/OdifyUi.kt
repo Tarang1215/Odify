@@ -43,11 +43,11 @@ import kotlinx.coroutines.withContext
 import kotlin.math.abs
 
 private val ink = Color(0xFF111216)
-private val grey = Color(0xFF7B7E85)
-private val pale = Color(0xFFF2F3F5)
+private val grey = Color(0xFF83868D)
+private val pale = Color(0xFFF4F4F6)
 private val white = Color.White
 private val glass = Brush.horizontalGradient(
-    listOf(Color(0xF31C1F25), Color(0xE821242A))
+    listOf(Color(0xEC24272C), Color(0xF02B2E34))
 )
 
 enum class OdifyTab { Home, Search, Library, Profile }
@@ -126,7 +126,8 @@ fun OdifyRoot(
     onSeek: (Long) -> Unit,
     onShuffle: () -> Unit,
     onRepeat: () -> Unit,
-    onRemove: (OdifySong) -> Unit
+    onRemove: (OdifySong) -> Unit,
+    onEdit: (OdifySong, String, String, String) -> Unit
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val prefs = remember { context.getSharedPreferences("odify_native_ui", 0) }
@@ -190,11 +191,12 @@ fun OdifyRoot(
                 when (selectedTab) {
                     OdifyTab.Home -> OdifyHome(
                         songs, displayed, recent.isNotEmpty(), onImport, importing,
+                        onSearch = { selectedTab = OdifyTab.Search },
                         onPlay = ::playList
                     )
                     OdifyTab.Search -> OdifySearch(songs, onImport, ::playList)
                     OdifyTab.Library -> OdifyLibraryScreen(
-                        songs, liked, ::playList, onImport, onRemove
+                        songs, liked, ::playList, onImport, onRemove, onEdit
                     )
                     OdifyTab.Profile -> OdifyProfile(songs.size, onImport, importing)
                 }
@@ -250,11 +252,12 @@ private fun OdifyHome(
     hasHistory: Boolean,
     onImport: () -> Unit,
     importing: Boolean,
+    onSearch: () -> Unit,
     onPlay: (List<OdifySong>, Int) -> Unit
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 20.dp, end = 0.dp, top = 22.dp, bottom = 24.dp),
+        contentPadding = PaddingValues(start = 20.dp, end = 0.dp, top = 17.dp, bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(0.dp)
     ) {
         item {
@@ -262,8 +265,8 @@ private fun OdifyHome(
                 verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text("Good evening,", color = grey, fontSize = 13.sp)
-                    Text("Music feels\nbetter here.", fontSize = 29.sp,
-                        lineHeight = 31.sp, fontWeight = FontWeight.Bold,
+                    Text("Music feels\nbetter here.", fontSize = 27.sp,
+                        lineHeight = 29.sp, fontWeight = FontWeight.Bold,
                         letterSpacing = (-0.9).sp, color = ink)
                 }
                 Box(Modifier.size(38.dp).clip(RoundedCornerShape(50)).background(pale),
@@ -272,16 +275,16 @@ private fun OdifyHome(
                         tint = ink, modifier = Modifier.size(22.dp))
                 }
             }
-            Spacer(Modifier.height(18.dp))
-            SearchHint(Modifier.padding(end = 20.dp), onImport)
-            Spacer(Modifier.height(14.dp))
+            Spacer(Modifier.height(17.dp))
+            SearchHint(Modifier.padding(end = 20.dp), onSearch)
+            Spacer(Modifier.height(12.dp))
             HorizontalChips(listOf("All", "For You", "Chill", "J-Pop", "K-Pop"))
-            Spacer(Modifier.height(27.dp))
+            Spacer(Modifier.height(25.dp))
             SectionTitle("Made for You")
             Spacer(Modifier.height(12.dp))
         }
         item {
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp),
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(9.dp),
                 contentPadding = PaddingValues(end = 20.dp)) {
                 val cards = listOf("Your Mix", "Chill\nAfternoons", "J-Pop Mix", "Late Night")
                 items(cards.size) { index ->
@@ -308,8 +311,10 @@ private fun OdifyHome(
                             Spacer(Modifier.height(6.dp))
                             Text(song.title, fontSize = 11.sp, fontWeight = FontWeight.SemiBold,
                                 maxLines = 1, overflow = TextOverflow.Ellipsis, color = ink)
-                            Text(song.artist.ifEmpty { "Unknown artist" }, fontSize = 10.sp,
-                                maxLines = 1, overflow = TextOverflow.Ellipsis, color = grey)
+                            if (song.artist.isNotBlank()) {
+                                Text(song.artist, fontSize = 10.sp,
+                                    maxLines = 1, overflow = TextOverflow.Ellipsis, color = grey)
+                            }
                         }
                     }
                 }
@@ -347,7 +352,7 @@ private fun OdifyHome(
 @Composable
 private fun SearchHint(modifier: Modifier = Modifier, onTap: () -> Unit) {
     Row(
-        modifier.fillMaxWidth().height(43.dp)
+        modifier.fillMaxWidth().height(42.dp)
             .clip(RoundedCornerShape(20.dp))
             .background(pale).clickable(onClick = onTap)
             .padding(horizontal = 14.dp),
@@ -371,7 +376,7 @@ private fun HorizontalChips(options: List<String>) {
             Box(Modifier.clip(RoundedCornerShape(50))
                 .background(if (active) ink else pale)
                 .clickable { selected = label }
-                .padding(horizontal = 14.dp, vertical = 8.dp)) {
+                .padding(horizontal = 13.dp, vertical = 7.dp)) {
                 Text(label, color = if (active) white else Color(0xFF5B5D63),
                     fontSize = 11.sp)
             }
@@ -397,24 +402,24 @@ private fun OdifyMixCard(
     onTap: () -> Unit
 ) {
     Box(
-        Modifier.width(126.dp).height(167.dp)
-            .clip(RoundedCornerShape(14.dp))
+        Modifier.width(146.dp).height(176.dp)
+            .clip(RoundedCornerShape(15.dp))
             .clickable(onClick = onTap)
     ) {
         AlbumArt(coverSong, Modifier.fillMaxSize(),
-            radius = RoundedCornerShape(14.dp), fallbackKey = index + 9)
+            radius = RoundedCornerShape(15.dp), fallbackKey = index + 9
         Box(Modifier.fillMaxSize().background(
             Brush.verticalGradient(listOf(Color.Transparent,
-                Color.Transparent, Color.Black.copy(alpha = 0.81f)))
+                Color.Transparent, Color.Black.copy(alpha = 0.75f)))
         ))
-        Column(Modifier.align(Alignment.BottomStart).padding(11.dp)) {
+        Column(Modifier.align(Alignment.BottomStart).padding(start = 12.dp, bottom = 12.dp, end = 38.dp)) {
             Text(label, color = white, fontSize = 13.sp,
-                fontWeight = FontWeight.Bold, lineHeight = 16.sp)
+                fontWeight = FontWeight.SemiBold, lineHeight = 15.sp
             Spacer(Modifier.height(3.dp))
             Text(if (coverSong != null) "Made for you" else "Add your music",
                 color = white.copy(alpha = .78f), fontSize = 9.sp)
         }
-        Box(Modifier.align(Alignment.BottomEnd).padding(9.dp)
+        Box(Modifier.align(Alignment.BottomEnd).padding(10.dp)
             .size(29.dp).clip(RoundedCornerShape(50))
             .background(Color.White.copy(alpha = .94f)), contentAlignment = Alignment.Center) {
             Icon(Icons.Default.PlayArrow, null, tint = ink, modifier = Modifier.size(18.dp))
@@ -442,7 +447,7 @@ private fun EmptyMusicPrompt(onImport: () -> Unit, importing: Boolean) {
 private fun OdifyBottomBar(selected: OdifyTab, onSelected: (OdifyTab) -> Unit) {
     Row(Modifier.fillMaxWidth()
         .background(Color(0xFCFAFAFB))
-        .height(63.dp).padding(horizontal = 11.dp),
+        .height(59.dp).padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         val icons = mapOf(
@@ -484,22 +489,22 @@ private fun OdifyMiniPlayer(
 ) {
     Row(
         Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 5.dp)
-            .height(58.dp)
-            .shadow(9.dp, RoundedCornerShape(20.dp))
-            .clip(RoundedCornerShape(20.dp))
+            .height(55.dp)
+            .shadow(5.dp, RoundedCornerShape(19.dp))
+            .clip(RoundedCornerShape(19.dp))
             .background(glass)
-            .border(1.dp, white.copy(alpha = .20f), RoundedCornerShape(20.dp))
+            .border(0.7.dp, white.copy(alpha = .27f), RoundedCornerShape(19.dp))
             .clickable(onClick = onExpand)
             .padding(horizontal = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        AlbumArt(song, Modifier.size(43.dp), radius = RoundedCornerShape(12.dp),
+        AlbumArt(song, Modifier.size(41.dp), radius = RoundedCornerShape(11.dp),
             fallbackKey = song.id.hashCode())
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
             Text(song.title, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 fontSize = 12.sp, color = white, fontWeight = FontWeight.SemiBold)
-            Text(song.artist.ifEmpty { "Unknown artist" }, fontSize = 10.sp,
+            if (song.artist.isNotBlank()) Text(song.artist, fontSize = 10.sp,
                 maxLines = 1, overflow = TextOverflow.Ellipsis,
                 color = white.copy(alpha = .69f))
         }
@@ -529,7 +534,7 @@ private fun OdifySearch(
     }
     Column(Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
         Spacer(Modifier.height(24.dp))
-        Text("Search", fontSize = 27.sp, fontWeight = FontWeight.Bold)
+        Text("Search", fontSize = 25.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(19.dp))
         Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp))
             .background(pale).height(48.dp).padding(horizontal = 13.dp),
@@ -589,7 +594,7 @@ private fun OdifyLibraryScreen(
     Column(Modifier.fillMaxSize().padding(start = 20.dp, end = 20.dp)) {
         Spacer(Modifier.height(23.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Your Library", fontSize = 26.sp, fontWeight = FontWeight.Bold,
+            Text("Your Library", fontSize = 24.sp, fontWeight = FontWeight.Bold,
                 modifier = Modifier.weight(1f), color = ink)
             IconButton(onClick = onImport) { Icon(Icons.Default.Add, "음악 가져오기") }
         }
@@ -650,7 +655,7 @@ private fun OdifySongRow(
     onClick: () -> Unit,
     trailing: @Composable (() -> Unit)? = null
 ) {
-    Row(Modifier.fillMaxWidth().height(67.dp)
+    Row(Modifier.fillMaxWidth().height(64.dp)
         .clickable(onClick = onClick),
         verticalAlignment = Alignment.CenterVertically) {
         AlbumArt(song, Modifier.size(49.dp), radius = RoundedCornerShape(10.dp),
@@ -660,9 +665,10 @@ private fun OdifySongRow(
             Text(song.title, color = ink, fontWeight = FontWeight.SemiBold,
                 fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.height(2.dp))
-            Text(song.artist.ifEmpty { "Unknown artist" },
-                fontSize = 11.sp, color = grey,
-                maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (song.artist.isNotBlank()) {
+                Text(song.artist, fontSize = 11.sp, color = grey,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
         }
         if (trailing != null) trailing() else Icon(Icons.Default.MoreHoriz,
             null, tint = Color(0xFFB7B9BE), modifier = Modifier.size(20.dp))
