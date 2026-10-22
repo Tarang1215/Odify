@@ -183,7 +183,7 @@ class DriveCatalog(private val context: Context) {
                         // both valid. Do not confuse ODF000001 with ODF0000010.
                         val suffix=name.getOrNull(prefix.length)
                         val codeMatches=name.startsWith(prefix) &&
-                            suffix in listOf('.', ' ', '-', '_')
+                            suffix != null && suffix in charArrayOf('.', ' ', '-', '_')
                         if ((searchId.isNotBlank() && id==searchId) || codeMatches)
                             rows += id to c.getString(2)
                     }
