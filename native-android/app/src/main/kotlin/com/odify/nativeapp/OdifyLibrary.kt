@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.media.MediaMetadataRetriever
 import android.net.Uri
+import android.content.Intent
 import android.provider.OpenableColumns
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
@@ -24,11 +25,13 @@ data class OdifySong(
     val album: String,
     val filePath: String,
     val artworkPath: String? = null,
-    val durationMs: Long = 0L
+    val durationMs: Long = 0L,
+    val sourceUri: String? = null
 ) {
+    val isCloud: Boolean get() = !sourceUri.isNullOrEmpty()
     fun mediaItem(): MediaItem = MediaItem.Builder()
         .setMediaId(id)
-        .setUri(Uri.fromFile(File(filePath)))
+        .setUri(if (isCloud) Uri.parse(sourceUri) else Uri.fromFile(File(filePath)))
         .setMediaMetadata(
             MediaMetadata.Builder()
                 .setTitle(title)
@@ -55,7 +58,10 @@ class OdifyLibrary(private val context: Context) {
             (0 until array.length()).mapNotNull { index ->
                 val value = array.optJSONObject(index) ?: return@mapNotNull null
                 val source = value.optString("filePath")
-                if (source.isEmpty() || !File(source).isFile) return@mapNotNull null
+                val cloudUri = value.optString("sourceUri").takeIf { it.isNotBlank() }
+                if (cloudUri == null && (source.isEmpty() || !File(source).isFile)) {
+                    return@mapNotNull null
+                }
                 OdifySong(
                     id = value.optString("id"),
                     title = value.optString("title"),
@@ -63,7 +69,8 @@ class OdifyLibrary(private val context: Context) {
                     album = value.optString("album"),
                     filePath = source,
                     artworkPath = value.optString("artworkPath").takeIf { it.isNotEmpty() },
-                    durationMs = value.optLong("durationMs")
+                    durationMs = value.optLong("durationMs"),
+                    sourceUri = cloudUri
                 )
             }
         } catch (_: Exception) { emptyList() }
@@ -80,10 +87,52 @@ class OdifyLibrary(private val context: Context) {
                 put("filePath", song.filePath)
                 put("artworkPath", song.artworkPath ?: "")
                 put("durationMs", song.durationMs)
+                put("sourceUri", song.sourceUri ?: "")
             })
         }
         prefs.edit().putString("songs", json.toString()).apply()
     }
+
+    /**
+     * Stream-from-provider option: retain Android DocumentsUI READ URI permission.
+     * This does NOT create a full local audio copy. Google's DocumentsProvider may
+     * still internally prefetch data, and HTTP range playback is not guaranteed.
+     */
+    suspend fun linkCloudDocuments(uris: List<Uri>): Result<Int> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                require(uris.size <= 100) { "한 번에 최대 100곡을 선택할 수 있습니다." }
+                var existing = songs()
+                var added = 0
+                for (uri in uris) {
+                    require(uri.scheme == "content") { "클라우드 파일 URI가 아닙니다." }
+                    val name = displayName(uri)
+                    val ext = name.substringAfterLast(".", "").lowercase(Locale.ROOT)
+                    require(ext in setOf("mp3", "m4a", "aac", "flac", "ogg", "wav", "opus")) {
+                        "지원하지 않는 음원: $name"
+                    }
+                    context.contentResolver.takePersistableUriPermission(
+                        uri, Intent.FLAG_GRANT_READ_URI_PERMISSION
+                    )
+                    val canonical = uri.toString()
+                    val id = "drive-" + MessageDigest.getInstance("SHA-256")
+                        .digest(canonical.toByteArray(Charsets.UTF_8))
+                        .joinToString("") { "%02x".format(it) }
+                    if (existing.any { it.id == id }) continue
+                    val base = name.substringBeforeLast(".")
+                    val parts = base.split(" - ", limit = 2)
+                    val title = if (parts.size == 2) parts[1] else base
+                    val artist = if (parts.size == 2) parts[0] else ""
+                    existing = existing + OdifySong(
+                        id = id, title = title, artist = artist, album = "",
+                        filePath = "", sourceUri = canonical
+                    )
+                    store(existing)
+                    added++
+                }
+                added
+            }
+        }
 
     suspend fun importFiles(uris: List<Uri>): Result<Int> = withContext(Dispatchers.IO) {
         runCatching {
@@ -158,7 +207,16 @@ class OdifyLibrary(private val context: Context) {
     suspend fun delete(song: OdifySong) = withContext(Dispatchers.IO) {
         val remaining = songs().filterNot { it.id == song.id }
         store(remaining)
-        File(song.filePath).delete()
+        if (!song.isCloud) {
+            File(song.filePath).delete()
+        } else {
+            runCatching {
+                context.contentResolver.releasePersistableUriPermission(
+                    Uri.parse(song.sourceUri),
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            }
+        }
         song.artworkPath?.let { File(it).delete() }
     }
 
