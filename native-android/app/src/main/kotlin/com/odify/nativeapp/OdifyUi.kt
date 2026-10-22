@@ -890,12 +890,16 @@ private fun OdifyLibraryScreen(
     onImport: () -> Unit,
     onRemove: (OdifySong) -> Unit,
     onEdit: (OdifySong, String, String, String) -> Unit,
-    onChooseArtwork: (OdifySong) -> Unit
+    onChooseArtwork: (OdifySong) -> Unit,
+    playlists: List<OdifyPlaylist>,
+    onCreatePlaylist: (String) -> String,
+    onDeletePlaylist: (String) -> Unit,
+    onRemoveFromPlaylist: (String, String) -> Unit
 ) {
     var editingSong by remember { mutableStateOf<OdifySong?>(null) }
     var selection by remember { mutableStateOf("Songs") }
     var showDuplicates by remember { mutableStateOf(false) }
-    val modes = listOf("Songs", "Saved", "Albums", "Artists")
+    val modes = listOf("Songs", "Saved", "Playlists", "Albums", "Artists")
     val rawVisible = when (selection) {
         "Saved" -> songs.filter { it.id in liked }
         "Albums" -> songs.distinctBy { it.album.ifEmpty { it.title } }
@@ -911,7 +915,8 @@ private fun OdifyLibraryScreen(
             IconButton(onClick = onImport) { Icon(Icons.Default.Add, "음악 가져오기") }
         }
         Spacer(Modifier.height(17.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+        Row(Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(7.dp)) {
             modes.forEach { mode ->
                 Box(Modifier.clip(RoundedCornerShape(50))
                     .background(if (selection == mode) ink else pale)
@@ -923,6 +928,13 @@ private fun OdifyLibraryScreen(
             }
         }
         Spacer(Modifier.height(12.dp))
+        if (selection == "Playlists") {
+            OdifyPlaylistLibrary(
+                playlists = playlists, songs = songs, onPlay = onPlay,
+                onCreate = onCreatePlaylist, onDelete = onDeletePlaylist,
+                onRemoveSong = onRemoveFromPlaylist
+            )
+        } else {
         Text(
             if (showDuplicates) "중복 파일 숨기기" else "MP3 / M4A 중복 파일 모두 보기",
             color = grey, fontSize = 11.sp,
@@ -979,6 +991,7 @@ private fun OdifyLibraryScreen(
                     }
                 )
             }
+        }
         }
     }
     editingSong?.let { track ->
