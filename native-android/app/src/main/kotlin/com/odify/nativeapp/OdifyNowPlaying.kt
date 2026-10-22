@@ -71,13 +71,16 @@ fun OdifyNowPlaying(
     onLike: () -> Unit,
     onShuffle: () -> Unit,
     onRepeat: () -> Unit,
-    onShowQueue: () -> Unit
+    onShowQueue: () -> Unit,
+    onAddToPlaylist: () -> Unit,
+    onSaveDevice: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     var dragOffset by remember { mutableFloatStateOf(0f) }
     val threshold = with(LocalDensity.current) { 125.dp.toPx() }
     var showInfo by remember { mutableStateOf(false) }
+    var actionsOpen by remember { mutableStateOf(false) }
     var showLyrics by remember { mutableStateOf(false) }
     var albumSlide by remember(song.id) { mutableFloatStateOf(0f) }
     var albumSettling by remember(song.id) { mutableStateOf(false) }
@@ -148,21 +151,40 @@ fun OdifyNowPlaying(
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("PLAYING FROM", color = playerSecondary, fontSize = 9.sp,
                             letterSpacing = 1.5.sp, fontWeight = FontWeight.Medium)
-                        Text(if (song.isCloud) "Google Drive" else "Offline Library",
-                            color = playerWhite, fontSize = 12.sp,
+                        Text(when {
+                            song.id.startsWith("gdrive:") -> "Google Drive"
+                            song.isPhoneFolder -> "휴대폰 음악 폴더"
+                            else -> "내 음악"
+                        }, color = playerWhite, fontSize = 12.sp,
                             fontWeight = FontWeight.SemiBold)
                     }
                     Spacer(Modifier.weight(1f))
-                    IconButton(onClick = { showLyrics = !showLyrics },
-                        modifier = Modifier.size(40.dp)) {
-                        Icon(Icons.Default.Subtitles,
-                            if (showLyrics) "앨범커버 표시" else "가사 보기",
-                            tint = if (showLyrics) Color.White else playerSecondary)
-                    }
-                    IconButton(onClick = { showInfo = !showInfo },
-                        modifier = Modifier.size(40.dp)) {
-                        Icon(Icons.Default.MoreHoriz, "음원 정보",
-                            tint = playerWhite)
+                    Box {
+                        IconButton(onClick = { actionsOpen = true },
+                            modifier = Modifier.size(44.dp)) {
+                            Icon(Icons.Default.MoreVert, "곡 옵션 열기",
+                                tint = playerWhite)
+                        }
+                        DropdownMenu(
+                            expanded = actionsOpen,
+                            onDismissRequest = { actionsOpen = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("플레이리스트에 추가") },
+                                leadingIcon = { Icon(Icons.Default.PlaylistAdd, null) },
+                                onClick = { actionsOpen = false; onAddToPlaylist() }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("디바이스에 저장") },
+                                leadingIcon = { Icon(Icons.Default.FileDownload, null) },
+                                onClick = { actionsOpen = false; onSaveDevice() }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("곡 정보") },
+                                leadingIcon = { Icon(Icons.Default.Info, null) },
+                                onClick = { actionsOpen = false; showInfo = true }
+                            )
+                        }
                     }
                 }
 
@@ -332,12 +354,6 @@ fun OdifyNowPlaying(
                     }
                 }
                 Spacer(Modifier.weight(1f))
-                if (showInfo) {
-                    Text(song.album.ifEmpty { "Local audio · no album metadata" },
-                        color = playerSecondary, fontSize = 11.sp,
-                        maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Spacer(Modifier.height(10.dp))
-                }
                 // Precisely center the AUDIO pill on the same x-axis as Play.
                 Box(
                     Modifier.fillMaxWidth().height(53.dp)
@@ -349,22 +365,23 @@ fun OdifyNowPlaying(
                             RoundedCornerShape(24.dp))
                 ) {
                     IconButton(
-                        onClick = { showInfo = !showInfo },
+                        onClick = { showLyrics = !showLyrics },
                         modifier = Modifier.align(Alignment.CenterStart)
                             .padding(start = 9.dp).size(44.dp)
                     ) {
-                        Icon(Icons.Default.Headphones, "출력 기기",
-                            tint = playerWhite, modifier = Modifier.size(19.dp))
+                        Icon(Icons.Default.Subtitles,
+                            if (showLyrics) "앨범커버 보기" else "가사 보기",
+                            tint = if (showLyrics) Color.White else playerSecondary,
+                            modifier = Modifier.size(22.dp))
                     }
-                    Box(
-                        Modifier.align(Alignment.Center)
-                            .clip(RoundedCornerShape(22.dp))
-                            .background(Color.White.copy(alpha = 0.10f))
-                            .padding(horizontal = 22.dp, vertical = 9.dp)
-                    ) {
-                        Text("AUDIO", color = playerWhite, fontSize = 10.sp,
-                            letterSpacing = .8.sp, fontWeight = FontWeight.SemiBold)
-                    }
+                    Text(
+                        text = if (showLyrics) "가사" else "ODIFY",
+                        color = playerWhite,
+                        fontSize = 11.sp,
+                        letterSpacing = 1.3.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.align(Alignment.Center)
+                    )
                     IconButton(
                         onClick = onShowQueue,
                         modifier = Modifier.align(Alignment.CenterEnd)
@@ -377,6 +394,24 @@ fun OdifyNowPlaying(
                 Spacer(Modifier.height(15.dp))
             }
         }
+    }
+    if (showInfo) {
+        AlertDialog(
+            onDismissRequest = { showInfo = false },
+            title = { Text("곡 정보") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("제목: ${song.title}")
+                    Text("아티스트: ${song.artist.ifBlank { "정보 없음" }}")
+                    Text("앨범: ${song.album.ifBlank { "정보 없음" }}")
+                    Text("재생 위치: " + if (song.isCloud) "Google Drive"
+                        else if (song.isPhoneFolder) "휴대폰 폴더" else "오프라인 보관함")
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showInfo = false }) { Text("닫기") }
+            }
+        )
     }
 }
 
