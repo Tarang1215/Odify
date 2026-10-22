@@ -198,7 +198,7 @@ fun OdifyRoot(
 
     val active = songs.firstOrNull { it.id == playback.mediaId }
     val recent = history.mapNotNull { id -> songs.firstOrNull { it.id == id } }
-    val displayed = if (recent.isNotEmpty()) recent else songs.asReversed()
+    val displayed = OdifySongPresentation.visible(if (recent.isNotEmpty()) recent else songs.asReversed())
 
     fun playList(list: List<OdifySong>, index: Int) {
         if (index !in list.indices) return
@@ -674,16 +674,19 @@ private fun OdifySearch(
 ) {
     var query by remember { mutableStateOf("") }
     var genre by remember { mutableStateOf("All") }
+    var showDuplicates by remember { mutableStateOf(false) }
     val genres = remember(songs) {
         listOf("All") + songs.map { it.genre.substringBefore(" / ").trim() }
             .filter { it.isNotBlank() }.distinct().sorted().take(60)
     }
-    val filtered = remember(songs, query, genre) {
-        songs.filter {
+    val filtered = remember(songs, query, genre, showDuplicates) {
+        val matches = songs.filter {
             (genre == "All" || it.genre.startsWith(genre, ignoreCase = true)) &&
             (it.title.contains(query, true) || it.artist.contains(query, true) ||
-             it.album.contains(query, true) || it.genre.contains(query, true))
+             it.album.contains(query, true) || it.genre.contains(query, true) ||
+             it.lyrics.contains(query, true))
         }
+        OdifySongPresentation.visible(matches, showDuplicates)
     }
     Column(Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
         Spacer(Modifier.height(24.dp))
@@ -701,7 +704,7 @@ private fun OdifySearch(
                 modifier = Modifier.weight(1f),
                 decorationBox = { inner ->
                     Box {
-                        if (query.isEmpty()) Text("노래, 아티스트, 앨범, 장르 검색",
+                        if (query.isEmpty()) Text("노래, 가수, 앨범, 장르, 가사 검색",
                             color = grey, fontSize = 13.sp)
                         inner()
                     }
@@ -726,8 +729,15 @@ private fun OdifySearch(
             }
         }
         Spacer(Modifier.height(16.dp))
-        Text(if (query.isEmpty()) "내 음악" else "검색 결과 · ${filtered.size}",
-            fontSize = 16.sp, fontWeight = FontWeight.Bold)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(if (query.isEmpty()) "내 음악" else "검색 결과 · ${filtered.size}",
+                fontSize = 16.sp, fontWeight = FontWeight.Bold,
+                modifier = Modifier.weight(1f))
+            Text(if (showDuplicates) "중복 숨기기" else "중복 포함 보기",
+                fontSize = 11.sp, color = grey,
+                modifier = Modifier.clickable { showDuplicates = !showDuplicates }
+                    .padding(horizontal = 6.dp, vertical = 8.dp))
+        }
         Spacer(Modifier.height(11.dp))
         if (filtered.isEmpty()) {
             EmptyMusicPrompt(onImport, false)
