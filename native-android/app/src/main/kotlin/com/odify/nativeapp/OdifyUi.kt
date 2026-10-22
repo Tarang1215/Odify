@@ -159,6 +159,13 @@ fun AlbumArt(
 fun OdifyRoot(
     songs: List<OdifySong>,
     playback: OdifyPlaybackSnapshot,
+    driveConnected: Boolean,
+    driveBusy: Boolean,
+    driveStatus: String,
+    driveFolder: String,
+    onDriveConnect: () -> Unit,
+    onDriveSync: () -> Unit,
+    onDriveFolderChange: (String) -> Unit,
     importing: Boolean,
     expanded: Boolean,
     onExpandedChange: (Boolean) -> Unit,
@@ -277,7 +284,11 @@ fun OdifyRoot(
                 OdifyTab.Library -> OdifyLibraryScreen(
                     songs, liked, ::playList, onImport, onRemove, onEdit
                 )
-                OdifyTab.Profile -> OdifyProfile(songs, onImport, onImportOffline, importing)
+                OdifyTab.Profile -> OdifyProfile(
+                    songs, onImport, onImportOffline, importing,
+                    driveConnected, driveBusy, driveStatus, driveFolder,
+                    onDriveConnect, onDriveSync, onDriveFolderChange
+                )
             }
         }
 
@@ -660,9 +671,17 @@ private fun OdifySearch(
     onPlay: (List<OdifySong>, Int) -> Unit
 ) {
     var query by remember { mutableStateOf("") }
-    val filtered = remember(songs, query) {
-        songs.filter { it.title.contains(query, true)
-            || it.artist.contains(query, true) || it.album.contains(query, true) }
+    var genre by remember { mutableStateOf("All") }
+    val genres = remember(songs) {
+        listOf("All") + songs.map { it.genre.substringBefore(" / ").trim() }
+            .filter { it.isNotBlank() }.distinct().sorted().take(60)
+    }
+    val filtered = remember(songs, query, genre) {
+        songs.filter {
+            (genre == "All" || it.genre.startsWith(genre, ignoreCase = true)) &&
+            (it.title.contains(query, true) || it.artist.contains(query, true) ||
+             it.album.contains(query, true) || it.genre.contains(query, true))
+        }
     }
     Column(Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
         Spacer(Modifier.height(24.dp))
@@ -680,7 +699,7 @@ private fun OdifySearch(
                 modifier = Modifier.weight(1f),
                 decorationBox = { inner ->
                     Box {
-                        if (query.isEmpty()) Text("노래, 아티스트, 앨범 검색",
+                        if (query.isEmpty()) Text("노래, 아티스트, 앨범, 장르 검색",
                             color = grey, fontSize = 13.sp)
                         inner()
                     }
@@ -689,7 +708,22 @@ private fun OdifySearch(
             if (query.isNotBlank()) Icon(Icons.Default.Close, "지우기",
                 modifier = Modifier.size(20.dp).clickable { query = "" }, tint = grey)
         }
-        Spacer(Modifier.height(22.dp))
+        Spacer(Modifier.height(14.dp))
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+            items(genres) { option ->
+                val selected = genre == option
+                Box(
+                    Modifier.clip(RoundedCornerShape(30.dp))
+                        .background(if (selected) ink else pale)
+                        .clickable { genre = option }
+                        .padding(horizontal = 13.dp, vertical = 8.dp)
+                ) {
+                    Text(option, fontSize = 11.sp,
+                        color = if (selected) white else grey)
+                }
+            }
+        }
+        Spacer(Modifier.height(16.dp))
         Text(if (query.isEmpty()) "내 음악" else "검색 결과 · ${filtered.size}",
             fontSize = 16.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(11.dp))
@@ -863,10 +897,19 @@ private fun OdifyProfile(
     songs: List<OdifySong>,
     onImport: () -> Unit,
     onImportOffline: () -> Unit,
-    importing: Boolean
+    importing: Boolean,
+    driveConnected: Boolean,
+    driveBusy: Boolean,
+    driveStatus: String,
+    driveFolder: String,
+    onDriveConnect: () -> Unit,
+    onDriveSync: () -> Unit,
+    onDriveFolderChange: (String) -> Unit
 ) {
     val cloudCount = songs.count { it.isCloud }
     val offlineCount = songs.size - cloudCount
+    var showFolderEditor by remember { mutableStateOf(false) }
+    var folderInput by remember(driveFolder) { mutableStateOf(driveFolder) }
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState())
             .padding(start = 21.dp, end = 21.dp, bottom = 170.dp)
@@ -904,8 +947,32 @@ private fun OdifyProfile(
         Spacer(Modifier.height(13.dp))
         OdifySourceRow(
             icon = Icons.Default.CloudQueue,
-            title = "Google Drive · 연결",
-            subtitle = "음원을 복사하지 않고 파일 공급자에서 열기",
+            title = if (driveConnected) "Google Drive · 연결됨" else "Google Drive 계정 연결",
+            subtitle = if (driveConnected) "Drive API · 음악 폴더 자동 검색"
+                else "첫 연결 시 Google 읽기 권한 승인 필요",
+            enabled = !driveBusy, onClick = onDriveConnect
+        )
+        Spacer(Modifier.height(7.dp))
+        OdifySourceRow(
+            icon = Icons.Default.Sync,
+            title = if (driveBusy) "라이브러리 동기화 중…" else "Drive 음악 새로고침",
+            subtitle = driveStatus.take(90),
+            enabled = driveConnected && !driveBusy,
+            onClick = onDriveSync
+        )
+        Spacer(Modifier.height(7.dp))
+        OdifySourceRow(
+            icon = Icons.Default.FolderOpen,
+            title = "음악 폴더 변경",
+            subtitle = "Odify_Music_Test · 하위 폴더 포함",
+            enabled = !driveBusy,
+            onClick = { showFolderEditor = true }
+        )
+        Spacer(Modifier.height(7.dp))
+        OdifySourceRow(
+            icon = Icons.Default.CloudDownload,
+            title = "Drive 파일 개별 추가 (기존 방식)",
+            subtitle = "파일 선택기를 통한 재생도 지원",
             enabled = !importing, onClick = onImport
         )
         HorizontalDivider(color = Color(0xFFF1F1F3))
@@ -932,7 +999,35 @@ private fun OdifyProfile(
             "최근 재생 데이터 자동 캐시 · 최대 192MB")
         Spacer(Modifier.height(7.dp))
         OdifyInfoRow(Icons.Default.Info, "About",
-            "Odify Native · UI Preview 6")
+            "Odify Native · Drive Library Preview 8")
+    }
+    if (showFolderEditor) {
+        AlertDialog(
+            onDismissRequest = { showFolderEditor = false },
+            title = { Text("음악 폴더 지정") },
+            text = {
+                Column {
+                    Text("Google Drive 폴더 주소의 마지막 ID를 입력합니다.",
+                        fontSize = 12.sp, color = grey)
+                    Spacer(Modifier.height(10.dp))
+                    OutlinedTextField(
+                        value = folderInput, onValueChange = { folderInput = it },
+                        label = { Text("Drive folder ID") }, singleLine = true
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    onDriveFolderChange(folderInput.trim().substringAfterLast("/"))
+                    showFolderEditor = false
+                }) { Text("적용", color = ink) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showFolderEditor = false }) {
+                    Text("취소")
+                }
+            }
+        )
     }
 }
 
