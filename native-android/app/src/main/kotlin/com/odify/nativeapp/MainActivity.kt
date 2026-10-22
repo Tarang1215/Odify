@@ -78,6 +78,9 @@ private fun NativeOdify() {
     val masterDb = remember { OdifyMasterDatabase(context.applicationContext) }
     val artworkFallback = remember { OdifyArtworkFallback(context.applicationContext) }
     val uploader = remember { OdifyDriveUploader(context.applicationContext) }
+    val deviceExport = remember { OdifyDeviceExport(context.applicationContext) }
+    var pendingDeviceSong by remember { mutableStateOf<OdifySong?>(null) }
+    var savingDeviceSong by remember { mutableStateOf(false) }
     val drivePrefs = remember {
         context.getSharedPreferences("odify_drive_consent_state", 0)
     }
@@ -262,6 +265,28 @@ private fun NativeOdify() {
                 },
                 onError = { uploadStatus = "업로드 인증 실패: $it" }
             )
+        }
+    }
+
+    val saveDevicePicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/octet-stream")
+    ) { destination ->
+        val current = pendingDeviceSong
+        pendingDeviceSong = null
+        if (destination != null && current != null && !savingDeviceSong) {
+            scope.launch {
+                savingDeviceSong = true
+                runCatching { deviceExport.save(current, destination) }
+                    .onSuccess { total ->
+                        Toast.makeText(context,
+                            "디바이스에 저장 완료 (${OdifyDiagnostics.humanBytes(total)})",
+                            Toast.LENGTH_LONG).show()
+                    }.onFailure {
+                        Toast.makeText(context,
+                            it.localizedMessage ?: "디바이스 저장 실패", Toast.LENGTH_LONG).show()
+                    }
+                savingDeviceSong = false
+            }
         }
     }
 
@@ -584,6 +609,18 @@ private fun NativeOdify() {
                     if (controller?.repeatMode == androidx.media3.common.Player.REPEAT_MODE_ONE)
                         androidx.media3.common.Player.REPEAT_MODE_OFF
                     else androidx.media3.common.Player.REPEAT_MODE_ONE
+            },
+            onSaveDevice = { track ->
+                if (savingDeviceSong) {
+                    Toast.makeText(context, "이전 곡을 저장 중입니다.",
+                        Toast.LENGTH_SHORT).show()
+                } else {
+                    pendingDeviceSong = track
+                    val originalName = if (track.id.startsWith("gdrive:"))
+                        driveCatalog.filename(track.id.removePrefix("gdrive:"))
+                    else null
+                    saveDevicePicker.launch(deviceExport.suggestedName(track, originalName))
+                }
             },
             onEdit = { song, title, artist, album ->
                 scope.launch {
