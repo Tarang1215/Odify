@@ -375,12 +375,13 @@ fun OdifyNowPlaying(
                             modifier = Modifier.size(22.dp))
                     }
                     Text(
-                        text = if (showLyrics) "가사" else "ODIFY",
+                        text = if (showLyrics) "가사 보기" else "다음 재생목록",
                         color = playerWhite,
                         fontSize = 11.sp,
-                        letterSpacing = 1.3.sp,
+                        letterSpacing = 0.4.sp,
                         fontWeight = FontWeight.SemiBold,
                         modifier = Modifier.align(Alignment.Center)
+                            .clickable(onClick = onShowQueue)
                     )
                     IconButton(
                         onClick = onShowQueue,
