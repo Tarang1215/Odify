@@ -33,7 +33,6 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.IntOffset
 import kotlinx.coroutines.launch
 import kotlin.math.abs
-import kotlin.math.min
 import kotlin.math.roundToInt
 import kotlin.math.sin
 
@@ -94,7 +93,7 @@ fun OdifyNowPlaying(
         BoxWithConstraints(
             Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()
         ) {
-            val artSize = min(maxWidth - 62.dp, maxHeight * 0.39f)
+            val artSize = minOf(maxWidth - 62.dp, maxHeight * 0.39f)
             Column(
                 Modifier.fillMaxSize().padding(horizontal = 25.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
