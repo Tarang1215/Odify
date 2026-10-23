@@ -214,6 +214,13 @@ def grade_v4(track,c):
         proposed={**c,"title":track["artist"]+" - "+track["title"]}
         base=v3.rank_candidate(track,proposed)
         if base["eligible"]:
+            # The proxy title is ONLY a way to re-run strict version/time
+            # checks; its injected artist must not create positive evidence.
+            real_artist=v3.artist_evidence(track,c)
+            if base["artist_match"] and not real_artist:
+                base["score"]=max(0,base["score"]-19)
+                base["reasons"]+="; original_artist_unconfirmed"
+            base["artist_match"]=real_artist
             base["title_match"]=improved
             base["reasons"]+="; v4_structural_title"
             base["score"]=max(0,base["score"]-6)
