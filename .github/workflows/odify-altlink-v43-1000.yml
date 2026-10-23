@@ -1,11 +1,5 @@
 name: Odify V4.3 1000-song scalable live pipeline
 on:
-  push:
-    branches: [feature/odify-v12-master-db]
-    paths:
-      - 'scripts/odify_altlink_v43_batch.py'
-      - 'scripts/tests/test_odify_altlink_v43_batch.py'
-      - '.github/workflows/odify-altlink-v43-1000.yml'
   workflow_dispatch:
     inputs:
       resume_run_id:
