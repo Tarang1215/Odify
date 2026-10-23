@@ -454,9 +454,15 @@ def top_current(con,country,limit=100):
 def expand_apple(con,limit=30,delay=3.5):
     """Apple ID lookup -> album ID -> all album tracks; 3.5s minimum/req."""
     rows=con.execute(
-       "SELECT provider,ext_id,market FROM release_catalog_queue WHERE status='pending'"
-       " ORDER BY CASE provider WHEN 'apple' THEN 0 ELSE 1 END,rowid LIMIT ?",
-       (limit,)).fetchall()
+       """SELECT q.provider,q.ext_id,q.market
+           FROM release_catalog_queue q WHERE q.status='pending'
+          ORDER BY CASE q.provider WHEN 'itunes-search' THEN 0 ELSE 1 END,
+            COALESCE(
+               (SELECT MIN(e.as_of) FROM chart_entry ce
+                 JOIN chart_edition e ON e.id=ce.edition_id
+                WHERE ce.recording_id=q.ext_id AND e.category='songs'
+                  AND e.provider='billboard-hot-100-community-archive'),
+               '9999-12-31'),q.rowid LIMIT ?""",(limit,)).fetchall()
     expanded=0;calls=0
     for entry in rows:
         provider,source_id,market=entry["provider"],entry["ext_id"],entry["market"]
@@ -509,7 +515,9 @@ def expand_apple(con,limit=30,delay=3.5):
             album_id=str(song["collectionId"])
             found=con.execute("SELECT album_id FROM external_album WHERE provider='apple' AND ext_id=?",
                               (album_id,)).fetchone()
-            if found and found["album_id"]:
+            if found and found["album_id"] and con.execute(
+                    "SELECT count(*) FROM album_track WHERE album_id=?",
+                    (found["album_id"],)).fetchone()[0]>0:
                 con.execute("UPDATE release_catalog_queue SET status='done',last_attempt=?"
                             " WHERE provider=? AND ext_id=? AND market=?",
                             (utc_now(),provider,source_id,market))
@@ -524,7 +532,20 @@ def expand_apple(con,limit=30,delay=3.5):
                       info.get("artistName") or song["artistName"],
                       (info.get("releaseDate") or "")[:10])
             tracks=[x for x in album_data.get("results",[])
-                    if x.get("wrapperType")=="track" and x.get("kind")=="song"]
+                    if x.get("wrapperType")=="track" and
+                    x.get("kind") in ("song",None,"") and x.get("trackName")]
+            if not tracks:
+                # The free iTunes endpoint often exposes only an album shell
+                # for streaming-only releases. Never mark it as fully expanded.
+                con.execute("INSERT OR REPLACE INTO external_album(provider,ext_id,album_id,status)"
+                            " VALUES('apple',?,?,'metadata_only')",(album_id,gid))
+                con.execute("UPDATE release_catalog_queue SET status='metadata_only',last_attempt=?"
+                            " WHERE provider=? AND ext_id=? AND market=?",
+                            (utc_now(),provider,source_id,market))
+                con.commit()
+                print(f"album metadata only: {market} {info.get('collectionName')} (no tracklist)",
+                      flush=True)
+                continue
             for track in tracks:
                 rid=recording(con,track["trackName"],track["artistName"],
                               source="apple",source_id=track.get("trackId"),
