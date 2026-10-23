@@ -218,12 +218,29 @@ def grade_v4(track,c):
             base["reasons"]+="; v4_structural_title"
             base["score"]=max(0,base["score"]-6)
     if base["eligible"]:
-        # Prefer the plain exact song title over lyric compilations, trailers
-        # or opening clips with extra titles, while still flagging unverified
-        # artist identity for manual review (especially Romanized JP/KR).
-        if base["title_match"]=="exact":
-            base["score"]=min(99,base["score"]+12)
-            base["reasons"]+="; exact_title_priority"
+        # An exact title on an unrelated user's channel is not strong
+        # enough to outrank a full song from the named artist. V4 initially
+        # overweighted exact-title fan uploads; make the bonus conditional.
+        if base["title_match"]=="exact" and base["artist_match"]:
+            base["score"]=min(99,base["score"]+3)
+            base["reasons"]+="; artist_and_exact_title"
+        label=str(c.get("title") or "")
+        chan=str(c.get("channel") or "")
+        # A promotional PV/opening sequence can mention the right artist and
+        # song while being a short excerpt. Retain as review candidate but
+        # prefer normal full-track results.
+        promo=bool(re.search(r"(?<![a-z])pv(?![a-z])|trailer|teaser|preview|"
+              r"opening\s+movie|ending\s+movie|公開記念|予告|ティーザー",label,re.I))
+        if promo:
+            base["score"]=max(0,base["score"]-26)
+            base["reasons"]+="; promotional_clip"
+        # User-created lyric videos are searchable fallback candidates but
+        # are not official releases by virtue of quoting a whole title.
+        lyrics=bool(re.search(r"lyrics?|가사|歌詞",label,re.I))
+        if lyrics and not (re.search(r"-\s*topic\s*$",chan,re.I) or
+                          re.search(r"official",chan,re.I)):
+            base["score"]=max(0,base["score"]-17)
+            base["reasons"]+="; non_official_lyrics"
         # V3 official evidence is not proof; an uploader named "Official" alone
         # is an easily forged signal, and no candidate is auto approved.
         description=str(c.get("description") or "").casefold()
