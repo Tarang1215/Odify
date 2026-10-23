@@ -9,6 +9,7 @@ on:
       - 'scripts/odify_youtube_ingest.py'
       - 'scripts/odify_retag_library.py'
       - 'scripts/odify_link_candidates.py'
+      - 'scripts/odify_link_consensus.py'
       - 'scripts/tests/**'
       - '.github/workflows/odify-native-source-check.yml'
   pull_request:
@@ -33,9 +34,10 @@ jobs:
         uses: actions/checkout@v4
       - name: Validate YouTube audio ingestion companion
         run: |
-          python3 -m py_compile scripts/odify_youtube_ingest.py scripts/odify_retag_library.py scripts/odify_link_candidates.py
+          python3 -m py_compile scripts/odify_youtube_ingest.py scripts/odify_retag_library.py scripts/odify_link_candidates.py scripts/odify_link_consensus.py
           python3 scripts/odify_youtube_ingest.py --help > /dev/null
           python3 scripts/odify_link_candidates.py --help > /dev/null
+          python3 scripts/odify_link_consensus.py --help > /dev/null
           python3 -m unittest discover -s scripts/tests -p 'test_odify_*.py'
       - name: Java 17
         uses: actions/setup-java@v4
