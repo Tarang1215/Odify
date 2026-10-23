@@ -107,6 +107,27 @@ class V4Tests(unittest.TestCase):
         self.assertFalse(grade["artist_match"])
         self.assertIn("original_artist_unconfirmed",grade["reasons"])
 
+    def test_baseline_choice_is_preserved_without_independent_evidence(self):
+        track={"artist":"米津玄師 & 宇多田ヒカル","title":"JANE DOE","country":"jp"}
+        old={"url":URL,"title":"JANE DOE","channel":"Kenshi Yonezu",
+             "seconds":236,"views":1200,"description":""}
+        other={"url":"https://www.youtube.com/watch?v=ABCDEFGHIJK",
+               "title":"JANE DOE / 米津玄師, 宇多田ヒカル  Rock Style",
+               "channel":"J-RePOP","seconds":208,"views":1200,"description":""}
+        _,selected,status=v4.rank_v4(track,{"piped":{"candidates":[old,other]}},URL)
+        self.assertEqual(selected["url"],URL)
+        self.assertEqual(status,"baseline_retained_review")
+
+    def test_baseline_rejected_if_original_is_unofficial(self):
+        t={"artist":"BTS","title":"Dynamite","country":"kr"}
+        untrusted={"url":URL,"title":"Dynamite (Unofficial Audio)",
+                   "channel":"Fan","seconds":189,"views":200,"description":""}
+        correct={"url":"https://www.youtube.com/watch?v=ABCDEFGHIJK",
+                 "title":"Dynamite","channel":"BTS","seconds":189,
+                 "views":1000,"description":""}
+        _,selected,_=v4.rank_v4(t,{"piped":{"candidates":[untrusted,correct]}},URL)
+        self.assertEqual(selected["url"],correct["url"])
+
     def test_review_clip_and_fan_lyrics_downranked(self):
         japan={"artist":"米津玄師 & 宇多田ヒカル","title":"JANE DOE","country":"jp"}
         clip={"url":URL,"title":"劇場版『チェンソーマン レゼ篇』公開記念PV／Ending Theme:米津玄師, 宇多田ヒカル「JANE DOE」",
