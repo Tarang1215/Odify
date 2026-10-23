@@ -32,7 +32,7 @@ def rerank(source,output):
         t=row["track"]
         key=t["country"],t["id"]
         if key in grouped:raise ValueError("duplicated country/id")
-        ranked,best,state=v4.rank_v4(t,row["providers"])
+        ranked,best,state=v4.rank_v4(t,row["providers"],row["first_v3"]["selected_url"])
         fresh={**row,
           "v4":{"state":state,"eligible":sum(x["eligible"] for x in ranked),
                 "selected_url":best["url"] if best else "",
