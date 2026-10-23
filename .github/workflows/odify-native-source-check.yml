@@ -10,6 +10,7 @@ on:
       - 'scripts/odify_retag_library.py'
       - 'scripts/odify_link_candidates.py'
       - 'scripts/odify_link_consensus.py'
+      - 'scripts/odify_autolink_sheets.gs'
       - 'scripts/tests/**'
       - '.github/workflows/odify-native-source-check.yml'
   pull_request:
@@ -39,6 +40,9 @@ jobs:
           python3 scripts/odify_link_candidates.py --help > /dev/null
           python3 scripts/odify_link_consensus.py --help > /dev/null
           python3 -m unittest discover -s scripts/tests -p 'test_odify_*.py'
+          cp scripts/odify_autolink_sheets.gs /tmp/odify_autolink_sheets.js
+          node --check /tmp/odify_autolink_sheets.js
+          node scripts/tests/test_odify_sheets_autolink.cjs
       - name: Java 17
         uses: actions/setup-java@v4
         with:
