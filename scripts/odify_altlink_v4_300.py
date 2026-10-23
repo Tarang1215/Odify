@@ -56,8 +56,15 @@ def balanced_300(catalog, cached_sample=None):
     v2.verify_sample(base)
     if cached_sample is not None and base!=cached_sample:
         raise ValueError("V2 sample changed; refuse to mix checkpoints")
-    chosen=list(base)
-    used={row["id"] for row in base}
+    # V2's 100 rows contain one recording repeated across two countries.
+    # Keep the first encounter and refill the other region; 300 really means
+    # 300 UNIQUE recording IDs rather than 300 duplicated chart rows.
+    chosen=[]
+    used=set()
+    for row in base:
+        if row["id"] not in used:
+            chosen.append(row)
+            used.add(row["id"])
     with sqlite3.connect(f"file:{Path(catalog).resolve()}?mode=ro",uri=True) as conn:
         conn.row_factory=sqlite3.Row
         for country in REGIONS:
@@ -80,6 +87,7 @@ def balanced_300(catalog, cached_sample=None):
                 y=int(r["date"][:4])
                 period="2026" if y>=2026 else "2020-25" if y>=2020 else "2010s" if y>=2010 else "older"
                 buckets[period].append(r)
+            extra=75-sum(x["country"]==country for x in chosen)
             wanted={"2026":20,"2020-25":15,"2010s":10,"older":5}
             selected=[]
             for period,target in wanted.items():
@@ -91,15 +99,15 @@ def balanced_300(catalog, cached_sample=None):
                     r=pool[index]
                     if r["id"] not in used:
                         used.add(r["id"]);selected.append(r)
-            if len(selected)<50:
+            if len(selected)<extra:
                 for r in rows:
                     if r["id"] in used or not norm(r["artist"]) or not norm(r["title"]):
                         continue
                     used.add(r["id"]);selected.append(r)
-                    if len(selected)==50:break
-            if len(selected)<50:
+                    if len(selected)==extra:break
+            if len(selected)<extra:
                 raise ValueError(f"{country}: not enough unique chart recordings for 75")
-            if len(selected)>50:selected=selected[:50]
+            if len(selected)>extra:selected=selected[:extra]
             for r in selected:
                 chosen.append({"country":country,"id":r["id"],
                   "artist":r["artist"],"title":r["title"],"source_date":r["date"],
@@ -254,7 +262,7 @@ def process(track,bases,health,timeout,delay,max_queries=2,cached=None,fetcher=f
     attempts=[]
     newly_fetched=[]
     q=f"{track['artist']} {track['title']} audio"
-    if not cached:
+    if not cached and not health["disabled"]:
         found,attempt=search(track,q,"music_songs",bases,health,timeout,delay,fetcher)
         attempts.extend(attempt)
         newly_fetched.extend(found)
@@ -272,7 +280,7 @@ def process(track,bases,health,timeout,delay,max_queries=2,cached=None,fetcher=f
     ranked,best,state=rank_v4(track,providers)
     return {"schema":SCHEMA,"track":track,"cached_v2":bool(cached),
       "attempts":attempts,"providers":providers,
-      "first_v3":{"state":first_state,"eligible":sum(x["ok"] for x in []) if False else len([x for x in first_ranked if x["eligible"]]),
+      "first_v3":{"state":first_state,"eligible":sum(x["eligible"] for x in first_ranked),
         "selected_url":first_best.get("url","") if first_best else ""},
       "v4":{"state":state,"eligible":sum(x["eligible"] for x in ranked),
        "selected_url":best["url"] if best else "",
