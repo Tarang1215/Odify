@@ -1,9 +1,12 @@
 name: Odify Piped Invidious 100-track pilot
 on:
-  push:
-    branches: [feature/odify-v12-master-db]
-    paths: ['.github/workflows/odify-altlink-pilot.yml']
   workflow_dispatch:
+    inputs:
+      resume_run_id:
+        description: 'Optional previous API pilot run id; download existing checkpoints and skip already tested songs'
+        type: string
+        required: false
+        default: ''
 permissions:
   actions: read
   contents: read
@@ -39,6 +42,15 @@ jobs:
           assert count==41416, count
           print('SOURCE_TRACKS', count)
           PY
+      - name: Restore previous per-song checkpoints (optional)
+        if: ${{ inputs.resume_run_id != '' }}
+        uses: actions/download-artifact@v4
+        with:
+          repository: Tarang1215/Odify
+          run-id: ${{ inputs.resume_run_id }}
+          name: odify-altlink-piped-invidious-100-v2
+          github-token: ${{ github.token }}
+          path: .local/odify_altlink_pilot_v2
       - name: Live 100 song benchmark - KR 25 JP 25 US 25 Global 25
         run: |
           python -u scripts/odify_altlink_pilot.py \
