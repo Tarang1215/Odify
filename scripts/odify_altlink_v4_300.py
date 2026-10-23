@@ -211,11 +211,11 @@ def grade_v4(track,c):
     headline=str(c.get("title") or "")
     wanted=str(track.get("title") or "")+" "+str(track.get("version") or "")
     variant_patterns={
-      "cover":r"\\bcover\\b|カバー|歌ってみた|커버",
-      "instrumental":r"\\binstrumental\\b|\\binst\\.?\\b|カラオケ|노래방|반주",
-      "remix":r"\\bremix\\b|リミックス|리믹스",
-      "speed_edit":r"\\bslowed\\b|\\bsped[ -]?up\\b|\\bnightcore\\b|속도조절",
-      "live":r"\\blive\\b|ライブ|라이브|공연실황",
+      "cover":r"\bcover\b|カバー|歌ってみた|커버",
+      "instrumental":r"\binstrumental\b|\binst\.?\b|カラオケ|노래방|반주",
+      "remix":r"\bremix\b|リミックス|리믹스",
+      "speed_edit":r"\bslowed\b|\bsped[ -]?up\b|\bnightcore\b|속도조절",
+      "live":r"\blive\b|ライブ|라이브|공연실황",
     }
     for variant,pattern in variant_patterns.items():
       if re.search(pattern,headline,re.I) and not re.search(pattern,wanted,re.I):
@@ -260,8 +260,8 @@ def grade_v4(track,c):
             base["reasons"]+="; promotional_clip"
         # A channel or uploader claiming to be Official is not evidence that
         # a lyric video is the original artist upload. Penalize metadata-only.
-        if re.search(r"\\blyrics?\\b|가사|歌詞",label,re.I) and not re.search(
-              r"-\\s*topic\\s*$",chan,re.I):
+        if re.search(r"\blyrics?\b|가사|歌詞",label,re.I) and not re.search(
+              r"-\s*topic\s*$",chan,re.I):
             base["score"]=max(0,base["score"]-12)
             base["reasons"]+="; lyrics_require_artist_review"
         # User-created lyric videos are searchable fallback candidates but
