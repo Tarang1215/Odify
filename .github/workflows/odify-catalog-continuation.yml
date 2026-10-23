@@ -1,0 +1,109 @@
+name: Odify Catalog Continue KR JP US Global
+on:
+  push:
+    branches: [feature/odify-v12-master-db]
+    paths: ['.github/workflows/odify-catalog-continuation.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  expand:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify collector and merge tests
+        run: |
+          python -m py_compile scripts/odify_catalog_merge.py scripts/odify_oricon_archive.py scripts/odify_catalog_pipeline.py
+          python -m unittest discover -s scripts/tests -p 'test_odify_oricon_archive.py' -v
+      - name: Restore historical KR and JP snapshot
+        uses: actions/download-artifact@v4
+        with:
+          repository: Tarang1215/Odify
+          run-id: 39907098314
+          name: odify-catalog-kr-jp-us-sqlite
+          github-token: ${{ github.token }}
+          path: .local/regional
+      - name: Restore album-enriched USA snapshot
+        uses: actions/download-artifact@v4
+        with:
+          repository: Tarang1215/Odify
+          run-id: 39906294584
+          name: odify-catalog-enriched-sqlite
+          github-token: ${{ github.token }}
+          path: .local/album
+      - name: Reconstruct 35k track catalog without duplicates
+        run: |
+          python -u scripts/odify_catalog_merge.py \
+            --base .local/album/odify_catalog.sqlite3 \
+            --extra .local/regional/odify_catalog.sqlite3 \
+            --out .local/odify_catalog.sqlite3
+      - name: Retrieve 2003-2008 Oricon Japanese singles weekly source
+        run: |
+          curl --fail --location --retry 3 --max-time 70 \
+            https://raw.githubusercontent.com/sichengchen/oricon/main/public/data/oricon_singles.csv \
+            --output .local/oricon_singles.csv
+          test "$(wc -c < .local/oricon_singles.csv)" -gt 2000000
+      - name: Extend Japan 2003-2008 singles and derived monthly charts
+        run: |
+          python -u scripts/odify_oricon_archive.py \
+            --db .local/odify_catalog.sqlite3 --csv .local/oricon_singles.csv
+      - name: Fix and collect current global ListenBrainz chart
+        run: python -u scripts/odify_catalog_pipeline.py chart-feed --countries global
+      - name: Complete missing USA weekly charts
+        run: |
+          python -u scripts/odify_catalog_pipeline.py backfill-us \
+            --limit 100 --coverage latest-first \
+            --progress-file .local/odify_catalog_progress.json
+      - name: Expand more albums and full tracklists
+        run: python -u scripts/odify_catalog_pipeline.py expand-albums --limit 30
+      - name: Save statistics, progress and output feeds
+        if: always()
+        run: |
+          python scripts/odify_catalog_pipeline.py export \
+            --out-dir .local/odify_public
+          python - <<'PY'
+          import sqlite3,json,os
+          from pathlib import Path
+          db=Path('.local/odify_catalog.sqlite3')
+          c=sqlite3.connect(db)
+          integrity=c.execute('PRAGMA integrity_check').fetchone()[0]
+          foreign=c.execute('PRAGMA foreign_key_check').fetchall()
+          tables=['artist','recording','album','album_track','chart_edition','chart_entry','recording_genre']
+          counts={t:c.execute('SELECT COUNT(*) FROM '+t).fetchone()[0] for t in tables}
+          counts['albums_with_tracks']=c.execute('SELECT COUNT(DISTINCT album_id) FROM album_track').fetchone()[0]
+          regions=[{'country':row[0],'source':row[1],'chart_editions':row[2],'rank_records':row[3]} for row in
+              c.execute('''SELECT e.country,e.provider,COUNT(DISTINCT e.id),COUNT(ce.rank)
+                   FROM chart_edition e LEFT JOIN chart_entry ce ON ce.edition_id=e.id
+                   GROUP BY 1,2 ORDER BY 1,2''')]
+          output={'integrity':integrity,'foreign_keys':len(foreign),
+             'counts':counts,'regions':regions}
+          Path('.local/odify_counts.json').write_text(
+              json.dumps(output,ensure_ascii=False,indent=2),encoding='utf-8')
+          print('ODIFY_FINAL_COUNTS '+json.dumps(output,ensure_ascii=False),flush=True)
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as f:
+              f.write('### Odify catalog continue — 4 regions\n')
+              f.write('Integrity: '+integrity+'; FK errors: '+str(len(foreign))+'\n\n')
+              for k,v in counts.items():f.write('- '+k+': **'+str(v)+'**\n')
+              f.write('\n| Country | Source | Charts | Ranks |\n|---|---|---:|---:|\n')
+              for v in regions:f.write('| '+str(v['country'])+' | '+str(v['source'])+' | '+str(v['chart_editions'])+' | '+str(v['rank_records'])+' |\n')
+          assert integrity=='ok' and not foreign
+          PY
+      - name: Publish private catalog snapshot artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: odify-catalog-continued-4-regions
+          path: |
+            .local/odify_catalog.sqlite3
+            .local/odify_catalog_progress.json
+            .local/odify_counts.json
+            .local/odify_public/**
+          if-no-files-found: warn
+          retention-days: 60
