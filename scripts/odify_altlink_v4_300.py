@@ -189,6 +189,22 @@ def title_match(track,c):
     return "none"
 
 def grade_v4(track,c):
+    # Apply version and uploader safety to the ORIGINAL title before any
+    # structural title repair. Never let a repaired "Artist - Song" string
+    # strip "Instrumental", "Live", "Cover", "Remix", etc.
+    master={"아티스트":track["artist"],"곡명":track["title"],
+            "음원 버전":track.get("version","")}
+    original_issue=v3.version_issue(master,c)
+    if original_issue and not original_issue.startswith("피처링 미확인"):
+        return dict(eligible=False,score=0,artist_match=False,
+          title_match="none",official_evidence=False,album_match=False,
+          duration_difference=None,reasons="version_rejected_original: "+original_issue)
+    # "Unofficial Audio" contains the substring "official audio". It must
+    # not be scored as official; for original-release links exclude it.
+    if re.search(r"\\bunofficial\\b",str(c.get("title") or ""),re.I):
+        return dict(eligible=False,score=0,artist_match=False,
+          title_match="none",official_evidence=False,album_match=False,
+          duration_difference=None,reasons="unofficial_upload")
     base=v3.rank_candidate(track,c)
     old_match=base["title_match"]
     improved=title_match(track,c)
@@ -202,6 +218,12 @@ def grade_v4(track,c):
             base["reasons"]+="; v4_structural_title"
             base["score"]=max(0,base["score"]-6)
     if base["eligible"]:
+        # Prefer the plain exact song title over lyric compilations, trailers
+        # or opening clips with extra titles, while still flagging unverified
+        # artist identity for manual review (especially Romanized JP/KR).
+        if base["title_match"]=="exact":
+            base["score"]=min(99,base["score"]+12)
+            base["reasons"]+="; exact_title_priority"
         # V3 official evidence is not proof; an uploader named "Official" alone
         # is an easily forged signal, and no candidate is auto approved.
         description=str(c.get("description") or "").casefold()
@@ -262,7 +284,7 @@ def process(track,bases,health,timeout,delay,max_queries=2,cached=None,fetcher=f
     attempts=[]
     newly_fetched=[]
     q=f"{track['artist']} {track['title']} audio"
-    if not cached and not health["disabled"]:
+    if not cached and any(b not in health["disabled"] for b in bases):
         found,attempt=search(track,q,"music_songs",bases,health,timeout,delay,fetcher)
         attempts.extend(attempt)
         newly_fetched.extend(found)
@@ -270,7 +292,7 @@ def process(track,bases,health,timeout,delay,max_queries=2,cached=None,fetcher=f
     first_ranked,first_best,first_state=v3.ranking(track,first_providers)
     # Only spend a second request where matching is difficult; do not
     # exhaust volunteer instances with unconditional duplicate searches.
-    if max_queries>=2 and not health["disabled"] and (not first_best or
+    if max_queries>=2 and any(b not in health["disabled"] for b in bases) and (not first_best or
           first_state in ("artist_review","ambiguous_review")):
         alt=f'{track["artist"]} "{track["title"]}" official audio'
         found,attempt=search(track,alt,"videos",bases,health,timeout,delay,fetcher)
