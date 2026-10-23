@@ -208,7 +208,7 @@ function odifyRefreshProgress() {
   const headers=rows[0]||[];
   const linkCol=headers.indexOf('YouTube 오디오 URL');
   if(linkCol<0)throw Error('YouTube 오디오 URL 열이 없습니다.');
-  const data=rows.slice(1).filter(r=>/^ODF\\d{6}$/.test(r[0]));
+  const data=rows.slice(1).filter(r=>/^ODF\d{6}$/.test(r[0]));
   const connected=data.filter(r=>r[linkCol]).length;
   const usage=JSON.parse(props.getProperty('ODIFY_QUERY_USAGE')||
     props.getProperty('ODIFY_DAILY_CALLS')||'{}');
@@ -281,7 +281,7 @@ function odifyAutoLink() {
     const index=[];
     let connected=0;
     for(let i=1;i<rows.length;i++){
-      if(!/^ODF\\d{6}$/.test(rows[i][0]))continue;
+      if(!/^ODF\d{6}$/.test(rows[i][0]))continue;
       if(rows[i][col('YouTube 오디오 URL')]) {connected++;continue}
       if(!rows[i][col('아티스트')]||!rows[i][col('곡명')])continue;
       const last=previous.get(rows[i][0]);
