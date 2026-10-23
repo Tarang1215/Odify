@@ -51,6 +51,18 @@ python scripts/odify_link_consensus.py \\
 
 향후 수집은 `scripts/odify_link_candidates.py`가 **검색 1회당 최대 15개 후보**와 길이·조회수 정보를 모으고, 그 결과 CSV를 그대로 `--candidates` 인수로 넘기면 된다. API 호출은 캐시를 재사용한다.
 
+### V4 진행률 및 50개 후보 캐시 (2026-10-23)
+
+- `scripts/odify_autolink_sheets.gs`를 Apps Script **코드.gs 전체와 교체**하면 다음부터 `ODIFY_PROGRESS` 탭이 작업 중 갱신된다.
+- 진행률은 **이번 실행 검색 대상 중 처리 완료 비율**이며, 전체 1980~2026년 차트 수집 완료율이 아니다.
+- 현재 곡·총/연결/미연결 곡·신규 링크·보류 건수·검색 API 호출·캐시 재사용·일일 검색 잔여량을 시트에서 확인할 수 있다.
+- YouTube 검색은 매 쿼리 최대 **50개 영상** 후보를 모아 길이 모드(±2초)와 업로더별 투표로 선정한다. 신규 영상 URL만 Google MASTER `재검토`로 넣는다.
+- `ODIFY_LINK_CANDIDATES`에 후보 영상의 URL/길이/채널과 검색 쿼리를 저장하고, 동일 쿼리는 **21일 캐시**를 사용한다. 재실행·중단 시 이미 연결된 링크는 불변.
+- Google의 기본 YouTube API 검색 할당량 범위에서 **하루 95회 검색 요청**으로 제한한다. 95곡이 아닌 95개 검색이며 한 검색은 최대 50개 후보 영상을 돌려준다. 국가별 차트 수집/앨범 카탈로그 수집은 이 YouTube 할당량과 별개.
+- 기존 Script Properties `ODIFY_YOUTUBE_API_KEY` / `ODIFY_SPREADSHEET_ID`도 이전 설정에서 읽도록 유지한다.
+- 이미 생성한 Google Sheet `ODIFY_PROGRESS`는 V4 코드로 실제 실행하기 전까지 **정적 현황**이다. GitHub 리포지터리 연결만으로 사용자의 바운드 Apps Script가 자동 수정되지는 않는다.
+- Apps Script를 업데이트한 후 Google Sheets에서 **Odify 자동 링크 → 매일 자동실행 설정**을 다시 눌러 이전 트리거를 새 트리거로 교체하고, **지금 링크 검색**을 실행한다.
+
 ### PC를 꺼도 작동하는 Google Sheets 자동화
 
 Google Sheets의 `확장 프로그램 → Apps Script`에 `scripts/odify_autolink_sheets.gs` 내용을 넣는다. 원래 MASTER가 있는 문서에서 다음을 한 번씩 실행한다.
