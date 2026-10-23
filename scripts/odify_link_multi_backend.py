@@ -260,7 +260,7 @@ def choose(con,song):
                 candidates=len(grouped),eligible_candidates=valid,
                 reason=decision["reason"])
     with con:
-        con.execute("INSERT OR REPLACE INTO proposal VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        con.execute("INSERT OR REPLACE INTO proposal VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     (song["country"],song["recording_id"],song["artist"],
                      song["title"],song["chart_rank"],song["chart_date"],
                      song["chart_source"],status,record["video_id"],
