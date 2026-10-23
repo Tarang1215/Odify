@@ -81,6 +81,22 @@ class V4Tests(unittest.TestCase):
                 rec=make_candidate(label,"BTS")
                 self.assertFalse(v4.grade_v4(t,rec)["eligible"])
 
+    def test_regression_instrumental_unofficial_and_exact_title_priority(self):
+        japanese={"artist":"米津玄師 & 宇多田ヒカル","title":"JANE DOE","country":"jp"}
+        instrumental={"url":URL,"title":"米津玄師, 宇多田ヒカル「JANE DOE」(Instrumental)",
+                      "channel":"Abism","seconds":237,"views":700,"description":""}
+        self.assertFalse(v4.grade_v4(japanese,instrumental)["eligible"])
+        english={"artist":"Drake & Don Toliver","title":"Solar Eclipse","country":"us"}
+        unofficial=make_candidate("Solar Eclipse - Drake & Don Toliver (Unofficial Audio)",
+                                  "Music Guy")
+        self.assertFalse(v4.grade_v4(english,unofficial)["eligible"])
+        exact=make_candidate("IRIS OUT","Kenshi Yonezu")
+        unrelated=make_candidate("Opening Movie - IRIS OUT - Main theme: Kenshi Yonezu",
+                                 "Kenshi Yonezu and MAPPA")
+        original={"artist":"米津玄師","title":"IRIS OUT","country":"jp"}
+        self.assertGreater(v4.grade_v4(original,exact)["score"],
+                           v4.grade_v4(original,unrelated)["score"])
+
     def test_one_search_plus_adaptive_second(self):
         t={"country":"kr","id":"x","artist":"BTS","title":"Dynamite"}
         calls=[]
