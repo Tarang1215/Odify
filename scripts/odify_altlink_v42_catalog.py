@@ -45,7 +45,9 @@ FIELDS=("country","id","artist","title","original_state","catalog_status",
  "catalog_artist_consistent","catalog_duration_agreement_s",
  "audited_video_candidates","duration_compatible_video_candidates",
  "catalog_version_conflicts","proposed_review_url","review_reason",
- "automatic_approval","master_write")
+ "automatic_approval","master_write","musicbrainz_http_status",
+ "apple_http_status","verification_blocker","album_agreement",
+ "single_catalog_duration_hints","catalog_version_warning")
 CAND_FIELDS=("country","id","artist","title","source","candidate_url","video_title",
  "channel","video_seconds","v4_eligible","catalog_duration_seconds",
  "seconds_difference","duration_evidence","version_warning","artist_evidence",
@@ -318,6 +320,45 @@ def audit_song(track,checkpoint,candidates):
   "review_reason":"two_catalog_duration_hint_unverified_upload" if candidate_best else
        "no_independently_corroborrated_youtube_candidate",
   "automatic_approval":"NO","master_write":"NO"}
+ # Explicit provider outages are NOT catalog non-matches. Preserve the
+ # original response status and distinguish a single-source hypothesis.
+ observed=checkpoint.get("requests",{})
+ mb_http=observed.get("musicbrainz",{}).get("status",0)
+ apple_http=observed.get("apple",{}).get("status",0)
+ stats["musicbrainz_http_status"]=mb_http
+ stats["apple_http_status"]=apple_http
+ stats["verification_blocker"]=(
+    "both_catalogs_unavailable" if mb_http!=200 and apple_http!=200 else
+    "musicbrainz_unavailable" if mb_http!=200 else
+    "apple_unavailable" if apple_http!=200 else
+    "catalog_identity_or_recording_mismatch" if status=="catalog_identity_unresolved" else
+    "none")
+ stats["album_agreement"]=(
+    "YES" if mb and ap and mb["album"] and ap["album"] and
+       norm(mb["album"])==norm(ap["album"]) else
+    "DIFFERENT_RELEASE_REVIEW" if mb and ap and mb["album"] and ap["album"] else
+    "UNCONFIRMED")
+ # If only one independent catalog resolves a precise artist+title, compare
+ # duration as a LOW confidence clue only. Never reclassify it as two-source
+ # agreement and NEVER approve the YouTube video.
+ single_seconds=(ap or mb or {}).get("seconds",0)
+ stats["single_catalog_duration_hints"]=sum(
+    abs(int(x["video_seconds"] or 0)-single_seconds)<=7
+    for x in candidates if single_seconds and int(x["video_seconds"] or 0)>0
+ ) if status=="single_catalog_review" else 0
+ stats["catalog_version_warning"]=""
+ title_low=track["title"].casefold()
+ if ap:
+  explicit=(ap.get("explicitness") or "").casefold()
+  if re.search(r"\bclean\s*ver",title_low) and explicit=="explicit":
+   stats["catalog_version_warning"]="clean_requested_apple_explicit"
+  if re.search(r"\bexplicit\s*ver",title_low) and explicit=="cleaned":
+   stats["catalog_version_warning"]="explicit_requested_apple_cleaned"
+  if re.search(r"\b(?:live|remaster(?:ed)?)\b",title_low) and not re.search(
+       r"\b(?:live|remaster(?:ed)?)\b",ap["track_name"].casefold()):
+   stats["catalog_version_warning"]="version_label_not_confirmed_by_apple"
+ if stats["catalog_version_warning"]:
+  stats["review_reason"]=stats["catalog_version_warning"]+"; "+stats["review_reason"]
  return stats,candidates
 
 def run(v4_path,v41_path,out,targeted_path=None,limit=54,offline=False,timeout=9,mb_delay=1.2,apple_delay=1.0,requester=http_json):
@@ -391,6 +432,10 @@ def run(v4_path,v41_path,out,targeted_path=None,limit=54,offline=False,timeout=9
  "two_catalog_conflicts":sum(x["catalog_status"]=="catalog_conflict_or_variant_review" for x in rows),
  "identity_unresolved":sum(x["catalog_status"]=="catalog_identity_unresolved" for x in rows),
  "tracks_with_duration_compatible_video_hints":sum(x["duration_compatible_video_candidates"]>0 for x in rows),
+ "single_catalog_video_duration_hints":sum(x["single_catalog_duration_hints"] for x in rows),
+ "version_conflicts_or_uncertainty":sum(bool(x["catalog_version_warning"]) for x in rows),
+ "musicbrainz_provider_unavailable":sum(x["musicbrainz_http_status"]!=200 for x in rows),
+ "apple_provider_unavailable":sum(x["apple_http_status"]!=200 for x in rows),
  "catalog_requests":len(requests),
  "catalog_http_ok":sum(x["status"]==200 for x in requests),
  "catalog_http_failed":sum(x["status"]!=200 for x in requests),
