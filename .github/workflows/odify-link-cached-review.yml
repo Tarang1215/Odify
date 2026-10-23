@@ -1,0 +1,64 @@
+name: Odify 100 Song Cached False Positive Reassessment
+on:
+  push:
+    branches: [feature/odify-v12-master-db]
+    paths: ['.github/workflows/odify-link-cached-review.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  reassess:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test identified false positives
+        run: |
+          python -m unittest discover -s scripts/tests -p 'test_odify_link_false_positive.py' -v
+          python -m unittest discover -s scripts/tests -p 'test_odify_link_multi_backend.py' -v
+      - uses: actions/download-artifact@v4
+        with:
+          repository: Tarang1215/Odify
+          run-id: 39956200144
+          name: odify-piped-100-song-retest-results
+          github-token: ${{ github.token }}
+          path: .local
+      - uses: actions/download-artifact@v4
+        with:
+          repository: Tarang1215/Odify
+          run-id: 39909115368
+          name: odify-catalog-us-full-4-regions
+          github-token: ${{ github.token }}
+          path: .local
+      - name: Revalidate saved 2036 video candidates without any new API calls
+        run: |
+          python -u scripts/odify_link_multi_backend.py \
+            --db .local/odify_catalog.sqlite3 \
+            --state .local/odify_link_provider_state.sqlite3 \
+            --output-dir .local/link_pilot --providers piped \
+            --limit-per-country 25 --delay 0
+      - name: Export review records for Google Sheets
+        run: |
+          python - <<'PY'
+          import sqlite3,json
+          con=sqlite3.connect('.local/odify_link_provider_state.sqlite3')
+          con.row_factory=sqlite3.Row
+          rows=con.execute("""SELECT country,chart_rank,artist,title,status,video_id,confidence,
+                              eligible_candidates,candidates,reason FROM proposal ORDER BY
+                    CASE country WHEN 'kr' THEN 1 WHEN 'jp' THEN 2 WHEN 'us' THEN 3 ELSE 4 END,chart_rank""").fetchall()
+          assert len(rows)==100
+          for row in rows:
+              print('ODIFY_PILOT_EXPORT '+json.dumps(dict(row),ensure_ascii=False))
+          print('ODIFY_CACHED_REASSESSMENT_COMPLETE',len(rows))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: odify-piped-100-refined-match-checkpoint
+          path: |
+            .local/odify_link_provider_state.sqlite3
+            .local/link_pilot/**
+          retention-days: 60
