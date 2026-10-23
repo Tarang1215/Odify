@@ -194,4 +194,34 @@ class V4Tests(unittest.TestCase):
             self.assertEqual(len(props),3)
             self.assertTrue(all(row["action"]=="MANUAL_REVIEW_ONLY" and row["verified"]=="NO" for row in props))
 
+
+class V44FalsePositiveTests(unittest.TestCase):
+    def test_real_1000_sample_cover_and_instrumental_cases(self):
+        cases=[
+          ({"artist":"安室奈美恵","title":"FAST CAR","country":"jp"},
+           "FAST CAR / 安室奈美恵（cover）","2y'soul"),
+          ({"artist":"米津玄師 & 宇多田ヒカル","title":"JANE DOE","country":"jp"},
+           "米津玄師, 宇多田ヒカル「JANE DOE」(Instrumental)","Abism"),
+          ({"artist":"乃木坂46","title":"裸足でSummer","country":"jp"},
+           "乃木坂46『裸足でsummer』 Full cover by Lefty Hand Cream","Lefty Hand Cream【Official】"),
+          ({"artist":"虹のコンキスタドール","title":"響け!ファンファーレ","country":"jp"},
+           "【COVER】きずなシミュレーション「響け!ファンファーレ」(虹コン)","Kizuna Simulation")]
+        for track,title,channel in cases:
+            with self.subTest(title=title):
+                x={"url":URL,"title":title,"channel":channel,
+                   "seconds":230,"views":300,"description":""}
+                grade=v4.grade_v4(track,x)
+                self.assertFalse(grade["eligible"],grade)
+                self.assertIn("non_original_variant",grade["reasons"])
+    def test_normal_studio_track_and_album_interludes_remain(self):
+        t={"artist":"Dominic Fike","title":"Babydoll","country":"us"}
+        c={"url":URL,"title":"Babydoll","channel":"Dominic Fike",
+           "seconds":98,"views":30,"description":""}
+        self.assertTrue(v4.grade_v4(t,c)["eligible"])
+    def test_explicit_cover_request_does_not_silently_change_version(self):
+        t={"artist":"Singer","title":"Original Track","version":"original","country":"us"}
+        x={"url":URL,"title":"Original Track (Live Cover)","channel":"Singer",
+           "seconds":200,"views":300,"description":""}
+        self.assertFalse(v4.grade_v4(t,x)["eligible"])
+
 if __name__=="__main__":unittest.main()
