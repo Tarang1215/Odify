@@ -65,6 +65,12 @@ CREATE TABLE IF NOT EXISTS recording(
  UNIQUE(artist_id,normalized,version)
 );
 CREATE INDEX IF NOT EXISTS recording_artist ON recording(artist_id);
+CREATE TABLE IF NOT EXISTS recording_genre(
+ recording_id TEXT NOT NULL REFERENCES recording(id),
+ genre TEXT NOT NULL, source TEXT NOT NULL,
+ PRIMARY KEY(recording_id,genre,source)
+);
+CREATE INDEX IF NOT EXISTS recording_genre_lookup ON recording_genre(genre);
 CREATE TABLE IF NOT EXISTS external_identity(
  provider TEXT NOT NULL,ext_id TEXT NOT NULL,
  recording_id TEXT NOT NULL REFERENCES recording(id),
@@ -196,9 +202,15 @@ def snapshot(con,source,country,date,entries,category="songs",url=None,rights=No
                       album=item.get("album",""))
         con.execute("INSERT INTO chart_entry(edition_id,rank,recording_id,source_song_id)"
                     " VALUES(?,?,?,?)",(sid,rank,aid,item.get("source_id")))
+        if item.get("genre"):
+            con.execute("INSERT OR IGNORE INTO recording_genre(recording_id,genre,source)"
+                        " VALUES(?,?,?)",(aid,str(item["genre"]).strip(),source))
         if source=="apple-rss" and item.get("source_id"):
             con.execute("INSERT OR IGNORE INTO release_catalog_queue(provider,ext_id,market)"
                         " VALUES('apple',?,?)",(str(item["source_id"]),country))
+        elif source!="apple-rss":
+            con.execute("INSERT OR IGNORE INTO release_catalog_queue(provider,ext_id,market)"
+                        " VALUES('itunes-search',?,?)",(aid,country if country!="gl" else "us"))
     return sid
 
 def http_json(url,timeout=20):
@@ -259,12 +271,13 @@ def import_csv(con,file):
         raise ValueError("CSV needs source,country,chart_date,rank,artist,title")
     buckets={}
     for row in rows:
-        key=(row["source"],country_code(row["country"]),row["chart_date"])
+        key=(row["source"],country_code(row["country"]),row["chart_date"],
+             row.get("category") or "songs")
         buckets.setdefault(key,[]).append(row)
-    for (source,country,date),entries in buckets.items():
+    for (source,country,date,category),entries in buckets.items():
         one=entries[0]
-        snapshot(con,source,country,date,entries,url=one.get("source_url"),
-                 rights=one.get("license"))
+        snapshot(con,source,country,date,entries,category=category,
+                 url=one.get("source_url"),rights=one.get("license"))
     return len(buckets),len(rows)
 
 def artist_list(con,who,limit=100):
@@ -352,6 +365,9 @@ def expand_apple(con,limit=30,delay=3.5):
                 con.execute("INSERT OR REPLACE INTO album_track(album_id,recording_id,disc,position)"
                             " VALUES(?,?,?,?)",
                             (gid,rid,track.get("discNumber",1),track.get("trackNumber",1)))
+                if track.get("primaryGenreName"):
+                    con.execute("INSERT OR IGNORE INTO recording_genre(recording_id,genre,source)"
+                                " VALUES(?,?,'itunes')",(rid,track["primaryGenreName"]))
             con.execute("INSERT OR REPLACE INTO external_album(provider,ext_id,album_id,status)"
                         " VALUES('apple',?,?,'done')",(album_id,gid))
             con.execute("UPDATE release_catalog_queue SET status='done',last_attempt=?"
