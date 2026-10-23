@@ -1,3 +1,14 @@
+## Piped / Invidious 다중 백엔드 파일럿 (2026-10-23)
+
+- [설계·재실행 절차](ODIFY_PIPED_INVIDIOUS_PILOT.md) / [실행 코드](odify_link_multi_backend.py) / [100곡 실제 API 실행](https://github.com/Tarang1215/Odify/actions/workflows/odify-link-provider-pilot.yml)
+- **한국/일본/미국/글로벌 각 25곡의 서로 다른 음원**을 실제 DB 최신 차트에서 뽑아 Piped·Invidious 각각 검색한다.
+- `pilot_provider_attempts.csv`: HTTP 상태·응답시간·실패 종류 / `pilot_candidates.csv`: 후보별 제외 이유 / `pilot_link_proposals.csv`: 영상 링크 제안만 따로 보관
+- `progress.json`과 `ODIFY_LINK_PROGRESS` 실행 로그에서 현재 곡과 처리율 확인
+- `odify_link_provider_state.sqlite3`를 복원한 채 재실행하면 성공한 호출은 **재요청하지 않는다.** 오류 재시도 시에만 `--retry-errors` 전달
+- **기존 MASTER URL 1개도 변경하지 않는 기본 정책**. Piped/Invidious의 검색용 메타데이터를 영구 스트리밍 URL로 오해하지 말 것.
+- 실제 결과의 `고신뢰`는 제목/길이/채널 기준 메타데이터 확률일 뿐 **청취 검증이 아니다**.
+- 기존 Google Apps Script V4는 그대로 실행된다. 이번 GitHub Python 수집기는 대규모 카탈로그용 별도 후보 수집 백엔드로, Apps Script가 자동으로 대체되거나 연결된 것은 아니다.
+
 # Odify MASTER 2026→1980: 링크 후보 일괄 수집
 
 기존 Google Sheet: **Odify 음악 마스터 | 2026→1980**. 수집 대상
