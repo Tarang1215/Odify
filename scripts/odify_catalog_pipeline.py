@@ -527,9 +527,33 @@ def export(con,where,countries):
                    ensure_ascii=False,indent=2),encoding="utf-8")
     return stats
 
+def ingest_live_feeds(con,countries):
+    """Only fetch current chart snapshots, not historical archive."""
+    stats={}
+    for country in countries:
+        try:
+            if country=="gl":
+                url,date,entries=global_feed()
+                source="listenbrainz-sitewide"
+                rights="ListenBrainz user-submitted listens, NOT a worldwide market share chart"
+            else:
+                url,updated,entries=rss_feed(country)
+                date=feed_date(updated)
+                source="apple-rss"
+                rights="Apple Music storefront chart; observe RSS terms"
+            with con:
+                snapshot(con,source,country,date,entries,url=url,rights=rights)
+            stats[country]={"status":"ok","entries":len(entries),"date":date,"source":source}
+            print(f"{country}: {len(entries)} ranked entries from {source} on {date}")
+        except (HTTPError,URLError,ValueError,KeyError,TimeoutError) as e:
+            stats[country]={"status":"failed","error":str(e)}
+            print(f"{country}: fetch failed {e}, existing data preserved")
+    return stats
+
+
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command",choices=("init","chart-feed","import-chart",
+    parser.add_argument("command",choices=("init","chart-feed","run","import-chart",
                                           "backfill-us","rebuild-monthly","expand-albums",
                                           "export","summary","artist"))
     parser.add_argument("--db",type=Path,default=Path(".local/odify_catalog.sqlite3"))
@@ -537,6 +561,7 @@ def main():
     parser.add_argument("--csv",type=Path)
     parser.add_argument("--out-dir",type=Path,default=Path(".local/odify_public"))
     parser.add_argument("--limit",type=int,default=25)
+    parser.add_argument("--albums-per-run",type=int,default=15)
     parser.add_argument("--include-archive",action="store_true",
                         help="Include 1980-1999 for KR/US/global, never pre-2003 Japan")
     parser.add_argument("--provider",default=BILLBOARD_PROVIDER)
@@ -548,22 +573,17 @@ def main():
     try:
         countries=list(dict.fromkeys(country_code(x) for x in args.countries.split(",") if x.strip()))
         if args.command=="chart-feed":
-            for country in countries:
-                try:
-                    if country=="gl":
-                        url,date,entries=global_feed()
-                        source="listenbrainz-sitewide"
-                        rights="ListenBrainz user-submitted listens, NOT a worldwide market share chart"
-                    else:
-                        url,updated,entries=rss_feed(country)
-                        date=feed_date(updated)
-                        source="apple-rss"
-                        rights="Apple Music storefront chart; observe RSS terms"
-                    with con:
-                        snapshot(con,source,country,date,entries,url=url,rights=rights)
-                    print(f"{country}: {len(entries)} ranked entries from {source} on {date}")
-                except (HTTPError,URLError,ValueError,KeyError) as e:
-                    print(f"{country}: fetch failed {e}, preserved any existing snapshot")
+            print(json.dumps(ingest_live_feeds(con,countries),ensure_ascii=False))
+        elif args.command=="run":
+            # One command drives every stage; cron/task scheduler may repeat.
+            stats={"feeds":ingest_live_feeds(con,countries)}
+            try:
+                stats["us_backfill"]=backfill_us(con,args.limit,args.include_archive)
+            except (HTTPError,URLError,ValueError,TimeoutError) as e:
+                stats["us_backfill"]={"error":str(e)}
+            stats["album_enrichment"]={"result":expand_apple(con,args.albums_per_run)}
+            stats["catalog"]=export(con,args.out_dir,countries)
+            print(json.dumps(stats,ensure_ascii=False,indent=2))
         elif args.command=="import-chart":
             if not args.csv:parser.error("--csv required")
             print(import_csv(con,args.csv,args.include_archive));con.commit()
