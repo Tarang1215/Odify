@@ -1,0 +1,85 @@
+name: Odify V4.3 manual 41416 catalog batch
+on:
+  workflow_dispatch:
+    inputs:
+      start:
+        description: 'Zero-based global queue offset (recommended 1000, then 2000 etc.)'
+        type: number
+        required: true
+        default: 1000
+      size:
+        description: 'Maximum recordings to process in this job'
+        type: choice
+        required: true
+        default: '1000'
+        options: ['100','500','1000']
+      dry_run:
+        description: 'Only calculate page/validate sources; do not call Piped'
+        type: boolean
+        required: true
+        default: true
+      resume_run_id:
+        description: 'Optional previous full-queue workflow run ID for this exact page'
+        type: string
+        required: false
+        default: ''
+permissions:
+  contents: read
+  actions: read
+jobs:
+  bounded-page:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Immutable 41416 original catalog
+        uses: actions/download-artifact@v4
+        with:
+          repository: Tarang1215/Odify
+          run-id: 39909115368
+          name: odify-catalog-us-full-4-regions
+          github-token: ${{ github.token }}
+          path: .local/catalog
+      - name: Immutable original 300-track live checkpoints
+        uses: actions/download-artifact@v4
+        with:
+          repository: Tarang1215/Odify
+          run-id: 39991741952
+          name: odify-v4-300-live-results
+          github-token: ${{ github.token }}
+          path: .local/v4cache
+      - name: Resume this same exact queue page (optional)
+        if: ${{ inputs.resume_run_id != '' }}
+        uses: actions/download-artifact@v4
+        with:
+          repository: Tarang1215/Odify
+          run-id: ${{ inputs.resume_run_id }}
+          name: odify-v43-queue-page
+          github-token: ${{ github.token }}
+          path: .local/v43full
+      - name: Dry-run and verify global queue and selected page
+        run: |
+          python -u scripts/odify_altlink_v43_full_queue.py \
+            --catalog .local/catalog/odify_catalog.sqlite3 \
+            --v4-cache .local/v4cache --out .local/v43full \
+            --start ${{ inputs.start }} --size ${{ inputs.size }} \
+            --dry-run
+      - name: Search bounded page of 100 to 1000 tracks when dry-run disabled
+        if: ${{ inputs.dry_run == false }}
+        run: |
+          python -u scripts/odify_altlink_v43_full_queue.py \
+            --catalog .local/catalog/odify_catalog.sqlite3 \
+            --v4-cache .local/v4cache --out .local/v43full \
+            --start ${{ inputs.start }} --size ${{ inputs.size }} \
+            --max-queries 1 --delay 0.8 --timeout 7
+      - name: Publish output manifest and resumable checkpoints
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: odify-v43-queue-page
+          path: .local/v43full/**
+          retention-days: 60
+          if-no-files-found: warn
