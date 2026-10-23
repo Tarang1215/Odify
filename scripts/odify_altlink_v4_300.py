@@ -205,6 +205,23 @@ def grade_v4(track,c):
         return dict(eligible=False,score=0,artist_match=False,
           title_match="none",official_evidence=False,album_match=False,
           duration_difference=None,reasons="unofficial_upload")
+    # V4.4 regression: original studio tracks must never be replaced by
+    # covers, instrumental fan edits, remixes, slowed versions or karaoke.
+    # Cross-script suffixes are common in KR/JP search results.
+    headline=str(c.get("title") or "")
+    wanted=str(track.get("title") or "")+" "+str(track.get("version") or "")
+    variant_patterns={
+      "cover":r"\\bcover\\b|カバー|歌ってみた|커버",
+      "instrumental":r"\\binstrumental\\b|\\binst\\.?\\b|カラオケ|노래방|반주",
+      "remix":r"\\bremix\\b|リミックス|리믹스",
+      "speed_edit":r"\\bslowed\\b|\\bsped[ -]?up\\b|\\bnightcore\\b|속도조절",
+      "live":r"\\blive\\b|ライブ|라이브|공연실황",
+    }
+    for variant,pattern in variant_patterns.items():
+      if re.search(pattern,headline,re.I) and not re.search(pattern,wanted,re.I):
+        return dict(eligible=False,score=0,artist_match=False,
+           title_match="none",official_evidence=False,album_match=False,
+           duration_difference=None,reasons="non_original_variant:"+variant)
     base=v3.rank_candidate(track,c)
     old_match=base["title_match"]
     improved=title_match(track,c)
@@ -241,6 +258,12 @@ def grade_v4(track,c):
         if promo:
             base["score"]=max(0,base["score"]-26)
             base["reasons"]+="; promotional_clip"
+        # A channel or uploader claiming to be Official is not evidence that
+        # a lyric video is the original artist upload. Penalize metadata-only.
+        if re.search(r"\\blyrics?\\b|가사|歌詞",label,re.I) and not re.search(
+              r"-\\s*topic\\s*$",chan,re.I):
+            base["score"]=max(0,base["score"]-12)
+            base["reasons"]+="; lyrics_require_artist_review"
         # User-created lyric videos are searchable fallback candidates but
         # are not official releases by virtue of quoting a whole title.
         lyrics=bool(re.search(r"lyrics?|가사|歌詞",label,re.I))
