@@ -35,7 +35,14 @@ from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
 
 USER_AGENT="OdifyCatalog/0.1 (https://github.com/Tarang1215/Odify)"
-COUNTRIES=("kr","jp","us","gb","de","fr","ca","au")
+COUNTRIES=("kr","jp","us","gl")
+ALIASES={"global":"gl","world":"gl","worldwide":"gl","ww":"gl","gl":"gl"}
+
+def country_code(value):
+    code=ALIASES.get((value or "").lower().strip(),(value or "").lower().strip())
+    if code not in COUNTRIES:
+        raise ValueError(f"unsupported chart country: {value}; use kr,jp,us,global")
+    return code
 KIND_RE=re.compile(
     r"(?:[\(\[\- ]+(?:english|eng|japanese|jp|korean|kr)\s*(?:ver\.?|version)\b"
     r"|[\(\[\- ]+\b(?:live|remix|acoustic|instrumental|piano cover|cover|demo|remaster(?:ed)?|slowed|sped up)\b"
@@ -169,9 +176,9 @@ def album(con,name,artist_name,release_date=None,version=None):
 
 def snapshot(con,source,country,date,entries,category="songs",url=None,rights=None):
     """Idempotent chart snapshot. Never collapse rank occurrences across markets."""
-    country=country.lower().strip()
+    country=country_code(country)
     if not re.fullmatch(r"\d{4}-\d{2}-\d{2}",date):raise ValueError("chart_date must YYYY-MM-DD")
-    if not source or len(country)!=2:raise ValueError("provider/country missing")
+    if not source:raise ValueError("chart provider missing")
     sid=stable("chart",source,country,date,category)
     con.execute("INSERT INTO chart_edition(id,provider,country,as_of,category,source_url,rights_note)"
                 " VALUES(?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET"
@@ -201,7 +208,8 @@ def http_json(url,timeout=20):
 
 def rss_feed(country):
     # Open Apple marketing RSS endpoint: country-localized and currently ranked.
-    country=country.lower()
+    country=country_code(country)
+    if country=="gl":raise ValueError("global uses ListenBrainz, not Apple storefront")
     url=f"https://rss.marketingtools.apple.com/api/v2/{country}/music/most-played/100/songs.json"
     raw=http_json(url)
     feed=raw["feed"]
@@ -216,6 +224,28 @@ def rss_feed(country):
     if not records:raise ValueError(f"RSS empty for {country}, do not overwrite existing data")
     return url,feed.get("updated",""),records
 
+def global_feed(count=100):
+    """ListenBrainz global *user listens* ranking, not global sales/streaming."""
+    url="https://api.listenbrainz.org/1/stats/sitewide/recordings?"+urlencode(
+        {"range":"week","count":count,"offset":0})
+    body=http_json(url)
+    payload=body.get("payload") or {}
+    ts=payload.get("last_updated") or payload.get("to_ts")
+    if not ts:
+        raise ValueError("ListenBrainz global chart has no sample timestamp")
+    date=datetime.fromtimestamp(int(ts),timezone.utc).strftime("%Y-%m-%d")
+    entries=[]
+    for idx,item in enumerate(payload.get("recordings") or [],1):
+        name=item.get("recording_name","")
+        artist_name=item.get("artist_name","")
+        if name and artist_name:
+            entries.append({"rank":idx,"artist":artist_name,"title":name,
+                            "source_id":str(item.get("recording_mbid") or ""),
+                            "album":item.get("release_name") or ""})
+    if not entries:raise ValueError("ListenBrainz global chart empty")
+    return url,date,entries
+
+
 def feed_date(raw):
     from email.utils import parsedate_to_datetime
     try:return parsedate_to_datetime(raw).strftime("%Y-%m-%d")
@@ -229,7 +259,7 @@ def import_csv(con,file):
         raise ValueError("CSV needs source,country,chart_date,rank,artist,title")
     buckets={}
     for row in rows:
-        key=(row["source"],row["country"],row["chart_date"])
+        key=(row["source"],country_code(row["country"]),row["chart_date"])
         buckets.setdefault(key,[]).append(row)
     for (source,country,date),entries in buckets.items():
         one=entries[0]
@@ -262,6 +292,7 @@ def artist_list(con,who,limit=100):
     return out
 
 def top_current(con,country,limit=100):
+    country=country_code(country)
     e=con.execute("SELECT * FROM chart_edition WHERE country=? AND category='songs'"
                   " ORDER BY as_of DESC,ingested_at DESC LIMIT 1",(country,)).fetchone()
     if not e:return {"country":country,"entries":[],"as_of":None,"source":None}
@@ -352,7 +383,7 @@ def main():
     parser.add_argument("command",choices=("init","chart-feed","import-chart",
                                           "expand-albums","export","summary","artist"))
     parser.add_argument("--db",type=Path,default=Path(".local/odify_catalog.sqlite3"))
-    parser.add_argument("--countries",default="kr,jp,us,gb,de")
+    parser.add_argument("--countries",default="kr,jp,us,global")
     parser.add_argument("--csv",type=Path)
     parser.add_argument("--out-dir",type=Path,default=Path(".local/odify_public"))
     parser.add_argument("--limit",type=int,default=25)
@@ -360,15 +391,22 @@ def main():
     args=parser.parse_args()
     con=connect(args.db)
     try:
-        countries=[x.lower().strip() for x in args.countries.split(",") if x.strip()]
+        countries=list(dict.fromkeys(country_code(x) for x in args.countries.split(",") if x.strip()))
         if args.command=="chart-feed":
             for country in countries:
                 try:
-                    url,updated,entries=rss_feed(country)
+                    if country=="gl":
+                        url,date,entries=global_feed()
+                        source="listenbrainz-sitewide"
+                        rights="ListenBrainz user-submitted listens, NOT a worldwide market share chart"
+                    else:
+                        url,updated,entries=rss_feed(country)
+                        date=feed_date(updated)
+                        source="apple-rss"
+                        rights="Apple Music storefront chart; observe RSS terms"
                     with con:
-                        snapshot(con,"apple-rss",country,feed_date(updated),entries,
-                                 url=url,rights="Apple marketing RSS - review reuse terms")
-                    print(f"{country}: {len(entries)} ranked chart entries")
+                        snapshot(con,source,country,date,entries,url=url,rights=rights)
+                    print(f"{country}: {len(entries)} ranked entries from {source} on {date}")
                 except (HTTPError,URLError,ValueError,KeyError) as e:
                     print(f"{country}: fetch failed {e}, preserved any existing snapshot")
         elif args.command=="import-chart":
