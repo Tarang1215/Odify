@@ -340,7 +340,7 @@ def rebuild_monthly(con,provider,country,year_month,top=100):
     return len(data)
 
 
-def backfill_us(con,limit=40,include_archive=False):
+def backfill_us(con,limit=40,include_archive=False,coverage="monthly-first",progress_file=None):
     """Incrementally ingest US Hot 100 weekly JSON; resume by chart ID."""
     if limit<1:raise ValueError("limit must be >=1")
     dates=http_json(BILLBOARD_ARCHIVE+"valid_dates.json")
@@ -349,7 +349,41 @@ def backfill_us(con,limit=40,include_archive=False):
            re.fullmatch(r"\d{4}-\d{2}-\d{2}",d) and
            earliest<=int(d[:4])<=datetime.now(timezone.utc).year and
            d<=datetime.now(timezone.utc).strftime("%Y-%m-%d")],reverse=True)
+    if coverage=="monthly-first":
+        # Select one dated weekly snapshot per calendar month first. A second
+        # run may continue filling in the other weekly observations.
+        seen_month=set()
+        representative=[]
+        remainder=[]
+        for d in valid:
+            month=d[:7]
+            if month not in seen_month:
+                representative.append(d)
+                seen_month.add(month)
+            else:
+                remainder.append(d)
+        valid=representative+remainder
+    elif coverage!="latest-first":
+        raise ValueError("unsupported coverage mode")
     fetched=0;skipped=0;months=set()
+    eligible_total=len(valid)
+    existing_total=con.execute(
+        "SELECT count(*) FROM chart_edition WHERE provider=? AND category='songs'"
+        " AND country='us'",(BILLBOARD_PROVIDER,)).fetchone()[0]
+    def emit(current,phase="backfill"):
+        pct=round(100*min(1,(existing_total+fetched)/max(eligible_total,1)),2)
+        status={"phase":phase,"provider":BILLBOARD_PROVIDER,
+            "country":"us","coverage":coverage,"processed_this_run":fetched,
+            "existing_before_run":existing_total,"eligible_weeks":eligible_total,
+            "weeks_in_database":existing_total+fetched,"progress_percent":pct,
+            "current_chart_date":current,"updated_at":utc_now()}
+        if progress_file:
+            file=Path(progress_file);file.parent.mkdir(parents=True,exist_ok=True)
+            temp=file.with_suffix(".tmp")
+            temp.write_text(json.dumps(status,ensure_ascii=False,indent=2),encoding="utf-8")
+            temp.replace(file)
+        print("ODIFY_PROGRESS "+json.dumps(status,ensure_ascii=False),flush=True)
+    emit("initializing")
     for date in valid:
         sid=stable("chart",BILLBOARD_PROVIDER,"us",date,"songs")
         if con.execute("SELECT 1 FROM chart_edition WHERE id=?",(sid,)).fetchone():
@@ -367,12 +401,14 @@ def backfill_us(con,limit=40,include_archive=False):
                          url=BILLBOARD_ARCHIVE+"date/"+date+".json",
                          rights="Community mirror of Billboard chart: provenance preserved")
             months.add(date[:7]);fetched+=1
+            if fetched==1 or fetched%20==0:emit(date)
         except (HTTPError,URLError,ValueError,KeyError,TimeoutError) as e:
             print(f"Defer US {date}: {e}")
             break
     derived=0
     for ym in sorted(months):
         with con:derived+=rebuild_monthly(con,BILLBOARD_PROVIDER,"us",ym)
+    emit("completed",phase="backfill_complete")
     return {"weeks_imported":fetched,"weeks_already_present":skipped,
             "months_recomputed":len(months),"monthly_rows":derived}
 
@@ -561,6 +597,10 @@ def main():
     parser.add_argument("--csv",type=Path)
     parser.add_argument("--out-dir",type=Path,default=Path(".local/odify_public"))
     parser.add_argument("--limit",type=int,default=25)
+    parser.add_argument("--coverage",choices=("monthly-first","latest-first"),
+                        default="monthly-first")
+    parser.add_argument("--progress-file",type=Path,
+                        default=Path(".local/odify_catalog_progress.json"))
     parser.add_argument("--albums-per-run",type=int,default=15)
     parser.add_argument("--include-archive",action="store_true",
                         help="Include 1980-1999 for KR/US/global, never pre-2003 Japan")
@@ -578,7 +618,8 @@ def main():
             # One command drives every stage; cron/task scheduler may repeat.
             stats={"feeds":ingest_live_feeds(con,countries)}
             try:
-                stats["us_backfill"]=backfill_us(con,args.limit,args.include_archive)
+                stats["us_backfill"]=backfill_us(con,args.limit,args.include_archive,
+                                        args.coverage,args.progress_file)
             except (HTTPError,URLError,ValueError,TimeoutError) as e:
                 stats["us_backfill"]={"error":str(e)}
             stats["album_enrichment"]={"result":expand_apple(con,args.albums_per_run)}
@@ -588,7 +629,8 @@ def main():
             if not args.csv:parser.error("--csv required")
             print(import_csv(con,args.csv,args.include_archive));con.commit()
         elif args.command=="backfill-us":
-            print(backfill_us(con,args.limit,args.include_archive))
+            print(backfill_us(con,args.limit,args.include_archive,
+                              args.coverage,args.progress_file))
         elif args.command=="rebuild-monthly":
             if not args.year_month:parser.error("--year-month YYYY-MM required")
             with con:
