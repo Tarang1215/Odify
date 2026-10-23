@@ -1,0 +1,91 @@
+name: Odify V4.2 resilient offline source audit
+on:
+  push:
+    branches: [feature/odify-v12-master-db]
+    paths:
+      - 'scripts/odify_altlink_v42_catalog.py'
+      - 'scripts/tests/test_odify_altlink_v42_catalog.py'
+      - '.github/workflows/odify-altlink-v42-offline.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  offline-source-grades:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify catalog tests
+        run: |
+          python -m py_compile scripts/odify_altlink_v42_catalog.py
+          python -m unittest discover -s scripts/tests -p 'test_odify_altlink_v42_catalog.py' -v
+      - name: Restore V4 baseline candidate archive
+        uses: actions/download-artifact@v4
+        with:
+          repository: Tarang1215/Odify
+          run-id: 39995104535
+          name: odify-v4-300-safe-offline
+          github-token: ${{ github.token }}
+          path: .local/odify_v4_safe
+      - name: Restore V4.1 review metadata
+        uses: actions/download-artifact@v4
+        with:
+          repository: Tarang1215/Odify
+          run-id: 40000817443
+          name: odify-v41-300-gap-ambiguity-review
+          github-token: ${{ github.token }}
+          path: .local/odify_v41_review
+      - name: Restore V4.1 fifth-track Piped metadata
+        uses: actions/download-artifact@v4
+        with:
+          repository: Tarang1215/Odify
+          run-id: 40001229423
+          name: odify-v41-targeted-five-live
+          github-token: ${{ github.token }}
+          path: .local/odify_v41_targeted
+      - name: Restore actual MusicBrainz and Apple 54-song responses
+        uses: actions/download-artifact@v4
+        with:
+          repository: Tarang1215/Odify
+          run-id: 40004190912
+          name: odify-v42-two-catalog-54-review
+          github-token: ${{ github.token }}
+          path: .local/odify_v42
+      - name: Regrade previously fetched 54-song metadata without network
+        run: |
+          python -u scripts/odify_altlink_v42_catalog.py \
+            --v4 .local/odify_v4_safe \
+            --v41 .local/odify_v41_review \
+            --targeted .local/odify_v41_targeted \
+            --out .local/odify_v42 --offline
+      - name: Verify outage labels and non-destructive track flags
+        run: |
+          python - <<'PY'
+          import pathlib,csv,json,os
+          root=pathlib.Path('.local/odify_v42')
+          rows=list(csv.DictReader((root/'v42_catalog_identity_54.csv').open(encoding='utf-8-sig')))
+          summary=json.loads((root/'summary_v42.json').read_text())
+          assert len(rows)==54
+          assert summary['processed']==54 and summary['master_changed'] is False
+          assert summary['automatic_approvals']==0
+          assert all(x['automatic_approval']=='NO' and x['master_write']=='NO' for x in rows)
+          assert summary['musicbrainz_provider_unavailable']>0
+          assert summary['apple_provider_unavailable']>0
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as f:
+            f.write('## V4.2 two-catalog data-quality-aware offline audit\n\n')
+            for k,v in summary.items():
+              if isinstance(v,(int,bool)):f.write(f'- {k}: **{v}**\n')
+            f.write('\n503/429 blocks are **provider unavailable**, NOT proof the songs do not exist. Single-source duration matches remain unverified review hints.\n')
+          PY
+      - name: Preserve catalog audit, verified provenance and checkpoints
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: odify-v42-54-source-quality-final
+          path: .local/odify_v42/**
+          retention-days: 60
+          if-no-files-found: warn
