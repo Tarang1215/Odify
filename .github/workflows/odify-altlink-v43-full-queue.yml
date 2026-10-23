@@ -1,0 +1,68 @@
+name: Odify V4.3 full 41416 queue dry run
+on:
+  push:
+    branches: [feature/odify-v12-master-db]
+    paths:
+      - 'scripts/odify_altlink_v43_full_queue.py'
+      - 'scripts/tests/test_odify_altlink_v43_full_queue.py'
+      - '.github/workflows/odify-altlink-v43-full-queue.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  manifest-dry-run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify unique 41416 queue and deterministic pages
+        run: |
+          python -m unittest discover -s scripts/tests -p 'test_odify_altlink_v43_full_queue.py' -v
+      - name: Recover real 41416 catalog
+        uses: actions/download-artifact@v4
+        with:
+          repository: Tarang1215/Odify
+          run-id: 39909115368
+          name: odify-catalog-us-full-4-regions
+          github-token: ${{ github.token }}
+          path: .local/catalog
+      - name: Recover immutable 300 live-search baseline
+        uses: actions/download-artifact@v4
+        with:
+          repository: Tarang1215/Odify
+          run-id: 39991741952
+          name: odify-v4-300-live-results
+          github-token: ${{ github.token }}
+          path: .local/v4cache
+      - name: Build all 41416 unique entries and simulate next 1000 page
+        run: |
+          python scripts/odify_altlink_v43_full_queue.py \
+            --catalog .local/catalog/odify_catalog.sqlite3 \
+            --v4-cache .local/v4cache --out .local/v43full \
+            --start 1000 --size 1000 --dry-run
+      - name: Verify full row count and 1000 page positions
+        run: |
+          python - <<'PY'
+          import csv,json,pathlib,os
+          folder=pathlib.Path('.local/v43full')
+          with (folder/'full_catalog_41416_queue.csv').open(encoding='utf-8-sig') as f:
+            rows=list(csv.DictReader(f))
+          assert len(rows)==41416,len(rows)
+          ids=[r['recording_id'] for r in rows]
+          assert len(set(ids))==41416
+          plan=json.loads((folder/'batches/01000_02000/plan.json').read_text())
+          assert plan['slice_count']==1000 and plan['network_requests']==0
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as f:
+            f.write('## Odify 41416 deterministic queue\n\n')
+            f.write('Unique catalog recording IDs: **41416**; next-page dry run **1000 songs**, 0 network calls.\n')
+          PY
+      - name: Keep full queue and page manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: odify-v43-full-41416-queue
+          path: .local/v43full/**
+          retention-days: 60
