@@ -32,7 +32,7 @@ VERSION = (
     (r"\bsped[ -]?up\b|\bslowed\b|\bnightcore\b|\b432\s*hz\b", "변속"),
     (r"\bcover\b|\bkaraoke\b|\binstrumental\b|커버|カバー", "커버/반주"),
     (r"\b(?:live|concert|stage|fancam|dance practice|performance)\b|라이브|ライブ", "라이브"),
-    (r"\b(?:demo|acoustic|piano)\b", "다른 편곡"),
+    (r"\b(?:demo|acoustic|piano)\b|\bband\s*(?:ver\.?|version)\b", "다른 편곡"),
     (r"\b(?:19\d{2}|20\d{2})\s*remaster(?:ed)?\b|\bremaster\b", "리마스터"),
 )
 UNSAFE = {t for _,t in VERSION}
@@ -78,6 +78,13 @@ def read_csv(path):
 def version_issue(master,candidate):
     expected=(master.get("곡명","")+" "+master.get("음원 버전","")).casefold()
     title=(candidate["title"] or "").casefold()
+    channel=(candidate.get("channel") or "").casefold()
+    # Karaoke/cover channels sometimes omit the version disclaimer from the
+    # title entirely. Channel identity is negative evidence, not a source of
+    # automatic proof that this is the studio recording.
+    if re.search(r"\b(?:karaoke|instrumental|piano\s*cover)\b|カラオケ|노래방|반주",channel,re.I):
+        if not re.search(r"\b(?:karaoke|instrumental|piano\s*cover)\b|カラオケ|노래방|반주",expected,re.I):
+            return "노래방/반주 채널의 원곡 불확실"
     expected_tags={name for p,name in VERSION if re.search(p,expected,re.I)}
     found={name for p,name in VERSION if re.search(p,title,re.I)}
     bad=sorted((found&UNSAFE)-expected_tags)
@@ -104,6 +111,17 @@ def eligible(master,c):
     if not any(x in title+norm(c["channel"]) for x in alias(master.get("아티스트",""))):
         return False,"아티스트 불일치"
     if not 60<=c["seconds"]<=600:return False,"영상 길이 비정상"
+    # Very short English titles are unusually ambiguous: "RUN" could point
+    # to "Run BTS", a distinct track. A title with extra tokens is not enough
+    # unless it is explicitly formatted "Artist - Exact Song" or vice versa.
+    raw_title=master.get("곡명","")
+    if re.fullmatch(r"[A-Za-z0-9 ]{1,4}",raw_title.strip()) and len(norm(raw_title))<=4:
+        main=re.sub(r"\s*[\(\[][^\)\]]*(?:official|audio|lyrics?|music\s*video)[^\)\]]*[\)\]]",
+                    "",c["title"],flags=re.I).strip()
+        if norm(main)!=track:
+            parts=re.split(r"\s+[-–—:]\s+",main)
+            if len(parts)<2 or not any(norm(p)==track for p in parts):
+                return False,"짧은 곡명과 다른 곡의 제목 혼동 가능"
     return True,""
 
 def metadata_json(path):
