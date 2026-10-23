@@ -201,7 +201,7 @@ def grade_v4(track,c):
           duration_difference=None,reasons="version_rejected_original: "+original_issue)
     # "Unofficial Audio" contains the substring "official audio". It must
     # not be scored as official; for original-release links exclude it.
-    if re.search(r"\\bunofficial\\b",str(c.get("title") or ""),re.I):
+    if re.search(r"\bunofficial\b",str(c.get("title") or ""),re.I):
         return dict(eligible=False,score=0,artist_match=False,
           title_match="none",official_evidence=False,album_match=False,
           duration_difference=None,reasons="unofficial_upload")
