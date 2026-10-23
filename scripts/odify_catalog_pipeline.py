@@ -311,6 +311,8 @@ def rebuild_monthly(con,provider,country,year_month,top=100):
         raise ValueError("month out of range")
     start=f"{year_month}-01"
     end=f"{year_month}-{calendar.monthrange(year,month)[1]:02d}"
+    # A current month's partial chart must not be dated in the future.
+    chart_as_of=min(end,datetime.now(timezone.utc).strftime("%Y-%m-%d"))
     if not eligible_history(country,start,include_archive=True):
         return 0
     rows=con.execute("""
@@ -332,8 +334,9 @@ def rebuild_monthly(con,provider,country,year_month,top=100):
            "version":con.execute("SELECT version FROM recording WHERE id=?",
                                  (r["recording_id"],)).fetchone()[0]}
           for i,r in enumerate(rows)]
-    snapshot(con,provider+"-monthly-derived",country,end,data,
-             category="monthly-derived",rights="Computed from weekly chart points, not official monthly rankings")
+    snapshot(con,provider+"-monthly-derived",country,chart_as_of,data,
+             category="monthly-derived",
+             rights="Partial if current month; computed from weekly 101-rank points, not an official monthly chart")
     return len(data)
 
 
@@ -342,10 +345,10 @@ def backfill_us(con,limit=40,include_archive=False):
     if limit<1:raise ValueError("limit must be >=1")
     dates=http_json(BILLBOARD_ARCHIVE+"valid_dates.json")
     earliest=(ARCHIVE_MIN_YEAR if include_archive else PRIMARY_MIN_YEAR)["us"]
-    valid=[d for d in dates if isinstance(d,str) and
+    valid=sorted([d for d in dates if isinstance(d,str) and
            re.fullmatch(r"\d{4}-\d{2}-\d{2}",d) and
            earliest<=int(d[:4])<=datetime.now(timezone.utc).year and
-           d<=datetime.now(timezone.utc).strftime("%Y-%m-%d")]
+           d<=datetime.now(timezone.utc).strftime("%Y-%m-%d")],reverse=True)
     fetched=0;skipped=0;months=set()
     for date in valid:
         sid=stable("chart",BILLBOARD_PROVIDER,"us",date,"songs")
@@ -415,30 +418,65 @@ def top_current(con,country,limit=100):
 def expand_apple(con,limit=30,delay=3.5):
     """Apple ID lookup -> album ID -> all album tracks; 3.5s minimum/req."""
     rows=con.execute(
-       "SELECT ext_id,market FROM release_catalog_queue WHERE status='pending'"
-       " ORDER BY rowid LIMIT ?",(limit,)).fetchall()
+       "SELECT provider,ext_id,market FROM release_catalog_queue WHERE status='pending'"
+       " ORDER BY CASE provider WHEN 'apple' THEN 0 ELSE 1 END,rowid LIMIT ?",
+       (limit,)).fetchall()
     expanded=0;calls=0
     for entry in rows:
-        songid,market=entry["ext_id"],entry["market"]
+        provider,source_id,market=entry["provider"],entry["ext_id"],entry["market"]
         time.sleep(delay if calls else 0)
         try:
-            lookup=http_json("https://itunes.apple.com/lookup?"+
-                             urlencode({"id":songid,"country":market,"entity":"song"}))
-            calls+=1
-            song=next((x for x in lookup.get("results",[])
-                       if x.get("wrapperType")=="track" and
-                       str(x.get("trackId"))==songid),None)
+            if provider=="itunes-search":
+                item=con.execute("""
+                    SELECT r.title,a.name AS artist
+                      FROM recording r JOIN artist a ON a.id=r.artist_id
+                     WHERE r.id=?
+                """,(source_id,)).fetchone()
+                if not item:
+                    con.execute("UPDATE release_catalog_queue SET status='not_found',"
+                                "last_attempt=? WHERE provider=? AND ext_id=? AND market=?",
+                                (utc_now(),provider,source_id,market))
+                    con.commit();continue
+                search=http_json("https://itunes.apple.com/search?"+urlencode({
+                    "term":item["artist"]+" "+item["title"],
+                    "country":market,"entity":"song","limit":20}))
+                calls+=1
+                exact=[x for x in search.get("results",[]) if
+                       x.get("wrapperType")=="track" and
+                       norm(x.get("trackName",""))==norm(item["title"]) and
+                       norm(x.get("artistName",""))==norm(item["artist"])]
+                if not exact:
+                    con.execute("UPDATE release_catalog_queue SET status='not_found',"
+                                "last_attempt=? WHERE provider=? AND ext_id=? AND market=?",
+                                (utc_now(),provider,source_id,market))
+                    con.commit();continue
+                # Prefer released studio version over live/cover metadata variants.
+                exact.sort(key=lambda x:(version_label(x.get("trackName",""))!="original",
+                                         str(x.get("trackId",""))))
+                song=exact[0]
+                songid=str(song["trackId"])
+                con.execute("INSERT OR IGNORE INTO external_identity(provider,ext_id,recording_id)"
+                            " VALUES('apple',?,?)",(songid,source_id))
+            else:
+                songid=source_id
+                lookup=http_json("https://itunes.apple.com/lookup?"+
+                                 urlencode({"id":songid,"country":market,"entity":"song"}))
+                calls+=1
+                song=next((x for x in lookup.get("results",[])
+                           if x.get("wrapperType")=="track" and
+                           str(x.get("trackId"))==songid),None)
             if not song or not song.get("collectionId"):
                 con.execute("UPDATE release_catalog_queue SET status='not_found',"
-                            "last_attempt=? WHERE ext_id=? AND market=?",
-                            (utc_now(),songid,market))
+                            "last_attempt=? WHERE provider=? AND ext_id=? AND market=?",
+                            (utc_now(),provider,source_id,market))
                 con.commit();continue
             album_id=str(song["collectionId"])
             found=con.execute("SELECT album_id FROM external_album WHERE provider='apple' AND ext_id=?",
                               (album_id,)).fetchone()
             if found and found["album_id"]:
                 con.execute("UPDATE release_catalog_queue SET status='done',last_attempt=?"
-                            " WHERE ext_id=? AND market=?",(utc_now(),songid,market))
+                            " WHERE provider=? AND ext_id=? AND market=?",
+                            (utc_now(),provider,source_id,market))
                 con.commit();continue
             time.sleep(delay)
             album_data=http_json("https://itunes.apple.com/lookup?"+
@@ -465,7 +503,8 @@ def expand_apple(con,limit=30,delay=3.5):
             con.execute("INSERT OR REPLACE INTO external_album(provider,ext_id,album_id,status)"
                         " VALUES('apple',?,?,'done')",(album_id,gid))
             con.execute("UPDATE release_catalog_queue SET status='done',last_attempt=?"
-                        " WHERE ext_id=? AND market=?",(utc_now(),songid,market))
+                        " WHERE provider=? AND ext_id=? AND market=?",
+                        (utc_now(),provider,source_id,market))
             con.commit();expanded+=1
         except (HTTPError,URLError,KeyError,ValueError,TimeoutError) as e:
             # Preserve retryability on network/rate errors; resume next run.
