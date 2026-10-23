@@ -43,13 +43,13 @@ jobs:
         run: |
           python -u scripts/odify_altlink_pilot.py \
             --catalog .local/odify_catalog.sqlite3 \
-            --out .local/odify_altlink_pilot --workers 3 --timeout 6 --limit 100
+            --out .local/odify_altlink_pilot_v2 --workers 3 --timeout 6 --limit 100
       - name: Publish actual accuracy proxies, latency, failure rates
         if: always()
         run: |
           python - <<'PY'
           import json,os,pathlib
-          p=pathlib.Path('.local/odify_altlink_pilot/summary.json')
+          p=pathlib.Path('.local/odify_altlink_pilot_v2/summary.json')
           with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as out:
               out.write('## Odify live Piped/Invidious API pilot\n\n')
               if not p.exists():
@@ -64,6 +64,11 @@ jobs:
                   for k,v in d['providers'].items():
                       out.write(f"| {k} | {v['attempted_songs']} | {v['search_success']} | {v['failed']} | {v['blocked']} | {v['latency_all']['median_ms']} | {v['latency_all']['p95_ms']} |\n")
                   out.write(f"\nEligible at least one: **{d['metadata_eligible_songs']}**; High confidence: **{d['high_confidence']}**\n\n")
+                  out.write('### Provider failures\n\n')
+                  for k,v in d['providers'].items():
+                      out.write(f'**{k}**: actual HTTP requests {v["request_attempts"]}, skipped due to outages {v["skipped_unavailable"]}\n')
+                      for reason,count in v['error_breakdown'].items():
+                          out.write(f'  - {count} × {reason}\n')
                   out.write('### Correctness note\n')
                   out.write('Automated metadata match is **not** proof of the exact song. No Google MASTER links were modified.\n')
           PY
@@ -71,8 +76,8 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: odify-altlink-piped-invidious-100
+          name: odify-altlink-piped-invidious-100-v2
           path: |
-            .local/odify_altlink_pilot/**
+            .local/odify_altlink_pilot_v2/**
           retention-days: 60
           if-no-files-found: warn
