@@ -17,6 +17,7 @@ def audit(source,links,out,expected=41416):
  src=Path(source).resolve();before=Path(links).resolve();out=Path(out).resolve()
  if out in (src,before):raise ValueError("output must be a NEW file")
  if out.exists():raise FileExistsError("refuse to overwrite existing export")
+ out.parent.mkdir(parents=True,exist_ok=True)
  tmp=out.with_name(out.name+".building")
  if tmp.exists():tmp.unlink()
  srcdb=sqlite3.connect(src.as_uri()+"?mode=ro",uri=True)
