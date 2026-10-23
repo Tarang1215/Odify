@@ -250,7 +250,7 @@ def export_database(catalog_path,destination,manifest,results,master=None):
    if best and all(x["video_id"]!=best["video_id"] for x in keep):
     keep[-1]=best
    for x in keep:
-    con.execute("INSERT OR IGNORE INTO source_candidate VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+    con.execute("INSERT OR IGNORE INTO source_candidate VALUES (?,?,?,?,?,?,?,?,?,?)",
       (rid,x["video_id"],x["url"],x["title"],x.get("channel",""),
        int(x.get("seconds") or 0),int(x["score"]),int(x["eligible"]),
        int(bool(best) and best["video_id"]==x["video_id"]),1))
