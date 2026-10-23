@@ -1,0 +1,92 @@
+name: Odify V4.2 two-catalog identity audit 54 tracks
+on:
+  workflow_dispatch:
+  push:
+    branches: [feature/odify-v12-master-db]
+    paths:
+      - 'scripts/odify_altlink_v42_catalog.py'
+      - 'scripts/tests/test_odify_altlink_v42_catalog.py'
+      - '.github/workflows/odify-altlink-v42-catalog.yml'
+permissions:
+  contents: read
+  actions: read
+jobs:
+  independent-catalog-review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 22
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test strict no-write artist/album/version/duration logic
+        run: |
+          python -m py_compile scripts/odify_altlink_v42_catalog.py
+          python -m unittest discover -s scripts/tests -p 'test_odify_altlink_v42_catalog.py' -v
+          python -m unittest discover -s scripts/tests -p 'test_odify_altlink_v41_review.py' -v
+      - name: Retrieve immutable V4 300-song safety audit
+        uses: actions/download-artifact@v4
+        with:
+          repository: Tarang1215/Odify
+          run-id: 39995104535
+          name: odify-v4-300-safe-offline
+          github-token: ${{ github.token }}
+          path: .local/odify_v4_safe
+      - name: Retrieve V4.1 39 ambiguities and 14 recovered candidates
+        uses: actions/download-artifact@v4
+        with:
+          repository: Tarang1215/Odify
+          run-id: 40000817443
+          name: odify-v41-300-gap-ambiguity-review
+          github-token: ${{ github.token }}
+          path: .local/odify_v41_review
+      - name: Retrieve V4.1 extra fifth-track live candidate
+        uses: actions/download-artifact@v4
+        with:
+          repository: Tarang1215/Odify
+          run-id: 40001229423
+          name: odify-v41-targeted-five-live
+          github-token: ${{ github.token }}
+          path: .local/odify_v41_targeted
+      - name: Verify two independent metadata sources for exactly 54 focus tracks
+        run: |
+          python -u scripts/odify_altlink_v42_catalog.py \
+            --v4 .local/odify_v4_safe \
+            --v41 .local/odify_v41_review \
+            --targeted .local/odify_v41_targeted \
+            --out .local/odify_v42 \
+            --limit 54 --mb-delay 1.2 --apple-delay 1.0 --timeout 9
+      - name: Assert complete safe outputs and independent evidence labels
+        run: |
+          python - <<'PY'
+          import json,csv,os,pathlib
+          root=pathlib.Path('.local/odify_v42')
+          summary=json.loads((root/'summary_v42.json').read_text())
+          rows=list(csv.DictReader((root/'v42_catalog_identity_54.csv').open(encoding='utf-8-sig')))
+          assert summary['target']==54 and summary['processed']==54,summary
+          assert summary['ambiguous_processed']==39 and summary['recovered_processed']==15,summary
+          assert len(rows)==54 and len({(r['country'],r['id']) for r in rows})==54
+          assert all(x['automatic_approval']=='NO' and x['master_write']=='NO' for x in rows)
+          assert summary['automatic_approvals']==0 and summary['master_changed'] is False
+          # Deterministic offline replay must not generate any extra HTTP request
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as o:
+            o.write('## Odify V4.2 independent catalog verification (54 tracks)\n\n')
+            for k,v in summary.items():
+              if isinstance(v,(int,bool)):o.write(f'- {k}: **{v}**\n')
+            o.write('\nAll candidate URLs **review only**. Video identity and rights are unverified.\n')
+          PY
+      - name: Re-run from 54 saved checkpoints without API requests
+        run: |
+          python scripts/odify_altlink_v42_catalog.py \
+            --v4 .local/odify_v4_safe \
+            --v41 .local/odify_v41_review \
+            --targeted .local/odify_v41_targeted \
+            --out .local/odify_v42 --limit 54 --offline
+      - name: Preserve catalog raw JSON, query provenance and review ranking
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: odify-v42-two-catalog-54-review
+          path: .local/odify_v42/**
+          retention-days: 60
+          if-no-files-found: warn
