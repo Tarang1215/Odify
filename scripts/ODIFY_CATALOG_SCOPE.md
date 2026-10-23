@@ -30,7 +30,7 @@ Python 3.10 이상. 표준 라이브러리 SQLite. 모든 명령은 **재실행�
 python scripts/odify_catalog_pipeline.py run --limit 25 --albums-per-run 15
 ```
 
-이 명령은 사용자의 **컴퓨터가 켜진 동안만** 작업한다. PC가 꺼져 있어도 실행되려면 별도 무료 원격 실행 환경과 **개인용 DB의 비공개 영속 저장소**를 연동해야 한다. 아직 연결하지 않은 서버/계정에 클라우드 자동화가 설치됐다고 주장하지 않는다.
+이 명령은 사용자의 컴퓨터가 켜진 동안만 작업한다. PC가 꺼져 있어도 실행되려면 별도 무료 원격 실행 환경과 **개인용 DB의 비공개 영속 저장소**를 연동해야 한다. 아직 연결하지 않은 서버/계정에 클라우드 자동화가 설치됐다고 주장하지 않는다.
 
 ```bash
 # 빈 데이터베이스 최초 1회
@@ -75,5 +75,3 @@ python scripts/odify_catalog_pipeline.py export
 - 일본 오리콘 아카이브 범위·유료서비스: https://ranking.oricon.co.jp/new/index.asp
 - Apple Music RSS: https://rss.marketingtools.apple.com
 - ListenBrainz 통계: https://listenbrainz.readthedocs.io/en/latest/users/api/statistics.html
-
-**무료, 개인용이라도 원천 서비스의 접근 통제·자동수집 금지·이용약관은 존중한다.**
