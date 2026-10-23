@@ -97,6 +97,16 @@ class V4Tests(unittest.TestCase):
         self.assertGreater(v4.grade_v4(original,exact)["score"],
                            v4.grade_v4(original,unrelated)["score"])
 
+    def test_structural_title_repair_does_not_inject_artist_match(self):
+        track={"artist":"米津玄師 & 宇多田ヒカル","title":"JANE DOE","country":"jp"}
+        candidate={"url":URL,
+          "title":"Chainsaw Man Reze Arc | 「JANE DOE」Official Ending Theme - Kenshi Yonezu x Utada Hikaru",
+          "channel":"S A C","seconds":237,"views":700,"description":""}
+        grade=v4.grade_v4(track,candidate)
+        self.assertTrue(grade["eligible"])
+        self.assertFalse(grade["artist_match"])
+        self.assertIn("original_artist_unconfirmed",grade["reasons"])
+
     def test_review_clip_and_fan_lyrics_downranked(self):
         japan={"artist":"米津玄師 & 宇多田ヒカル","title":"JANE DOE","country":"jp"}
         clip={"url":URL,"title":"劇場版『チェンソーマン レゼ篇』公開記念PV／Ending Theme:米津玄師, 宇多田ヒカル「JANE DOE」",
