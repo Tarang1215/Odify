@@ -1,0 +1,68 @@
+name: Odify V3 offline Piped candidate reranking
+on:
+  push:
+    branches: [feature/odify-v12-master-db]
+    paths:
+      - 'scripts/odify_altlink_rerank.py'
+      - 'scripts/tests/test_odify_altlink_rerank.py'
+      - '.github/workflows/odify-altlink-rerank-v3.yml'
+  workflow_dispatch:
+permissions:
+  actions: read
+  contents: read
+jobs:
+  cached-rerank:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile and run safety tests
+        run: |
+          python -m py_compile scripts/odify_altlink_rerank.py
+          python -m unittest discover -s scripts/tests -p 'test_odify_altlink_rerank.py' -v
+          python -m unittest discover -s scripts/tests -p 'test_odify_link_consensus.py' -v
+          python -m unittest discover -s scripts/tests -p 'test_odify_altlink_pilot.py' -v
+      - name: Restore immutable 100-song V2 candidate checkpoints
+        uses: actions/download-artifact@v4
+        with:
+          repository: Tarang1215/Odify
+          run-id: 39967688421
+          name: odify-altlink-piped-invidious-100-v2
+          github-token: \${{ github.token }}
+          path: .local/odify_altlink_pilot_v2
+      - name: Re-rank existing results without API requests
+        run: |
+          python -u scripts/odify_altlink_rerank.py \
+            --input .local/odify_altlink_pilot_v2 \
+            --output .local/odify_altlink_rerank_v3
+      - name: Validate complete read-only output
+        run: |
+          python - <<'PY'
+          import json,csv,pathlib
+          p=pathlib.Path('.local/odify_altlink_rerank_v3')
+          d=json.loads((p/'rerank_summary_v3.json').read_text())
+          assert d['tracks']==100,d
+          rows=list(csv.DictReader((p/'review_only_proposals_v3.csv').open(encoding='utf-8-sig')))
+          assert len(rows)==100
+          assert all(x['verified']=='NO' and x['action'] in
+                     ('KEEP_EXISTING','MANUAL_REVIEW_ONLY') for x in rows)
+          with open(__import__('os').environ['GITHUB_STEP_SUMMARY'],'a') as f:
+              f.write('## V3 offline read-only rerank\n\n')
+              f.write(f"Songs: **{d['tracks']}**; eligible: **{d['eligible_songs']}**;\n")
+              f.write(f"Candidates: **{d['video_candidates']}**\n\n")
+              f.write('| Decision | Songs |\n|---|---:|\n')
+              for label,n in d['states'].items():f.write(f'| {label} | {n} |\n')
+              f.write('\nNo new HTTP requests; no Google MASTER modifications.\n')
+              f.write('\nNo verified-reference accuracy estimate without supplying MASTER CSV.\n')
+          PY
+      - name: Upload traceable V3 review artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: odify-altlink-rerank-v3-offline
+          path: .local/odify_altlink_rerank_v3/**
+          retention-days: 60
+          if-no-files-found: warn
