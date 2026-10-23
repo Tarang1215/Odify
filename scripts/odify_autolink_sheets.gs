@@ -46,7 +46,8 @@ function odifyInstallAutoLink() {
 
 function odifyRemoveAutoLink() {
   ScriptApp.getProjectTriggers().forEach(x=>{
-    if (x.getHandlerFunction()==='odifyAutoLink')ScriptApp.deleteTrigger(x);
+    if (['odifyAutoLink','odifyRunAutoLink'].includes(x.getHandlerFunction()))
+      ScriptApp.deleteTrigger(x);
   });
 }
 
@@ -199,7 +200,8 @@ function odifyShowProgress(ss, state) {
 function odifyRefreshProgress() {
   const props=PropertiesService.getScriptProperties();
   const ss=SpreadsheetApp.getActiveSpreadsheet() ||
-    SpreadsheetApp.openById(props.getProperty('ODIFY_SHEET_ID'));
+    SpreadsheetApp.openById(props.getProperty('ODIFY_SHEET_ID') ||
+      props.getProperty('ODIFY_SPREADSHEET_ID'));
   const sh=ss.getSheetByName(ODIFY.sheetName);
   if(!sh)throw Error('MASTER 탭이 없습니다.');
   const rows=sh.getDataRange().getDisplayValues();
@@ -208,7 +210,8 @@ function odifyRefreshProgress() {
   if(linkCol<0)throw Error('YouTube 오디오 URL 열이 없습니다.');
   const data=rows.slice(1).filter(r=>/^ODF\\d{6}$/.test(r[0]));
   const connected=data.filter(r=>r[linkCol]).length;
-  const usage=JSON.parse(props.getProperty('ODIFY_QUERY_USAGE')||'{}');
+  const usage=JSON.parse(props.getProperty('ODIFY_QUERY_USAGE')||
+    props.getProperty('ODIFY_DAILY_CALLS')||'{}');
   const date=Utilities.formatDate(new Date(),'America/Los_Angeles','yyyy-MM-dd');
   odifyShowProgress(ss,{
     phase:'대기',total:data.length,connected,missing:data.length-connected,
@@ -248,8 +251,10 @@ function odifyAutoLink() {
   let ss,progress={phase:'준비 중',message:'시트 조회 중'};
   try {
     const props=PropertiesService.getScriptProperties();
-    const key=props.getProperty('ODIFY_YOUTUBE_KEY');
-    const ssId=props.getProperty('ODIFY_SHEET_ID');
+    const key=props.getProperty('ODIFY_YOUTUBE_KEY')||
+      props.getProperty('ODIFY_YOUTUBE_API_KEY');
+    const ssId=props.getProperty('ODIFY_SHEET_ID')||
+      props.getProperty('ODIFY_SPREADSHEET_ID');
     if(!key||!ssId)throw Error('YouTube API 키와 MASTER 시트 연결을 먼저 설정하세요.');
     ss=SpreadsheetApp.openById(ssId);
     const sh=ss.getSheetByName(ODIFY.sheetName);
@@ -269,7 +274,8 @@ function odifyAutoLink() {
       (r,i)=>[String(r[0]),{sheetRow:i+2,retry:r[3],query:r[4]}]));
     const cachedIndex=odifyCandidateIndex(candidateSheet);
     const date=Utilities.formatDate(new Date(),'America/Los_Angeles','yyyy-MM-dd');
-    const usage=JSON.parse(props.getProperty('ODIFY_QUERY_USAGE')||'{}');
+    const usage=JSON.parse(props.getProperty('ODIFY_QUERY_USAGE')||
+      props.getProperty('ODIFY_DAILY_CALLS')||'{}');
     const used=usage.date===date?Number(usage.count||0):0;
     const available=Math.min(ODIFY.maxPerRun,Math.max(0,ODIFY.maxDaily-used));
     const index=[];
