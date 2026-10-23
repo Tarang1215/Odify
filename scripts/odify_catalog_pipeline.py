@@ -304,7 +304,7 @@ def rebuild_monthly(con,provider,country,year_month,top=100):
     Chart-week dates are assigned to the calendar month of the chart date.
     """
     country=country_code(country)
-    if not re.fullmatch(r"\\d{4}-\\d{2}",year_month):
+    if not re.fullmatch(r"\d{4}-\d{2}",year_month):
         raise ValueError("year_month must YYYY-MM")
     year,month=map(int,year_month.split("-"))
     if not 1<=month<=12:
@@ -343,7 +343,7 @@ def backfill_us(con,limit=40,include_archive=False):
     dates=http_json(BILLBOARD_ARCHIVE+"valid_dates.json")
     earliest=(ARCHIVE_MIN_YEAR if include_archive else PRIMARY_MIN_YEAR)["us"]
     valid=[d for d in dates if isinstance(d,str) and
-           re.fullmatch(r"\\d{4}-\\d{2}-\\d{2}",d) and
+           re.fullmatch(r"\d{4}-\d{2}-\d{2}",d) and
            earliest<=int(d[:4])<=datetime.now(timezone.utc).year and
            d<=datetime.now(timezone.utc).strftime("%Y-%m-%d")]
     fetched=0;skipped=0;months=set()
