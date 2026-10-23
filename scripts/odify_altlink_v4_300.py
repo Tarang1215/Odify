@@ -384,7 +384,7 @@ def run(catalog,folder,cached_v2=None,limit=300,max_queries=2,timeout=6,delay=.8
     if manifest.exists() and json.loads(manifest.read_text(encoding="utf-8"))!=tracks:
         raise ValueError("sample mismatch; choose new output folder")
     if not manifest.exists():atomic(manifest,tracks)
-    settings={"schema":SCHEMA,"bases":bases,"max_queries":max_queries}
+    settings={"schema":SCHEMA,"bases":list(bases),"max_queries":max_queries}
     config=folder/"settings.json"
     if config.exists() and json.loads(config.read_text())!=settings:
         raise ValueError("collector settings mismatch; choose new output folder")
