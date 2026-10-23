@@ -30,7 +30,7 @@ from urllib.request import Request, urlopen
 
 from odify_link_consensus import decide, norm, canonical
 
-DEFAULT_PIPED=("https://pipedapi.kavin.rocks",)
+DEFAULT_PIPED=("https://pipedapi.ducks.party","https://api.piped.private.coffee")
 DEFAULT_INVIDIOUS=("https://inv.nadeko.net","https://invidious.tiekoetter.com")
 COUNTRIES=("kr","jp","us","gl")
 PROVIDERS=("piped","invidious")
@@ -357,10 +357,16 @@ def run(args,request=fetch_json):
     try:
         pp=tuple(safe_origin(s) for s in args.piped_instances.split(",") if s.strip())
         iv=tuple(safe_origin(s) for s in args.invidious_instances.split(",") if s.strip())
-        assert pp and iv
+        selected=tuple(x.strip() for x in args.providers.split(",") if x.strip())
+        if not selected or len(set(selected))!=len(selected) or any(x not in PROVIDERS for x in selected):
+            raise ValueError("providers must be piped, invidious or piped,invidious")
+        configured={"piped":pp,"invidious":iv}
+        if any(not configured[x] for x in selected):
+            raise ValueError("selected provider lacks instance endpoints")
         attempts_this_run=0
         for idx,song in enumerate(sample,1):
-            for provider,instances in (("piped",pp),("invidious",iv)):
+            for provider in selected:
+                instances=configured[provider]
                 old=state.execute("SELECT * FROM lookups WHERE country=? AND recording_id=? AND provider=?",
                                   (song["country"],song["recording_id"],provider)).fetchone()
                 if old and (old["success"] or not args.retry_errors):
@@ -394,6 +400,8 @@ def main():
     p.add_argument("--timeout",type=float,default=7)
     p.add_argument("--delay",type=float,default=1.5)
     p.add_argument("--retry-errors",action="store_true")
+    p.add_argument("--providers",default="piped,invidious",
+                   help="Comma-separated providers; select piped alone to exclude unavailable Invidious")
     p.add_argument("--piped-instances",default=",".join(DEFAULT_PIPED))
     p.add_argument("--invidious-instances",default=",".join(DEFAULT_INVIDIOUS))
     args=p.parse_args()
