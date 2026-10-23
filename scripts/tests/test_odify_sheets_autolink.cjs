@@ -33,4 +33,34 @@ const remaster={artist:"Fleetwood Mac",title:"Dreams - 2001 Remaster",edition:""
 assert.equal(context.odifyVersionMismatch(remaster,
  video(9,258,"Fleetwood Mac Dreams (2004 Remaster)","Fleetwood Mac")),true);
 assert.equal(context.odifyParseDuration("PT3M15S"),195);
+
+assert.equal(context.ODIFY===undefined,true); // const ODIFY is scoped inside VM
+const records=[];
+const fakeCandidateSheet={getDataRange(){return {getValues(){
+ return [
+  ["Track ID","검색 쿼리","검색 시각","영상 ID","제목","채널","재생초","조회수","설명 일부"],
+  ["ODF000201","easy","2026-10-23","abcdefghijk","LE SSERAFIM EASY","Uploader",165,12000,""]
+ ];
+}}}};
+const cidx=context.odifyCandidateIndex(fakeCandidateSheet);
+assert.equal(cidx.get("ODF000201").items.length,1);
+assert.equal(cidx.get("ODF000201").items[0].seconds,165);
+assert.equal(context.odifyCandidateRows("ODF000201","easy",new Date(),candidates).length,4);
+const writes=[];
+context.SpreadsheetApp={flush(){}};
+context.odifyLogSheet=(ss,name,header)=>({
+ getRange(row,col,numRows,numCols){return {
+  setValues(v){writes.push({name,row,col,values:v});return this;},
+  setNumberFormat(){return this;}
+ }}
+});
+context.odifyShowProgress({},{
+ phase:"검색 중",total:508,connected:328,missing:180,target:50,
+ done:25,linked:13,review:12,cached:8,apiCalls:17,todayUsed:65,current:"test"});
+const table=writes[0].values;
+assert.equal(table.find(x=>x[0]==="이번 실행 진행률 (%)")[1],50);
+assert.equal(table.find(x=>x[0]==="이번 실행 캐시 재사용")[1],8);
+assert.equal(table.find(x=>x[0]==="오늘 누적 API 검색 호출")[1],65);
+assert.equal(table.find(x=>x[0]==="현재 처리 곡")[1],"test");
+
 process.stdout.write("Odify Google Sheets AutoLink smoke tests passed.\n");
