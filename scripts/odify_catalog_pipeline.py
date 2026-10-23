@@ -261,8 +261,10 @@ def global_feed(count=100):
     date=datetime.fromtimestamp(int(ts),timezone.utc).strftime("%Y-%m-%d")
     entries=[]
     for idx,item in enumerate(payload.get("recordings") or [],1):
-        name=item.get("recording_name","")
-        artist_name=item.get("artist_name","")
+        # ListenBrainz sitewide uses track_name; recording_name was never
+        # returned by this endpoint, leaving global charts permanently empty.
+        name=item.get("track_name") or item.get("recording_name") or ""
+        artist_name=item.get("artist_name") or ""
         if name and artist_name:
             entries.append({"rank":idx,"artist":artist_name,"title":name,
                             "source_id":str(item.get("recording_mbid") or ""),
