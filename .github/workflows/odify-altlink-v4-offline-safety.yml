@@ -3,7 +3,9 @@ on:
   push:
     branches: [feature/odify-v12-master-db]
     paths:
+      - 'scripts/odify_altlink_v4_300.py'
       - 'scripts/odify_altlink_v4_offline_review.py'
+      - 'scripts/tests/test_odify_altlink_v4_300.py'
       - '.github/workflows/odify-altlink-v4-offline-safety.yml'
   workflow_dispatch:
 permissions:
