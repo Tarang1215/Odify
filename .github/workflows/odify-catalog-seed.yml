@@ -1,0 +1,78 @@
+name: Odify Catalog Initial Data Seed
+on:
+  push:
+    branches:
+      - feature/odify-v12-master-db
+    paths:
+      - '.github/workflows/odify-catalog-seed.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  seed-catalog:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout project
+        uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate collector tests
+        run: |
+          python -m py_compile scripts/odify_catalog_pipeline.py
+          python -m unittest discover -s scripts/tests -p 'test_odify_catalog_pipeline.py' -v
+      - name: Initialize private working database
+        run: python scripts/odify_catalog_pipeline.py init
+      - name: Collect current KR JP US Global rankings
+        continue-on-error: true
+        run: python -u scripts/odify_catalog_pipeline.py chart-feed
+      - name: Seed USA Billboard monthly coverage from 2000 to 2026
+        continue-on-error: true
+        run: |
+          python -u scripts/odify_catalog_pipeline.py backfill-us \
+            --limit 340 --coverage monthly-first \
+            --progress-file .local/odify_catalog_progress.json
+      - name: Expand album tracklists for sample of chart songs
+        continue-on-error: true
+        run: |
+          python -u scripts/odify_catalog_pipeline.py expand-albums --limit 25
+      - name: Export rank feeds, count and integrity check
+        if: always()
+        run: |
+          python scripts/odify_catalog_pipeline.py export --out-dir .local/odify_public
+          python - <<'PY'
+          import json,sqlite3,pathlib
+          p=pathlib.Path('.local/odify_catalog.sqlite3')
+          if not p.exists():
+              print('No database created')
+          else:
+              con=sqlite3.connect(p)
+              integrity=con.execute('PRAGMA integrity_check').fetchone()[0]
+              stats={}
+              for t in ('artist','recording','album','album_track','chart_edition','chart_entry'):
+                  stats[t]=con.execute('SELECT COUNT(*) FROM '+t).fetchone()[0]
+              print('SQLITE_INTEGRITY',integrity,'CATALOG_COUNTS',json.dumps(stats))
+              pathlib.Path('.local/odify_counts.json').write_text(
+                  json.dumps({'integrity':integrity,'counts':stats},indent=2))
+              with open(pathlib.Path(__import__('os').environ['GITHUB_STEP_SUMMARY']),'a') as f:
+                  f.write('### Odify catalog seed\n\n')
+                  f.write('Integrity: '+integrity+'\n\n')
+                  f.write('| Table | Rows |\n|---|---:|\n')
+                  for key,val in stats.items():f.write('| '+key+' | '+str(val)+' |\n')
+          PY
+      - name: Preserve SQLite data and resumable progress as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: odify-catalog-seed-sqlite
+          path: |
+            .local/odify_catalog.sqlite3
+            .local/odify_catalog_progress.json
+            .local/odify_counts.json
+            .local/odify_public/**
+          retention-days: 60
+          if-no-files-found: warn
