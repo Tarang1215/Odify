@@ -44,6 +44,25 @@ OUTPUT_FIELDS=("country","id","artist","title","source_date","source_rank","refe
                "selected_url","selected_confidence","reference_video_match","review_reason")
 NETWORK_HEADERS={"User-Agent":"OdifyLinkPilot/1.0 (metadata-only; limited research)",
                  "Accept":"application/json"}
+ENDPOINT_LOCK=threading.Lock()
+ENDPOINT_FAILURES={}
+ENDPOINT_DISABLED=set()
+
+def endpoint_disabled(base):
+    with ENDPOINT_LOCK:return base in ENDPOINT_DISABLED
+
+def note_endpoint_error(base,reason):
+    with ENDPOINT_LOCK:
+        ENDPOINT_FAILURES[base]=ENDPOINT_FAILURES.get(base,0)+1
+        # 403/429 should not trigger aggressive fallback/retries. Many failed
+        # connections also indicate an unavailable public volunteer instance.
+        if "HTTP 403" in reason or "HTTP 429" in reason or ENDPOINT_FAILURES[base]>=3:
+            ENDPOINT_DISABLED.add(base)
+
+def reset_endpoint_health():
+    with ENDPOINT_LOCK:
+        ENDPOINT_FAILURES.clear()
+        ENDPOINT_DISABLED.clear()
 
 def clock():
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -115,7 +134,11 @@ def adapt(provider,payload):
 def request_provider(provider,track,bases,timeout,interval=0.0):
     q=f"{track['artist']} {track['title']} audio"
     attempt=[]
+    skipped=0
     for base in bases:
+        if endpoint_disabled(base):
+            skipped+=1
+            continue
         endpoint=(("/search?"+urlencode({"q":q,"filter":"music_songs"}))
                   if provider=="piped" else
                   ("/api/v1/search?"+urlencode({"q":q,"type":"video","sort_by":"relevance",
@@ -125,18 +148,21 @@ def request_provider(provider,track,bases,timeout,interval=0.0):
             result,ms=query_json(base.rstrip("/")+endpoint,timeout)
             candidates=adapt(provider,result)
             attempt.append({"base":base,"status":"ok","ms":ms,"candidates":len(candidates)})
+            with ENDPOINT_LOCK:ENDPOINT_FAILURES.pop(base,None)
             return {"status":"ok","latency_ms":ms,"candidates":list(candidates.values()),
                     "attempts":attempt}
         except (RuntimeError,ValueError,TypeError,json.JSONDecodeError) as ex:
             ms=round((time.perf_counter()-start)*1000)
             reason=str(ex)[:150]
             attempt.append({"base":base,"status":"error","ms":ms,"reason":reason})
+            note_endpoint_error(base,reason)
             # Do not switch hosts to evade explicit rate limits / access blocks.
             if "HTTP 429" in reason or "HTTP 403" in reason:
                 return {"status":"blocked","latency_ms":ms,
                         "candidates":[],"attempts":attempt}
         if interval:time.sleep(interval)
-    return {"status":"failed","latency_ms":sum(x["ms"] for x in attempt),
+    status="unavailable" if skipped==len(bases) and not attempt else "failed"
+    return {"status":status,"latency_ms":sum(x["ms"] for x in attempt),
             "candidates":[],"attempts":attempt}
 
 def load_references(path):
@@ -280,8 +306,14 @@ def report(tracks,results):
     for provider in PROVIDERS:
         resp=[r["providers"][provider] for r in results.values()]
         good=[r for r in resp if r["status"]=="ok"]
+        reasons=Counter(a.get("reason","") for r in resp for a in r.get("attempts",[])
+                        if a.get("reason"))
         metrics[provider]={
-            "attempted_songs":len(resp),"search_success":len(good),
+            "processed_songs":len(resp),
+            "attempted_songs":sum(bool(r.get("attempts")) for r in resp),
+            "skipped_unavailable":sum(r["status"]=="unavailable" for r in resp),
+            "error_breakdown":dict(reasons.most_common(12)),
+            "search_success":len(good),
             "failed":sum(r["status"]=="failed" for r in resp),
             "blocked":sum(r["status"]=="blocked" for r in resp),
             "results_nonempty":sum(bool(r["candidates"]) for r in resp),
@@ -344,6 +376,7 @@ def export_rows(folder,tracks,results):
 def run(catalog,output,reference_csv=None,workers=3,timeout=7,piped=None,
         invidious=None,limit=100):
     folder=Path(output);folder.mkdir(parents=True,exist_ok=True)
+    reset_endpoint_health()
     tracks=balanced_sample(catalog,refs=load_references(reference_csv))
     verify_sample(tracks)
     manifest=folder/"sample_100.json"
