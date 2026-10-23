@@ -97,6 +97,22 @@ class V4Tests(unittest.TestCase):
         self.assertGreater(v4.grade_v4(original,exact)["score"],
                            v4.grade_v4(original,unrelated)["score"])
 
+    def test_review_clip_and_fan_lyrics_downranked(self):
+        japan={"artist":"米津玄師 & 宇多田ヒカル","title":"JANE DOE","country":"jp"}
+        clip={"url":URL,"title":"劇場版『チェンソーマン レゼ篇』公開記念PV／Ending Theme:米津玄師, 宇多田ヒカル「JANE DOE」",
+              "channel":"MAPPA CHANNEL","seconds":99,"views":100,"description":""}
+        studio={"url":URL,"title":"JANE DOE","channel":"Kenshi Yonezu",
+                "seconds":236,"views":100,"description":""}
+        self.assertLess(v4.grade_v4(japan,clip)["score"],
+                        v4.grade_v4(japan,studio)["score"])
+        kr={"artist":"머무르","title":"꿈꾸던 어른이 되었나요?","country":"kr"}
+        lyric={"url":URL,"title":"꿈꾸던 어른이 되었나요? - 머무르 [가사/Lyrics]",
+               "channel":"태초의 고막","seconds":206,"views":100,"description":""}
+        recording={"url":URL,"title":"꿈꾸던 어른이 되었나요?","channel":"MEOMURU",
+                   "seconds":208,"views":100,"description":""}
+        self.assertLess(v4.grade_v4(kr,lyric)["score"],
+                        v4.grade_v4(kr,recording)["score"])
+
     def test_one_search_plus_adaptive_second(self):
         t={"country":"kr","id":"x","artist":"BTS","title":"Dynamite"}
         calls=[]
