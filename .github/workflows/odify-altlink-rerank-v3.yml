@@ -31,7 +31,7 @@ jobs:
           repository: Tarang1215/Odify
           run-id: 39967688421
           name: odify-altlink-piped-invidious-100-v2
-          github-token: \${{ github.token }}
+          github-token: ${{ github.token }}
           path: .local/odify_altlink_pilot_v2
       - name: Re-rank existing results without API requests
         run: |
