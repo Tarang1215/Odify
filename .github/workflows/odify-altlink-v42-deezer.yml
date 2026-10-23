@@ -1,12 +1,6 @@
 name: Odify V4.2 Apple Deezer two-source validation
 on:
   workflow_dispatch:
-  push:
-    branches: [feature/odify-v12-master-db]
-    paths:
-      - 'scripts/odify_altlink_v42_deezer.py'
-      - 'scripts/tests/test_odify_altlink_v42_deezer.py'
-      - '.github/workflows/odify-altlink-v42-deezer.yml'
 permissions:
   actions: read
   contents: read
