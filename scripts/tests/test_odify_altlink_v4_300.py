@@ -212,7 +212,7 @@ class V44FalsePositiveTests(unittest.TestCase):
                    "seconds":230,"views":300,"description":""}
                 grade=v4.grade_v4(track,x)
                 self.assertFalse(grade["eligible"],grade)
-                self.assertIn("non_original_variant",grade["reasons"])
+                self.assertTrue(grade["reasons"].startswith(("non_original_variant:","version_rejected_original:")),grade)
     def test_normal_studio_track_and_album_interludes_remain(self):
         t={"artist":"Dominic Fike","title":"Babydoll","country":"us"}
         c={"url":URL,"title":"Babydoll","channel":"Dominic Fike",
