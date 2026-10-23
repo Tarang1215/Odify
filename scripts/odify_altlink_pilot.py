@@ -33,8 +33,8 @@ from odify_link_consensus import decide,eligible,canonical,norm
 
 REGIONS=("kr","jp","us","gl")
 PROVIDERS={
- "piped":("https://pipedapi.kavin.rocks","https://pipedapi.adminforge.de",
-          "https://api.piped.private.coffee"),
+ "piped":("https://api.piped.private.coffee",
+          "https://pipedapi.kavin.rocks","https://pipedapi.adminforge.de"),
  "invidious":("https://inv.nadeko.net","https://invidious.tiekoetter.com",
               "https://yt.chocolatemoo53.com")
 }
