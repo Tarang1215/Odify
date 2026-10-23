@@ -277,7 +277,7 @@ def merge(providers):
             origins.setdefault(url,set()).add(provider)
     return found,origins
 
-def rank_v4(track,providers):
+def rank_v4(track,providers,baseline_url=""):
     merged,origins=merge(providers)
     ranked=[]
     for vid,item in merged.items():
@@ -288,6 +288,23 @@ def rank_v4(track,providers):
              x["title_match"]=="exact",x["video_id"]),reverse=True)
     best=next((x for x in ranked if x["eligible"]),None)
     if not best:return ranked,None,"no_eligible_candidate"
+    # An additional weak second-search hit must not displace an eligible
+    # existing first-query choice. Keep the original pick unless the new
+    # upload has *independent* album+duration+official metadata evidence.
+    # This is NOT reference ground truth and never auto-verifies any URL.
+    pinned=next((x for x in ranked if x["eligible"] and
+                 x["url"]==baseline_url),None) if baseline_url else None
+    retained=False
+    if pinned is not None and best["url"]!=pinned["url"]:
+        independent=(best["official_evidence"] and best["album_match"] and
+              best["duration_difference"] is not None and
+              best["duration_difference"]<=7 and
+              best["score"]>=pinned["score"]+12)
+        if not independent:
+            best=pinned
+            retained=True
+    if retained:
+        return ranked,best,"baseline_retained_review"
     eligible=[x for x in ranked if x["eligible"]]
     if len(eligible)>1 and best["score"]-eligible[1]["score"]<=5:
         return ranked,best,"ambiguous_review"
@@ -323,7 +340,8 @@ def process(track,bases,health,timeout,delay,max_queries=2,cached=None,fetcher=f
         attempts.extend(attempt)
         newly_fetched.extend(found)
     providers["piped"]["candidates"]=previous+newly_fetched
-    ranked,best,state=rank_v4(track,providers)
+    ranked,best,state=rank_v4(track,providers,
+                                 first_best.get("url","") if first_best else "")
     return {"schema":SCHEMA,"track":track,"cached_v2":bool(cached),
       "attempts":attempts,"providers":providers,
       "first_v3":{"state":first_state,"eligible":sum(x["eligible"] for x in first_ranked),
@@ -377,7 +395,7 @@ def export(folder,results):
     reports=[];candidates=[];attempts=[];proposals=[]
     for r in sorted(results.values(),key=lambda x:(REGIONS.index(x["track"]["country"]),x["track"]["id"])):
         t=r["track"];p=r["providers"]
-        ranked,best,state=rank_v4(t,p)
+        ranked,best,state=rank_v4(t,p,r["first_v3"]["selected_url"])
         first=r["first_v3"]
         reports.append(dict(country=t["country"],id=t["id"],artist=t["artist"],
            title=t["title"],source_date=t["source_date"],source_rank=t["source_rank"],
