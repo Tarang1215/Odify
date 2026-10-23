@@ -43,6 +43,37 @@ class LinkBatchTests(unittest.TestCase):
         self.assertEqual("불일치가능", links.evidence_rank(target, other, details)[0])
         self.assertEqual("아니오", "아니오")  # even strong candidates are NOT auto-verified
 
+    def test_korean_easy_rejects_english_version_even_same_duration(self):
+        original = {"곡명": "EASY", "앨범": "EASY", "아티스트": "LE SSERAFIM"}
+        candidate = {
+            "title": "EASY (English ver.)",
+            "channelTitle": "LE SSERAFIM - Topic"
+        }
+        detail = {"snippet": {
+            "description": "Provided to YouTube by SOURCE MUSIC · LE SSERAFIM"}}
+        self.assertEqual("버전불일치",
+                         links.evidence_rank(original, candidate, detail)[0])
+        self.assertIsNone(links.incompatible_version(
+            original, "LE SSERAFIM - EASY (Official Audio)"))
+
+    def test_remaster_and_featured_performer_are_distinct_versions(self):
+        fleetwood = {"곡명": "Dreams - 2001 Remaster",
+                     "아티스트": "Fleetwood Mac", "앨범": ""}
+        self.assertEqual("리마스터 연도", links.incompatible_version(
+            fleetwood, "Dreams (2004 Remaster)"))
+        track = {"곡명": "Dracula", "아티스트": "Tame Impala & JENNIE",
+                 "앨범": "Dracula (with JENNIE) + Instrumental"}
+        self.assertEqual("원곡 피처링 아티스트",
+                         links.incompatible_version(track,
+                             "Tame Impala - Dracula (Lyrics)"))
+
+    def test_official_music_video_is_not_official_audio(self):
+        track = {"곡명": "EASY", "아티스트": "LE SSERAFIM"}
+        video = {"title": "LE SSERAFIM 'EASY' OFFICIAL MV",
+                 "channelTitle": "HYBE LABELS"}
+        self.assertEqual("영상유형불일치",
+            links.evidence_rank(track, video, {"snippet": {}})[0])
+
     def test_dry_run_never_requires_an_api_key(self):
         with tempfile.TemporaryDirectory() as td:
             master = Path(td) / "master.csv"
