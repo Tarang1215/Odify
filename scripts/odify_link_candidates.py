@@ -47,6 +47,15 @@ def query_for(row: dict) -> str:
     return f"{row.get('아티스트', '').strip()} {row.get('곡명', '').strip()} official audio".strip()
 
 
+def iso8601_seconds(raw: str) -> int:
+    """YouTube contentDetails duration to whole seconds."""
+    m = re.fullmatch(r"P(?:(\\d+)D)?(?:T(?:(\\d+)H)?(?:(\\d+)M)?(?:(\\d+)S)?)?", raw or "")
+    if not m:
+        return 0
+    d,h,mi,se=(int(n or 0) for n in m.groups())
+    return d*86400+h*3600+mi*60+se
+
+
 def existing_video_id(url: str) -> str | None:
     parsed = urlparse(url.strip())
     if parsed.scheme != "https":
@@ -199,7 +208,7 @@ def run(master: Path, output: Path, cache_file: Path, year: str | None,
     def search(q: str) -> tuple[str, dict]:
         return q, api_get("search", {
             "part": "snippet", "q": q, "type": "video",
-            "maxResults": 5, "safeSearch": "moderate"
+            "maxResults": 15, "safeSearch": "moderate"
         }, key)
     with ThreadPoolExecutor(max_workers=max(1, min(workers, 6))) as pool:
         for future in as_completed([pool.submit(search, q) for q in chosen]):
@@ -221,7 +230,7 @@ def run(master: Path, output: Path, cache_file: Path, year: str | None,
     ordered_ids = sorted(video_ids)
     for start in range(0, len(ordered_ids), 50):
         info = api_get("videos", {
-            "part": "snippet,contentDetails,status",
+            "part": "snippet,contentDetails,status,statistics",
             "id": ",".join(ordered_ids[start:start + 50])
         }, key)
         detail.update({x.get("id"): x for x in info.get("items", [])})
@@ -246,11 +255,13 @@ def run(master: Path, output: Path, cache_file: Path, year: str | None,
                 "후보 YouTube URL": "https://www.youtube.com/watch?v=" + vid,
                 "채널": meta.get("channelTitle", ""),
                 "영상 제목": meta.get("title", ""),
+                "재생시간(초)": iso8601_seconds(detail[vid].get("contentDetails", {}).get("duration", "")),
+                "조회수": detail[vid].get("statistics", {}).get("viewCount", ""),
                 "후보 상태": status, "검토 근거": why,
                 "자동 확정": "아니오"
             })
     fields = ["Track ID", "연도", "아티스트", "곡명", "후보 YouTube URL",
-              "채널", "영상 제목", "후보 상태", "검토 근거", "자동 확정"]
+              "채널", "영상 제목", "재생시간(초)", "조회수", "후보 상태", "검토 근거", "자동 확정"]
     output.parent.mkdir(parents=True, exist_ok=True)
     with output.open("w", encoding="utf-8-sig", newline="") as fp:
         writer = csv.DictWriter(fp, fieldnames=fields)
