@@ -1,0 +1,91 @@
+name: Odify Piped Invidious 100 Song Live Pilot
+
+on:
+  push:
+    branches: [feature/odify-v12-master-db]
+    paths: ['.github/workflows/odify-link-provider-pilot.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  pilot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 48
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test provider parsers, matching and resume safety
+        run: |
+          python -m py_compile scripts/odify_link_multi_backend.py
+          python -m unittest discover -s scripts/tests -p 'test_odify_link_multi_backend.py' -v
+      - name: Restore frozen four-region catalog snapshot
+        uses: actions/download-artifact@v4
+        with:
+          repository: Tarang1215/Odify
+          run-id: 39909115368
+          name: odify-catalog-us-full-4-regions
+          github-token: ${{ github.token }}
+          path: .local
+      - name: Validate baseline and sample exactly 25 songs per region
+        run: |
+          python - <<'PY'
+          import sqlite3,sys
+          sys.path.insert(0,'scripts')
+          from odify_link_multi_backend import sample_catalog
+          db='.local/odify_catalog.sqlite3'
+          con=sqlite3.connect(db)
+          assert con.execute('PRAGMA integrity_check').fetchone()[0]=='ok'
+          sample=sample_catalog(db,25)
+          from collections import Counter
+          assert Counter(x['country'] for x in sample)==dict.fromkeys(('kr','jp','us','gl'),25)
+          assert len(sample)==100 and len({x['recording_id'] for x in sample})==100
+          print('ODIFY_PILOT_SAMPLE',dict(Counter(x['country'] for x in sample)))
+          PY
+      - name: Actual Piped and Invidious public API trial on 100 songs
+        timeout-minutes: 43
+        # Providers may be blocked; the runner still exports actual HTTP errors.
+        run: |
+          python -u scripts/odify_link_multi_backend.py \
+            --db .local/odify_catalog.sqlite3 \
+            --state .local/odify_link_provider_state.sqlite3 \
+            --output-dir .local/link_pilot \
+            --limit-per-country 25 --timeout 5 --delay 1.2
+      - name: Summarize actual per-provider results and data integrity
+        if: always()
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import json,os,sqlite3
+          p=Path('.local/link_pilot/pilot_summary.json')
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a',encoding='utf-8') as f:
+              f.write('## Odify Piped / Invidious — 100 song real API trial\n\n')
+              f.write('MASTER existing URLs: **not touched**. Candidate matches are NOT verified audio.\n\n')
+              if p.exists():
+                  data=json.loads(p.read_text(encoding='utf-8'))
+                  f.write('| Measure | Result |\n|---|---:|\n')
+                  for key in ('total','completed','percent','attempts','successful_requests','failed_requests'):
+                      f.write(f'| {key} | {data.get(key)} |\n')
+                  for country,count in data.get('per_country',{}).items():
+                      f.write(f'| {country} checked | {count} |\n')
+                  for provider,stats in data.get('providers',{}).items():
+                      f.write(f'\n**{provider}**: '+str(stats)+'\n\n')
+                  f.write('Matching evidence: '+str(data.get('matching_quality'))+'\n\n')
+                  f.write('Video IDs were never written to MASTER.\n')
+              else:
+                  f.write('Collector terminated before summary; see live ODIFY_LINK_PROGRESS logs.\n')
+          PY
+      - name: Persist checkpoints and audit records
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: odify-piped-invidious-100-song-audit
+          path: |
+            .local/odify_link_provider_state.sqlite3
+            .local/link_pilot/**
+          retention-days: 60
+          if-no-files-found: warn
