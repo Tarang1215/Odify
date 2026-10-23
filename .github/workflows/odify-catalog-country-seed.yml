@@ -1,0 +1,94 @@
+name: Odify KR JP Monthly Historical Catalog Seed
+on:
+  push:
+    branches:
+      - feature/odify-v12-master-db
+    paths:
+      - '.github/workflows/odify-catalog-country-seed.yml'
+  workflow_dispatch:
+permissions:
+  actions: read
+  contents: read
+jobs:
+  regional-seed:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Restore current private Odify catalog seed
+        uses: actions/download-artifact@v4
+        with:
+          name: odify-catalog-seed-sqlite
+          run-id: 39905510994
+          repository: Tarang1215/Odify
+          github-token: ${{ github.token }}
+          path: .local
+      - name: Verify regional data parsers
+        run: |
+          python -m unittest discover -s scripts/tests -p 'test_odify_country_archives.py' -v
+          python - <<'PY'
+          import sqlite3
+          c=sqlite3.connect('.local/odify_catalog.sqlite3')
+          assert c.execute('PRAGMA integrity_check').fetchone()[0]=='ok'
+          PY
+      - name: Fetch Korean Melon 2000-2023 research metadata
+        run: |
+          mkdir -p .local/sources
+          git clone --depth 1 --quiet \
+            https://github.com/EX3exp/Kpop-lyric-datasets.git \
+            .local/sources/melon
+          test -f .local/sources/melon/melon/monthly-chart/melon-2000/melon-2000-01/melon-monthly_2000-01_01.json
+      - name: Ingest 2000-2023 Korea monthly charts (NO lyrics copied)
+        run: |
+          python -u scripts/odify_country_archives.py \
+            --db .local/odify_catalog.sqlite3 --melon .local/sources/melon
+      - name: Fetch Japan Billboard 2008-2025 research ranking CSVs
+        run: |
+          git clone --depth 1 --quiet --filter=blob:none --sparse \
+            https://github.com/yuta1016/Graduation_Research.git \
+            .local/sources/japan
+          git -C .local/sources/japan sparse-checkout set billboard_charts
+          test -d .local/sources/japan/billboard_charts/2008
+      - name: Ingest 2008-2025 Japan weekly and derived monthly ranking
+        run: |
+          python -u scripts/odify_country_archives.py \
+            --db .local/odify_catalog.sqlite3 --billboard-jp .local/sources/japan
+      - name: Verify and export catalog
+        if: always()
+        run: |
+          python - <<'PY'
+          import json,sqlite3,os,pathlib
+          p=pathlib.Path('.local/odify_catalog.sqlite3')
+          c=sqlite3.connect(p)
+          integrity=c.execute('PRAGMA integrity_check').fetchone()[0]
+          tables=['artist','recording','album','album_track','chart_edition','chart_entry','recording_genre']
+          stats={t:c.execute('SELECT COUNT(*) FROM '+t).fetchone()[0] for t in tables}
+          by_country=[dict(zip(['country','provider','edition_count','ranking_rows'],r))
+              for r in c.execute('''SELECT e.country,e.provider,COUNT(DISTINCT e.id),
+                        COUNT(ce.rank) FROM chart_edition e LEFT JOIN chart_entry ce
+                        ON e.id=ce.edition_id GROUP BY e.country,e.provider ORDER BY 1,2''')]
+          pathlib.Path('.local/odify_counts.json').write_text(
+               json.dumps({'integrity':integrity,'counts':stats,
+                           'by_country':by_country},ensure_ascii=False,indent=2))
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as f:
+              f.write('### KR/JP chart history + USA 2000-2026\n\n')
+              f.write('Integrity: '+integrity+'\n\n')
+              for k,v in stats.items():f.write('- '+k+': **'+str(v)+'**\n')
+          print('ODIFY_COUNTS',json.dumps(stats),flush=True)
+          assert integrity=='ok'
+          PY
+          python scripts/odify_catalog_pipeline.py export
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: odify-catalog-kr-jp-us-sqlite
+          path: |
+            .local/odify_catalog.sqlite3
+            .local/odify_counts.json
+            .local/odify_catalog_progress.json
+            .local/odify_public/**
+          retention-days: 60
+          if-no-files-found: warn
