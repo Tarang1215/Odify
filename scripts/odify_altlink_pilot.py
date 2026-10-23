@@ -33,8 +33,10 @@ from odify_link_consensus import decide,eligible,canonical,norm
 
 REGIONS=("kr","jp","us","gl")
 PROVIDERS={
- "piped":("https://pipedapi.kavin.rocks","https://api.piped.silkky.cloud"),
- "invidious":("https://inv.nadeko.net","https://invidious.nerdvpn.de")
+ "piped":("https://pipedapi.kavin.rocks","https://pipedapi.adminforge.de",
+          "https://api.piped.private.coffee"),
+ "invidious":("https://inv.nadeko.net","https://invidious.tiekoetter.com",
+              "https://yt.chocolatemoo53.com")
 }
 VALID_ID=re.compile(r"^[A-Za-z0-9_-]{11}$")
 OUTPUT_FIELDS=("country","id","artist","title","source_date","source_rank","reference_url",
