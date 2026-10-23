@@ -21,6 +21,8 @@ proprietary historical chart into a distributed app.
 from __future__ import annotations
 
 import argparse
+import calendar
+from collections import defaultdict
 from datetime import datetime, timezone
 import csv
 import hashlib
@@ -37,6 +39,17 @@ from urllib.error import HTTPError, URLError
 USER_AGENT="OdifyCatalog/0.1 (https://github.com/Tarang1215/Odify)"
 COUNTRIES=("kr","jp","us","gl")
 ALIASES={"global":"gl","world":"gl","worldwide":"gl","ww":"gl","gl":"gl"}
+PRIMARY_MIN_YEAR={"kr":2000,"jp":2003,"us":2000,"gl":2000}
+ARCHIVE_MIN_YEAR={"kr":1980,"jp":2003,"us":1980,"gl":1980}
+BILLBOARD_ARCHIVE="https://raw.githubusercontent.com/mhollingshead/billboard-hot-100/main/"
+BILLBOARD_PROVIDER="billboard-hot-100-community-archive"
+
+def eligible_history(country,date,include_archive=False):
+    """2000+ prioritized, JP strictly 2003+, 1980-99 only optional others."""
+    country=country_code(country)
+    day=datetime.strptime(date,"%Y-%m-%d").date()
+    minimum=(ARCHIVE_MIN_YEAR if include_archive else PRIMARY_MIN_YEAR)[country]
+    return minimum<=day.year<=datetime.now(timezone.utc).year
 
 def country_code(value):
     code=ALIASES.get((value or "").lower().strip(),(value or "").lower().strip())
@@ -263,7 +276,7 @@ def feed_date(raw):
     try:return parsedate_to_datetime(raw).strftime("%Y-%m-%d")
     except (ValueError,TypeError):return datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
-def import_csv(con,file):
+def import_csv(con,file,include_archive=False):
     with Path(file).open(newline="",encoding="utf-8-sig") as f:
         rows=list(csv.DictReader(f))
     required={"source","country","chart_date","rank","artist","title"}
@@ -274,11 +287,92 @@ def import_csv(con,file):
         key=(row["source"],country_code(row["country"]),row["chart_date"],
              row.get("category") or "songs")
         buckets.setdefault(key,[]).append(row)
+    applied=0
     for (source,country,date,category),entries in buckets.items():
+        if not eligible_history(country,date,include_archive):
+            continue
         one=entries[0]
         snapshot(con,source,country,date,entries,category=category,
                  url=one.get("source_url"),rights=one.get("license"))
-    return len(buckets),len(rows)
+        applied+=1
+    return applied,len(rows)
+
+def rebuild_monthly(con,provider,country,year_month,top=100):
+    """Rank a month's weekly appearances by sum(101 - weekly rank).
+
+    Label derived, never claim these are an official published monthly chart.
+    Chart-week dates are assigned to the calendar month of the chart date.
+    """
+    country=country_code(country)
+    if not re.fullmatch(r"\\d{4}-\\d{2}",year_month):
+        raise ValueError("year_month must YYYY-MM")
+    year,month=map(int,year_month.split("-"))
+    if not 1<=month<=12:
+        raise ValueError("month out of range")
+    start=f"{year_month}-01"
+    end=f"{year_month}-{calendar.monthrange(year,month)[1]:02d}"
+    if not eligible_history(country,start,include_archive=True):
+        return 0
+    rows=con.execute("""
+      SELECT ce.recording_id,r.title,a.name AS artist,
+             SUM(101-ce.rank) AS points,COUNT(*) AS weeks,
+             MIN(ce.rank) AS best_rank
+        FROM chart_entry ce
+        JOIN chart_edition e ON e.id=ce.edition_id
+        JOIN recording r ON r.id=ce.recording_id
+        JOIN artist a ON a.id=r.artist_id
+       WHERE e.provider=? AND e.country=? AND e.category='songs'
+         AND e.as_of BETWEEN ? AND ?
+       GROUP BY ce.recording_id
+       ORDER BY points DESC,weeks DESC,best_rank ASC,r.title ASC
+       LIMIT ?
+    """,(provider,country,start,end,top)).fetchall()
+    if not rows:return 0
+    data=[{"rank":i+1,"artist":r["artist"],"title":r["title"],
+           "version":con.execute("SELECT version FROM recording WHERE id=?",
+                                 (r["recording_id"],)).fetchone()[0]}
+          for i,r in enumerate(rows)]
+    snapshot(con,provider+"-monthly-derived",country,end,data,
+             category="monthly-derived",rights="Computed from weekly chart points, not official monthly rankings")
+    return len(data)
+
+
+def backfill_us(con,limit=40,include_archive=False):
+    """Incrementally ingest US Hot 100 weekly JSON; resume by chart ID."""
+    if limit<1:raise ValueError("limit must be >=1")
+    dates=http_json(BILLBOARD_ARCHIVE+"valid_dates.json")
+    earliest=(ARCHIVE_MIN_YEAR if include_archive else PRIMARY_MIN_YEAR)["us"]
+    valid=[d for d in dates if isinstance(d,str) and
+           re.fullmatch(r"\\d{4}-\\d{2}-\\d{2}",d) and
+           earliest<=int(d[:4])<=datetime.now(timezone.utc).year and
+           d<=datetime.now(timezone.utc).strftime("%Y-%m-%d")]
+    fetched=0;skipped=0;months=set()
+    for date in valid:
+        sid=stable("chart",BILLBOARD_PROVIDER,"us",date,"songs")
+        if con.execute("SELECT 1 FROM chart_edition WHERE id=?",(sid,)).fetchone():
+            skipped+=1;continue
+        if fetched>=limit:break
+        try:
+            chart=http_json(BILLBOARD_ARCHIVE+"date/"+date+".json")
+            entries=[{"rank":int(x["this_week"]),
+                      "artist":x["artist"],"title":x["song"]}
+                     for x in chart.get("data",[]) if
+                     x.get("this_week") and x.get("artist") and x.get("song")]
+            if not entries:raise ValueError("missing entries for "+date)
+            with con:
+                snapshot(con,BILLBOARD_PROVIDER,"us",date,entries,
+                         url=BILLBOARD_ARCHIVE+"date/"+date+".json",
+                         rights="Community mirror of Billboard chart: provenance preserved")
+            months.add(date[:7]);fetched+=1
+        except (HTTPError,URLError,ValueError,KeyError,TimeoutError) as e:
+            print(f"Defer US {date}: {e}")
+            break
+    derived=0
+    for ym in sorted(months):
+        with con:derived+=rebuild_monthly(con,BILLBOARD_PROVIDER,"us",ym)
+    return {"weeks_imported":fetched,"weeks_already_present":skipped,
+            "months_recomputed":len(months),"monthly_rows":derived}
+
 
 def artist_list(con,who,limit=100):
     q=norm(who)
@@ -397,12 +491,18 @@ def export(con,where,countries):
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command",choices=("init","chart-feed","import-chart",
-                                          "expand-albums","export","summary","artist"))
+                                          "backfill-us","rebuild-monthly","expand-albums",
+                                          "export","summary","artist"))
     parser.add_argument("--db",type=Path,default=Path(".local/odify_catalog.sqlite3"))
     parser.add_argument("--countries",default="kr,jp,us,global")
     parser.add_argument("--csv",type=Path)
     parser.add_argument("--out-dir",type=Path,default=Path(".local/odify_public"))
     parser.add_argument("--limit",type=int,default=25)
+    parser.add_argument("--include-archive",action="store_true",
+                        help="Include 1980-1999 for KR/US/global, never pre-2003 Japan")
+    parser.add_argument("--provider",default=BILLBOARD_PROVIDER)
+    parser.add_argument("--country",default="us")
+    parser.add_argument("--year-month",default="")
     parser.add_argument("--name",default="")
     args=parser.parse_args()
     con=connect(args.db)
@@ -427,7 +527,13 @@ def main():
                     print(f"{country}: fetch failed {e}, preserved any existing snapshot")
         elif args.command=="import-chart":
             if not args.csv:parser.error("--csv required")
-            print(import_csv(con,args.csv));con.commit()
+            print(import_csv(con,args.csv,args.include_archive));con.commit()
+        elif args.command=="backfill-us":
+            print(backfill_us(con,args.limit,args.include_archive))
+        elif args.command=="rebuild-monthly":
+            if not args.year_month:parser.error("--year-month YYYY-MM required")
+            with con:
+                print({"rows":rebuild_monthly(con,args.provider,args.country,args.year_month)})
         elif args.command=="expand-albums":
             print({"albums_expanded":expand_apple(con,args.limit)})
         elif args.command=="artist":
