@@ -191,7 +191,7 @@ def snapshot(con,source,country,date,entries,category="songs",url=None,rights=No
                     " VALUES(?,?,?,?)",(sid,rank,aid,item.get("source_id")))
         if source=="apple-rss" and item.get("source_id"):
             con.execute("INSERT OR IGNORE INTO release_catalog_queue(provider,ext_id,market)"
-                        " VALUES('apple',?,?,)",(str(item["source_id"]),country))
+                        " VALUES('apple',?,?)",(str(item["source_id"]),country))
     return sid
 
 def http_json(url,timeout=20):
