@@ -1,0 +1,57 @@
+name: Odify V4.4 1000-song offline false-match regression
+on:
+  push:
+    branches: [feature/odify-v12-master-db]
+    paths:
+      - 'scripts/odify_altlink_v44_regrade.py'
+      - 'scripts/tests/test_odify_altlink_v4_300.py'
+      - '.github/workflows/odify-altlink-v44.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  safety-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run V4.4 exact false match unit tests
+        run: |
+          python -m unittest discover -s scripts/tests -p 'test_odify_altlink_v4_300.py' -v
+          python -m py_compile scripts/odify_altlink_v44_regrade.py
+      - name: Recover full 1000 original Piped metadata results
+        uses: actions/download-artifact@v4
+        with:
+          repository: Tarang1215/Odify
+          run-id: 40011801511
+          name: odify-v43-1000-final-complete
+          github-token: ${{ github.token }}
+          path: .local
+      - name: Regrade the exact same 1000 stored candidate sets
+        run: |
+          python scripts/odify_altlink_v44_regrade.py --input .local/v43 --out .local/v44
+      - name: Verify source integrity and report changes
+        run: |
+          python - <<'PY'
+          import json,csv,os
+          s=json.load(open('.local/v44/v44_summary.json'))
+          assert s['sample']==1000 and s['new_api_calls']==0
+          assert s['master_modified']==False and s['automatic_approvals']==0
+          rows=list(csv.DictReader(open('.local/v44/v44_audit_1000.csv',encoding='utf-8-sig')))
+          assert len(rows)==1000 and all(r['master_write']=='NO' for r in rows)
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as f:
+            f.write('## 1000 Piped checkpoint V4.4 offline safety comparison\n\n')
+            for k,v in s.items():
+              if isinstance(v,(int,bool)):f.write(f'- {k}: **{v}**\n')
+            f.write('\nAll differences remain **review only**; no YouTube extraction tested.\n')
+          PY
+      - name: Upload review comparison
+        uses: actions/upload-artifact@v4
+        with:
+          name: odify-v44-1000-false-match-audit
+          path: .local/v44/**
+          retention-days: 60
