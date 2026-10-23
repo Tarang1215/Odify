@@ -21,8 +21,8 @@ jobs:
       - name: Restore current private Odify catalog seed
         uses: actions/download-artifact@v4
         with:
-          name: odify-catalog-seed-sqlite
-          run-id: 39905510994
+          name: odify-catalog-kr-jp-us-sqlite
+          run-id: 39906936355
           repository: Tarang1215/Odify
           github-token: ${{ github.token }}
           path: .local
