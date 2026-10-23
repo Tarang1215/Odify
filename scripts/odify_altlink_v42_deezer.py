@@ -32,7 +32,8 @@ HEAD=("country","id","artist","title","v4_state","deezer_http_status",
  "apple_deezer_album_match","apple_deezer_duration_gap",
  "independent_catalog_status","original_v4_url","review_video_url",
  "review_video_channel","review_video_seconds","review_video_duration_gap",
- "version_warning","automatic_approval","master_write")
+ "version_warning","automatic_approval","master_write",
+ "same_catalog_identity_on_multiple_chart_tracks")
 TRACK_HINT=("country","id","artist","title","video_url","video_title","channel",
  "seconds","independent_track_length","difference","version_warning",
  "metadata_only","auto_approved")
@@ -70,8 +71,10 @@ def pick_pair(track,apple,deezer):
  artist=v42.artist_equivalent(a["artist_name"],d["artist_name"])
  gap=abs(a["seconds"]-d["seconds"]) if a["seconds"] and d["seconds"] else None
  album=bool(a["album"] and d["album"] and norm(a["album"])==norm(d["album"]))
- if title and artist and gap is not None and gap<=7:
+ if title and artist and gap is not None and gap<=7 and     60<=a["seconds"]<=600 and 60<=d["seconds"]<=600:
   state="apple_deezer_consistent_review"
+ elif title and artist and (a["seconds"]<60 or d["seconds"]<60):
+  state="catalog_short_track_review"
  else:state="apple_deezer_disagree_or_version_review"
  return a,d,state,gap,album,(title and artist)
 
@@ -129,7 +132,8 @@ def audit(track,catalog_checkpoint,deezer_record,videos):
   "review_video_channel":best["channel"] if best else "",
   "review_video_seconds":best["video_seconds"] if best else "",
   "review_video_duration_gap":best["seconds_difference"] if best else "",
-  "version_warning":vwarn,"automatic_approval":"NO","master_write":"NO"}
+  "version_warning":vwarn,"automatic_approval":"NO","master_write":"NO",
+  "same_catalog_identity_on_multiple_chart_tracks":"NO"}
  hints=[{"country":track["country"],"id":track["id"],"artist":track["artist"],
   "title":track["title"],"video_url":c["candidate_url"],
   "video_title":c["video_title"],"channel":c["channel"],
@@ -189,6 +193,17 @@ def run(v4_path,v41_path,prior_path,out,targeted_path=None,
   row,hints=audit(t,prior,saved,grouped[(t["country"],t["id"])])
   results.append(row);hint_rows.extend(hints)
   requests.append({"country":t["country"],"id":t["id"],**saved["request"]})
+ # More than one chart record can point to the very same official catalog
+ # recording (e.g. alternative chart artist credits). They are NOT unique
+ # independently verified songs.
+ from collections import defaultdict
+ pairs=defaultdict(list)
+ for row in results:
+  if row["independent_catalog_status"]=="apple_deezer_consistent_review" and       row["apple_track_id"] and row["deezer_track_id"]:
+   pairs[(row["apple_track_id"],row["deezer_track_id"])].append(row)
+ for members in pairs.values():
+  if len(members)>1:
+   for item in members:item["same_catalog_identity_on_multiple_chart_tracks"]="YES"
  v41.write_rows(out,"v42_apple_deezer_catalog_54.csv",HEAD,results)
  v41.write_rows(out,"v42_independent_duration_video_hints.csv",TRACK_HINT,hint_rows)
  v41.write_rows(out,"v42_deezer_requests.csv",
@@ -200,6 +215,11 @@ def run(v4_path,v41_path,prior_path,out,targeted_path=None,
      x["independent_catalog_status"]=="apple_deezer_consistent_review" for x in results),
    "two_catalog_album_match":sum(x["independent_catalog_status"]=="apple_deezer_consistent_review" and
         x["apple_deezer_album_match"]=="YES" for x in results),
+   "unique_apple_deezer_recording_pairs":len(pairs),
+   "duplicate_catalog_identity_chart_tracks":sum(
+      x["same_catalog_identity_on_multiple_chart_tracks"]=="YES" for x in results),
+   "excluded_short_catalog_recordings":sum(
+      x["independent_catalog_status"]=="catalog_short_track_review" for x in results),
    "tracks_with_candidate_video_duration_hint":sum(bool(x["review_video_url"]) for x in results),
    "candidate_video_duration_hints":len(hint_rows),
    "version_conflicts_or_unconfirmed":sum(bool(x["version_warning"]) for x in results),
