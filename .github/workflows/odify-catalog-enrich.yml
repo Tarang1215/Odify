@@ -1,0 +1,73 @@
+name: Odify Catalog Resume And Album Enrichment
+on:
+  push:
+    branches:
+      - feature/odify-v12-master-db
+    paths:
+      - '.github/workflows/odify-catalog-enrich.yml'
+  workflow_dispatch:
+permissions:
+  actions: read
+  contents: read
+jobs:
+  enrich:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Download last real catalog snapshot
+        uses: actions/download-artifact@v4
+        with:
+          name: odify-catalog-seed-sqlite
+          run-id: 39905510994
+          repository: Tarang1215/Odify
+          github-token: ${{ github.token }}
+          path: .local
+      - name: Verify snapshot before modification
+        run: |
+          test -s .local/odify_catalog.sqlite3
+          python - <<'PY'
+          import sqlite3
+          c=sqlite3.connect('.local/odify_catalog.sqlite3')
+          assert c.execute('PRAGMA integrity_check').fetchone()[0]=='ok'
+          print('Previous snapshot',c.execute('select count(*) from recording').fetchone()[0], 'recordings')
+          PY
+      - name: Expand early-2000s hits and record albums
+        run: python -u scripts/odify_catalog_pipeline.py expand-albums --limit 65
+      - name: Backfill extra US weekly charts
+        run: |
+          python -u scripts/odify_catalog_pipeline.py backfill-us \
+            --limit 180 --coverage monthly-first \
+            --progress-file .local/odify_catalog_progress.json
+      - name: Check consistency and export updated catalog
+        run: |
+          python scripts/odify_catalog_pipeline.py export --out-dir .local/odify_public
+          python - <<'PY'
+          import json,sqlite3,pathlib,os
+          p=pathlib.Path('.local/odify_catalog.sqlite3')
+          con=sqlite3.connect(p)
+          integrity=con.execute('PRAGMA integrity_check').fetchone()[0]
+          tables=['artist','recording','album','album_track','chart_edition','chart_entry']
+          stats={t:con.execute('SELECT COUNT(*) FROM '+t).fetchone()[0] for t in tables}
+          stats['albums_with_tracks']=con.execute('SELECT COUNT(DISTINCT album_id) FROM album_track').fetchone()[0]
+          print('CATALOG_COUNTS',json.dumps(stats),'INTEGRITY',integrity,flush=True)
+          pathlib.Path('.local/odify_counts.json').write_text(json.dumps({'integrity':integrity,'counts':stats},indent=2))
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as f:
+            f.write('### Odify catalog snapshot v2\n\nIntegrity: '+integrity+'\n\n')
+            for k,v in stats.items():f.write('* '+k+': **'+str(v)+'**\n')
+          assert integrity=='ok'
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: odify-catalog-enriched-sqlite
+          path: |
+            .local/odify_catalog.sqlite3
+            .local/odify_catalog_progress.json
+            .local/odify_counts.json
+            .local/odify_public/**
+          retention-days: 60
+          if-no-files-found: warn
