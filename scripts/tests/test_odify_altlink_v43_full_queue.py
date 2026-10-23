@@ -3,13 +3,13 @@ from pathlib import Path
 from unittest.mock import patch
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 import odify_altlink_v43_full_queue as full
-from test_odify_altlink_v43_batch import V43Tests
+from test_odify_altlink_v43_batch import fake_source,prior_for
 
 class FullQueueTests(unittest.TestCase):
  @classmethod
  def setUpClass(cls):
-  cls.source=V43Tests.records
-  cls.prior=V43Tests.prior
+  cls.source=fake_source()
+  cls.prior=prior_for(cls.source)
  def test_unique_every_recording_and_stable_first1000(self):
   first=full.v43.build_manifest(self.source,self.prior)
   all=full.full_manifest(self.source,self.prior)
