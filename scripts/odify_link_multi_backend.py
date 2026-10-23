@@ -82,6 +82,7 @@ def sample_catalog(db,limit=25):
     con=sqlite3.connect(f"file:{Path(db).resolve()}?mode=ro",uri=True)
     con.row_factory=sqlite3.Row
     samples=[]
+    seen_ids=set()
     for country in COUNTRIES:
         # Latest genuinely published songs, not our own monthly-derived charts.
         providers=("listenbrainz-sitewide",) if country=="gl" else ("apple-rss",)
@@ -100,7 +101,14 @@ def sample_catalog(db,limit=25):
         # 25 evenly spaced positions in TOP 100 rather than all top 25.
         indices=[round(i*(len(rows)-1)/max(1,limit-1)) for i in range(limit)]
         for idx in indices:
-            song=rows[idx]
+            # A hit can chart in US, KR, JP and global at once. Reserve one
+            # replacement per region so pilot means 100 DISTINCT songs.
+            alternatives=sorted(range(len(rows)),key=lambda i:(abs(i-idx),i))
+            picked=next((rows[i] for i in alternatives if rows[i]["recording_id"] not in seen_ids),None)
+            if picked is None:
+                raise RuntimeError(f"{country}: not enough cross-region distinct songs")
+            song=picked
+            seen_ids.add(song["recording_id"])
             samples.append(dict(country=country,recording_id=song["recording_id"],
                 title=song["title"],artist=song["artist"],chart_rank=song["rank"],
                 chart_date=ed["as_of"],chart_source=ed["provider"]))
