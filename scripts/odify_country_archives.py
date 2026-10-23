@@ -92,14 +92,18 @@ def billboard_japan(con,folder,min_year=2008,max_year=2025):
                     rank=int(r.get("rank") or 0)
                     title=(r.get("song_title") or "").strip()
                     artist=(r.get("artist_name") or "").strip()
-                    if rank>0 and title and artist:
+                    if rank>0 and title and artist and catalog.norm(title) and catalog.norm(artist):
                         items.append({"rank":rank,"title":title,"artist":artist})
                 except ValueError:pass
         if not items:continue
-        with con:
-            catalog.snapshot(con,"billboard-japan-research","jp",date,items,
-                             url="https://github.com/yuta1016/Graduation_Research",
-                             rights="Public research mirror of weekly Billboard Japan ranking metadata")
+        try:
+            with con:
+                catalog.snapshot(con,"billboard-japan-research","jp",date,items,
+                                 url="https://github.com/yuta1016/Graduation_Research",
+                                 rights="Public research mirror of weekly Billboard Japan ranking metadata")
+        except ValueError as ex:
+            print(f"Skip malformed Japan week {date}: {ex}",flush=True)
+            continue
         accepted+=1;rows+=len(items);months.add(date[:7])
         if accepted%100==0:progress("JP WEEKS",accepted,len(files),date)
     completed=0
