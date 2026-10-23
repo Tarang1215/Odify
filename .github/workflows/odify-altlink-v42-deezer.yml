@@ -1,0 +1,94 @@
+name: Odify V4.2 Apple Deezer two-source validation
+on:
+  workflow_dispatch:
+  push:
+    branches: [feature/odify-v12-master-db]
+    paths:
+      - 'scripts/odify_altlink_v42_deezer.py'
+      - 'scripts/tests/test_odify_altlink_v42_deezer.py'
+      - '.github/workflows/odify-altlink-v42-deezer.yml'
+permissions:
+  actions: read
+  contents: read
+jobs:
+  third-catalog:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test independent album and artist ID comparisons
+        run: |
+          python -m py_compile scripts/odify_altlink_v42_deezer.py
+          python -m unittest discover -s scripts/tests -p 'test_odify_altlink_v42_deezer.py' -v
+          python -m unittest discover -s scripts/tests -p 'test_odify_altlink_v42_catalog.py' -v
+      - name: Restore V4 300-song immutable metadata
+        uses: actions/download-artifact@v4
+        with:
+          repository: Tarang1215/Odify
+          run-id: 39995104535
+          name: odify-v4-300-safe-offline
+          github-token: ${{ github.token }}
+          path: .local/v4
+      - name: Restore 39 ambiguities + 14 gap recovery lists
+        uses: actions/download-artifact@v4
+        with:
+          repository: Tarang1215/Odify
+          run-id: 40000817443
+          name: odify-v41-300-gap-ambiguity-review
+          github-token: ${{ github.token }}
+          path: .local/v41
+      - name: Restore fifth follow-up candidate
+        uses: actions/download-artifact@v4
+        with:
+          repository: Tarang1215/Odify
+          run-id: 40001229423
+          name: odify-v41-targeted-five-live
+          github-token: ${{ github.token }}
+          path: .local/targeted
+      - name: Restore MusicBrainz and Apple cached original responses
+        uses: actions/download-artifact@v4
+        with:
+          repository: Tarang1215/Odify
+          run-id: 40004639486
+          name: odify-v42-54-source-quality-final
+          github-token: ${{ github.token }}
+          path: .local/prior
+      - name: Get 54 public Deezer catalog metadata records
+        run: |
+          python -u scripts/odify_altlink_v42_deezer.py \
+            --v4 .local/v4 --v41 .local/v41 \
+            --targeted .local/targeted --prior .local/prior \
+            --out .local/v42_deezer --limit 54 --delay 1.1 --timeout 9
+      - name: Verify no provider retry and no MASTER writes
+        run: |
+          python - <<'PY'
+          import os,csv,json,pathlib
+          root=pathlib.Path('.local/v42_deezer')
+          s=json.loads((root/'summary_v42_deezer.json').read_text())
+          rows=list(csv.DictReader((root/'v42_apple_deezer_catalog_54.csv').open(encoding='utf-8-sig')))
+          assert s['processed']==54 and len(rows)==54,s
+          assert s['master_modified'] is False and s['auto_approved_tracks']==0
+          assert all(r['master_write']=='NO' and r['automatic_approval']=='NO' for r in rows)
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as f:
+            f.write('## Apple + Deezer independent catalog metadata\n\n')
+            for k,v in s.items():
+              if isinstance(v,(int,bool)):f.write(f'- {k}: **{v}**\n')
+            f.write('\nAlbum IDs and track length are sources for manual review, NOT confirmation of YouTube uploader authenticity.\n')
+          PY
+      - name: Replay all 54 cached Deezer responses without network calls
+        run: |
+          python scripts/odify_altlink_v42_deezer.py \
+            --v4 .local/v4 --v41 .local/v41 \
+            --targeted .local/targeted --prior .local/prior \
+            --out .local/v42_deezer --offline
+      - name: Preserve 54 catalog lookups with review-only evidence
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: odify-v42-deezer-apple-54
+          path: .local/v42_deezer/**
+          retention-days: 60
+          if-no-files-found: warn
