@@ -118,10 +118,48 @@ def is_possible_track(row: dict, snippet: dict) -> bool:
                 normalize(snippet.get("title", "") + " " + snippet.get("channelTitle", "")))
 
 
+def incompatible_version(row: dict, title: str, description: str = "") -> str | None:
+    """Never promote an alternate language/mix just because duration/title match.
+
+    Metadata cannot prove what language is actually sung; album/audio inspection
+    remains required before confirming the original studio recording.
+    """
+    expected = (row.get("곡명", "") + " " + row.get("앨범", "")).casefold()
+    candidate = title.casefold()
+    versions = [
+        (r"english\\s*(?:ver\\.?|version)", "영어 버전"),
+        (r"japanese\\s*(?:ver\\.?|version)", "일본어 버전"),
+        (r"\\bsped[ -]?up\\b", "속도 변경"),
+        (r"\\bslowed\\b", "속도 변경"),
+        (r"\\binstrumental\\b", "반주 버전"),
+        (r"\\bremix\\b", "리믹스"),
+        (r"\\blive(?: performance| ver| version)?\\b", "라이브"),
+        (r"\\bcover\\b", "커버"),
+    ]
+    for pattern, reason in versions:
+        if re.search(pattern, candidate) and not re.search(pattern, expected):
+            return reason
+    year_requested = re.search(r"\\b(19|20)\\d{2}\\s*remaster", expected)
+    year_found = re.search(r"\\b(19|20)\\d{2}\\s*remaster", candidate)
+    if year_requested and year_found and year_requested.group() != year_found.group():
+        return "리마스터 연도"
+    # The lyric uploader may omit the featured performer in its title, but
+    # cannot prove the feat. recording unless it appears in official metadata.
+    combined = candidate + " " + description.casefold()
+    if "jennie" in row.get("아티스트", "").casefold() and "jennie" not in combined:
+        return "원곡 피처링 아티스트"
+    return None
+
+
 def evidence_rank(row: dict, snippet: dict, detail: dict) -> tuple[str, str]:
     title = snippet.get("title", "")
     channel = snippet.get("channelTitle", "")
     description = detail.get("snippet", {}).get("description", "")
+    mismatch = incompatible_version(row, title, description)
+    if mismatch:
+        return ("버전불일치", mismatch + " / 원곡 자동 선택 금지")
+    if re.search(r"official\\s*(?:music\\s*)?(?:mv|video)|\\bmusic video\\b|dance practice", title, re.I):
+        return ("영상유형불일치", "뮤직비디오는 원곡 스튜디오 오디오의 자동 대체재가 아님")
     topic = channel.casefold().endswith(" - topic")
     provided = "provided to youtube by" in description.casefold()
     eligible = is_possible_track(row, snippet)
