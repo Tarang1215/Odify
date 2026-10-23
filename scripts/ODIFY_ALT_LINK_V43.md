@@ -78,3 +78,18 @@ MASTER의 링크는 정확히 하나의 Recording ID에 대응하고, 아티스�
 실제 1,000곡 실행: https://github.com/Tarang1215/Odify/actions/runs/40008865324
 
 기존 MASTER URL 직접 변경: **0건**. 앱 프로덕션 바이너리 변경: **0건**.
+
+## 2026-10-24 actual 1,000-track benchmark — COMPLETE
+
+- Full source catalog queue: **41,416 unique recordings**, verified in [full queue job](https://github.com/Tarang1215/Odify/actions/runs/40010425741).
+- First test: **1,000 recordings** (KR 300 / JP 300 / US 321 / GL 79). The original **300 saved V4 searches were reused**, and **700** new Piped metadata requests were made.
+- New HTTP request outcomes: **700/700 200 OK**, median **841ms**, P95 **969ms**, error/blocked **0**.
+- At least one V4 metadata-eligible video candidate: **827/1,000 (82.7%)**; KR **212/300**, JP **243/300**, US **297/321**, GL **75/79**.
+- Song review states: manual review **496**, ambiguous **220**, artist review **109**, baseline retained review **2**, no eligible **173**.
+- The first data export failed *after all 1,000 HTTP checkpoints were safely archived* because a SQLite INSERT had 11 placeholders for 10 columns. Code was corrected, and **all 1,000 records were replayed without a single additional API request**. Repaired run: https://github.com/Tarang1215/Odify/actions/runs/40011801511.
+- Validated enriched app-ready SQLite: [final integrity-check success](https://github.com/Tarang1215/Odify/actions/runs/40012064191), **41,416 recordings**, original **115 albums**, **1,586 album-track memberships**, **1,883 Apple external song identities**.
+- New candidate URLs automatically approved: **0**. Production Android app modified: **0**. Google MASTER written: **0**.
+- The initial 300 songs were a selected pilot, so **82.7% should not be extrapolated to the full 41,416 catalog**. It indicates reviewable *metadata candidates*, not identical or licensed recordings.
+- Optional local-only MASTER snapshot overlay script (`odify_altlink_v43_master_overlay.py`) can protect existing exact one-to-one artist/title links without uploading private MASTER CSV to GitHub. In the 2026-10-23 local 508-row snapshot, **231 existing URL keys** matched a single catalog recording, including **90 already marked 검증완료**; **130 other URL keys** could not be safely matched without artist/title aliases. This snapshot may be older than the current Google Sheet. No URLs were overwritten.
+
+**Deploy gate:** This version creates metadata-only candidate storage for the Android app; it is **not yet wired into the live player**, and candidate URLs cannot be directly treated as verified playback sources. A manual spot-audit of KR and JP songs and 173 no-match cases should precede 5,000+ full-scale public API search.
