@@ -3,6 +3,9 @@ const fs=require("node:fs");
 const vm=require("node:vm");
 const path=require("node:path");
 const src=fs.readFileSync(path.resolve(__dirname,"../odify_autolink_sheets.gs"),"utf8");
+// Prevent double-escaped Track ID patterns: they silently skip every row.
+assert(src.includes(String.raw`/^ODF\d{6}$/`));
+assert(!src.includes(String.raw`/^ODF\\d{6}$/`));
 const context=vm.createContext({});
 vm.runInContext(src,context);
 
