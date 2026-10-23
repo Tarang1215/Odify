@@ -1,12 +1,6 @@
 name: Odify V4 real 300-track Piped pilot
 on:
   workflow_dispatch:
-  push:
-    branches: [feature/odify-v12-master-db]
-    paths:
-      - 'scripts/odify_altlink_v4_300.py'
-      - 'scripts/tests/test_odify_altlink_v4_300.py'
-      - '.github/workflows/odify-altlink-v4-300.yml'
 permissions:
   actions: read
   contents: read
