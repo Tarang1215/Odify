@@ -1,0 +1,68 @@
+name: Odify V4.1 300-song gap and ambiguous review
+on:
+  push:
+    branches: [feature/odify-v12-master-db]
+    paths:
+      - 'scripts/odify_altlink_v41_review.py'
+      - 'scripts/tests/test_odify_altlink_v41_review.py'
+      - '.github/workflows/odify-altlink-v41-review.yml'
+  workflow_dispatch:
+permissions:
+  actions: read
+  contents: read
+jobs:
+  offline-v41:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify false positives and V4.1 guards
+        run: |
+          python -m py_compile scripts/odify_altlink_v41_review.py
+          python -m unittest discover -s scripts/tests -p 'test_odify_altlink_v41_review.py' -v
+          python -m unittest discover -s scripts/tests -p 'test_odify_altlink_v4_300.py' -v
+      - name: Read immutable V4 safety audited 300-song metadata
+        uses: actions/download-artifact@v4
+        with:
+          repository: Tarang1215/Odify
+          run-id: 39995104535
+          name: odify-v4-300-safe-offline
+          github-token: ${{ github.token }}
+          path: .local/odify_v4_safe
+      - name: Reassess exactly 19 missing and 39 ambiguous results offline
+        run: |
+          python -u scripts/odify_altlink_v41_review.py \
+            --input .local/odify_v4_safe \
+            --output .local/odify_v41_review
+      - name: Verify safety, review states and completeness
+        run: |
+          python - <<'PY'
+          import csv,json,pathlib,os
+          folder=pathlib.Path('.local/odify_v41_review')
+          stats=json.loads((folder/'summary_v41.json').read_text())
+          assert stats['processed']==300,stats
+          assert stats['baseline_no_eligible_tracks']==19,stats
+          assert stats['baseline_ambiguous_tracks']==39,stats
+          assert stats['newly_verified_songs']==0
+          assert stats['existing_v4_selection_changed']==0
+          assert stats['master_modified'] is False
+          p=list(csv.DictReader((folder/'master_proposals_no_write.csv').open(encoding='utf-8-sig')))
+          assert len(p)==300 and all(x['action']=='NO_WRITE' and x['verified']=='NO' for x in p)
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as f:
+            f.write('## Odify V4.1 cached 300-song diagnosis\n\n')
+            for key,val in stats.items():
+              if isinstance(val,(int,float,bool)):
+                f.write(f'- {key}: **{val}**\n')
+            f.write('\nAll recovered results are **review-only**, no new API calls or MASTER edits.\n')
+          PY
+      - name: Save 300-song diagnosis and proposal audit
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: odify-v41-300-gap-ambiguity-review
+          path: .local/odify_v41_review/**
+          retention-days: 60
+          if-no-files-found: warn
