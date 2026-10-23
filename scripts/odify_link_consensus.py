@@ -120,7 +120,8 @@ def eligible(master,c):
                     "",c["title"],flags=re.I).strip()
         if norm(main)!=track:
             parts=re.split(r"\s+[-–—:]\s+",main)
-            if len(parts)<2 or not any(norm(p)==track for p in parts):
+            artist_prefix=any(norm(main)==a+track for a in alias(master.get("아티스트","")))
+            if not artist_prefix and (len(parts)<2 or not any(norm(p)==track for p in parts)):
                 return False,"짧은 곡명과 다른 곡의 제목 혼동 가능"
     return True,""
 
