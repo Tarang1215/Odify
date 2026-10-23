@@ -39,6 +39,7 @@ class MultiBackendTests(unittest.TestCase):
     def args(self,n=1,retry=False):
         return SimpleNamespace(db=self.db,state=self.state,output_dir=self.output,
           limit_per_country=n,max_songs_this_run=0,timeout=1,delay=0,retry_errors=retry,
+          providers="piped,invidious",
           piped_instances="https://piped.test",invidious_instances="https://inv.test")
 
     def test_parser_and_version_guard(self):
