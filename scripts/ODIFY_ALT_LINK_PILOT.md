@@ -47,3 +47,33 @@ Piped API 문서 https://docs.piped.video/docs/api-documentation/
 Invidious API 문서 https://docs.invidious.io/api/
 Piped 인스턴스 https://github.com/TeamPiped/documentation/blob/main/content/docs/public-instances/index.md
 Invidious 인스턴스 https://docs.invidious.io/instances/
+
+
+## 검증된 2차 실측 (2026-10-23)
+
+[2차 전체 실행 및 100곡 진행 로그](https://github.com/Tarang1215/Odify/actions/runs/39967688421)
+
+| 지표 | 관측값 |
+|---|---:|
+| Piped 곡 검색 정상 응답 | **100/100** |
+| Piped 후보 1개 이상 | **100/100** |
+| Piped 실제 요청 횟수 | 106 (성공 100 / 실패 6) |
+| 정상 응답 인스턴스 | **https://api.piped.private.coffee** (100회 성공) |
+| Piped 실패 호스트 | pipedapi.kavin.rocks: HTTP 526 ×3, pipedapi.adminforge.de: HTTP 404 ×3 |
+| Piped 검색 중앙 응답시간 / p95 | **821ms / 971ms** |
+| Invidious 검색 정상 응답 | **0/9 실제 요청**, 모든 9회 HTTP 403 |
+| Invidious 회로 차단 후 미요청 곡 | 91/100 |
+| 버전·곡명·가수·길이 적격 영상이 하나 이상 존재 | **67/100곡** |
+| 독립 채널 다수+길이 합의 고신뢰 | **2/100곡** |
+| 508곡 MASTER 기존 검증 영상 ID와 일치하는 표본 | 19곡 (개인 기준 자료는 리포지터리에 업로드하지 않음) |
+| 19곡 중 기존 영상 ID가 Piped 후보에 포함 | **14/19 = 73.7% 후보 회수율** |
+| 19곡 중 추천 영상 ID와 기존 영상 ID 일치 | **9/19 = 47.4% 동일 ID 선택율** |
+| 기존 MASTER에 자동 기록/수정 | **0건** |
+
+영상 ID 동일률은 원곡의 음향/발매판/합법적 재생 가능 여부를 인증하지 않음. 19곡 외 다른 곡들은 청취 기반 정답 라벨이 없으므로 **67%를 매칭 정밀도라고 부르지 않는다.**
+
+성공한 **https://api.piped.private.coffee**를 검색 우선순위 맨 위에 놓도록 이후 Python 수집기를 최적화했다. 무료 공용 서버이므로 운영자 서비스 정책과 호출 제한을 존중하며, 대량 41,416곡 일괄 자동화는 아직 활성화하지 않았다.
+
+실측 원본 리포트와 곡별 재시작 지점: [사용자 Odify Drive 내 백업](https://drive.google.com/file/d/1FGOuBsQWBujktGfO9nTMxxJA23kYjxZw/view)
+MASTER 안의 [ODIFY_PIPED_LIVE_V2 탭](https://docs.google.com/spreadsheets/d/1T5b4z_db5IXUg0lMiy2nNJzed382bvkIiPZkiLmHwaE/edit#gid=2709015)에 핵심 수치를 기록했다. 검증완료 원본 링크는 수정하지 않았다.
+
