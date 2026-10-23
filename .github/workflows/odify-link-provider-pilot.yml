@@ -31,7 +31,7 @@ jobs:
           name: odify-catalog-us-full-4-regions
           github-token: ${{ github.token }}
           path: .local
-      - name: Validate baseline and sample exactly 25 songs per region
+      - name: Validate 100 unique songs and 25 rankings per region
         run: |
           python - <<'PY'
           import sqlite3,sys
@@ -44,6 +44,7 @@ jobs:
           from collections import Counter
           assert Counter(x['country'] for x in sample)==dict.fromkeys(('kr','jp','us','gl'),25)
           assert len(sample)==100 and len({x['recording_id'] for x in sample})==100
+          assert len({(x['country'],x['chart_rank']) for x in sample})==100
           print('ODIFY_PILOT_SAMPLE',dict(Counter(x['country'] for x in sample)))
           PY
       - name: Actual Piped and Invidious public API trial on 100 songs
