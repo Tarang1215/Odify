@@ -53,7 +53,7 @@ fun OdifyPersonalHome(
             if (hero != null) {
                 Box(Modifier.fillMaxWidth().height(218.dp).clip(RoundedCornerShape(25.dp))
                     .clickable { selectedMix = hero }) {
-                    AlbumArt(hero.songs.firstOrNull(), Modifier.fillMaxSize(), radius = RoundedCornerShape(25.dp))
+                    AlbumArt(hero.coverSong(), Modifier.fillMaxSize(), radius = RoundedCornerShape(25.dp))
                     Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(
                         Color.Black.copy(alpha=.08f), Color.Black.copy(alpha=.78f)))))
                     Column(Modifier.align(Alignment.BottomStart).padding(21.dp).fillMaxWidth(.8f)) {
@@ -84,7 +84,7 @@ fun OdifyPersonalHome(
                 items(mixes,key={it.key}) { mix ->
                     Column(Modifier.width(155.dp).clickable {selectedMix=mix}) {
                         Box(Modifier.size(155.dp).clip(RoundedCornerShape(19.dp))) {
-                            AlbumArt(mix.songs.firstOrNull(),Modifier.fillMaxSize(),radius=RoundedCornerShape(19.dp))
+                            AlbumArt(mix.coverSong(),Modifier.fillMaxSize(),radius=RoundedCornerShape(19.dp))
                             Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent,Color.Black.copy(alpha=.6f)))))
                             Text(mix.name,modifier=Modifier.align(Alignment.BottomStart).padding(13.dp),fontSize=18.sp,
                                 fontWeight=FontWeight.SemiBold,color=Color.White,maxLines=2)
@@ -160,3 +160,7 @@ fun OdifyPersonalHome(
         }
     }
 }
+
+/** Keep a missing first-track image from hiding artwork available within the mix. */
+private fun OdifyMix.coverSong(): OdifySong? =
+    songs.firstOrNull { !it.artworkPath.isNullOrBlank() } ?: songs.firstOrNull()
