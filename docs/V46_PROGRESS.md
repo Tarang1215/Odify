@@ -40,6 +40,37 @@ is isolated on `codex/odify-v46-personal-music`. Existing working files were ret
   plus the 5 pre-existing files and uploaded only the remaining 48. The batch
   timeout is now 2 hours. Drive reported 8,671,753,609 bytes free after transfer.
   Existing Drive files and sharing are preserved.
+- Final reconciliation finds exact SHA-256/size matches for **750/750 archived
+  files** on Drive and indexes all corresponding IDs in the phone's 949-track
+  Drive snapshot. This includes the previously existing held English recording;
+  byte equality does not approve its identity or release the hold. There are no
+  new MASTER uploads or MASTER link/verified-flag edits.
+
+## Android reference refinement
+
+The current source is preview12.5 / versionCode 17. The lower navigation is a
+full-width black surface attached to the screen edge, with compact icon selection;
+the detached capsule was removed. A Material Surface supplies light content
+colors throughout Explore, search, settings and menus. Country and genre selections
+use charcoal rather than the default purple. Home uses a shorter artwork hero,
+recent album cards and compact personal mixes. Saved playlist tracks have real
+46dp cover thumbnails and an explicit overflow menu.
+
+The player backdrop retains the complete cover composition rather than cropping
+the center into a solid-color portrait. It uses a desaturated 24dp blur, translucent
+dark scrim and outlined glass controls. Twelve decorative waveforms have separated
+phrases, pronounced peaks and very low troughs. Each preset is a single coherent
+envelope with restrained internal texture, rather than independent random bar
+heights. Its adjacent-height correlation is regression-checked; both edges taper
+to near silence. Thin 1.1dp rounded bars distinguish
+elapsed white from translucent unplayed bars. These remain decorative seek art.
+
+Slow dragging updates the render transform directly, avoiding a composition-time
+read of each drag offset. New touches cancel unfinished spring-back motion. The
+player follows the finger at uniform scale and closes to the measured mini-player
+bounds instead of squashing its height during the gesture. Chart selection updates
+the controlled search query and clears the genre before entering Search, avoiding
+a restored previous query or a frame of unrelated catalog results.
 
 ## Implementation
 
@@ -106,16 +137,29 @@ Executed local Python regressions for legacy assembly, collector, V4.6 and retag
 Windows storage tests exercised dry run, verified copy, resume and conflict refusal.
 Android JVM tests: **24 passed**, including URL/identity, recommendation diversity,
 offline classification and all 12 decorative seek patterns. Kotlin
-application compilation passed. Updated instrumentation source was compiled
-separately; it was not executed on the phone.
+application compilation passed. The signed instrumentation suite was executed on
+the connected Galaxy S25 Ultra: **3 passed**, covering actual file/content playback,
+duplicate queue identity, background/locked playback, playlist persistence and
+bounded authenticated-source retry behavior.
 
 Local APK packaging correctly stopped because the local certificate differs from
 the required fixed SHA-1. The existing GitHub signed workflow has the correct key:
-its identity validation passed for build 40073379082. That build is producing
-versionCode 16 / preview12.4, newer than installed version 14. No signing guard is
-bypassed. Before any device update, a 68,185,088-byte private archive of existing
-app files, settings and databases was saved to `D:\Odify\Backups`. Device installation
-and UI acceptance results will be recorded after inspecting the signed artifact.
+its identity validation passed for build 40073379082. Its signed versionCode 16 /
+preview12.4 APK was installed with an in-place update over version 14. No signing
+guard was bypassed. Before the update, a 68,185,088-byte private archive of existing
+app files, settings and databases was saved to `D:\Odify\Backups`. All three country
+feeds appeared on the device, a real 15-track mix was saved into Library, and an
+owned Drive track played successfully. The refined versionCode 17 APK from build
+40075287355 was installed in place and its three on-device regression tests passed.
+The final coherent-waveform refinement was signed by build 40075614717 and installed
+in place. Its APK SHA-256 is
+`7cba8e04df1c9a7ffa230938e6735cde2c6dee50c39dfa6b997fdd34f1913662`.
+The fixed certificate SHA-1 is
+`656d465e5c729bdf21a4026c764dfb636f1899e5`. After updating, SQLite integrity passes,
+all 949 previous Drive IDs remain, and the saved 15-track mix persists. The final
+device is securely locked following the lock-screen playback test. Its last visual
+acceptance (final waveform, anchored navigation, NEON search, slow drag) remains
+pending the user's physical unlock; no credential or lock bypass is requested.
 
 The refreshed remote scripts exposed five Windows file-lock cleanup errors: one
 read-only production SQLite context and four test connection handles were not
