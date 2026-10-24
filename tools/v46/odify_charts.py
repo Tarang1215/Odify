@@ -90,13 +90,13 @@ def fresh_cache(path):
     return None
 def age_restricted(message):
     return any(x in message.casefold() for x in ('confirm your age','age-restricted recording'))
-def search_candidates(artist,title,root):
-    digest=hashlib.sha256((artist+'|'+title).encode()).hexdigest()[:24]
+def search_candidates(artist,title,root,preference='official audio'):
+    digest=hashlib.sha256((artist+'|'+title+('' if preference=='official audio' else '|'+preference)).encode()).hexdigest()[:24]
     cache=root/'Metadata'/f'search_{digest}.json'
     known=fresh_cache(cache)
     if known is not None:return known
     listing=json.loads(execute([sys.executable,'-m','yt_dlp','--flat-playlist','--dump-single-json',
-        '--socket-timeout','15','--retries','0',f'ytsearch5:{artist} {title} official audio'],60))
+        '--socket-timeout','15','--retries','0',f'ytsearch5:{artist} {title} {preference}'],60))
     candidates=[{k:x.get(k) for k in ('id','title','duration','channel','uploader','channel_id')}
         for x in listing.get('entries') or [] if re.fullmatch(r'[A-Za-z0-9_-]{11}',x.get('id') or '')]
     write_cache(cache,candidates);return candidates
@@ -149,6 +149,165 @@ def resolve(row,root,official_visuals=False):
                 if official_visuals and official_visual_matches(expected,info,target):
                     return url,artist,title,{**info,'_odifyOfficialVisual':True}
     raise ValueError('No unambiguous original studio recording; held for review')
+
+def quick_candidate_matches(row,info):
+    """User-selected chart policy: matching length/title, no official-owner gate."""
+    target=row.get('duration_ms',0)/1000
+    duration=info.get('duration')
+    if not target or not isinstance(duration,(int,float)) or abs(duration-target)>3:return False
+    if info.get('is_live') or info.get('live_status') in ('is_live','was_live','is_upcoming'):return False
+    title=str(info.get('title') or '')
+    for marker in ('concert','live','cover','instrumental','karaoke','nightcore','slowed','sped up',
+                   'sped-up','remix','loop','teaser','reaction','performance','short ver',
+                   '라이브','직캠','콘서트','커버','노래방','歌ってみた','カラオケ','ライブ映像'):
+        if re.search(r'(?<!\w)'+re.escape(marker)+r'(?!\w)',title,re.I):return False
+    expected=audio.recording_title(row['title'])
+    expected=re.sub(r'\s*[\[(](?:with |prod\.?|\d{4} remaster|영화 |spider-man:).*?[\])]', '',expected,flags=re.I).strip()
+    if len(norm(expected))<5 and expected.isascii():
+        return bool(re.search(r'(?<!\w)'+re.escape(expected)+r'(?!\w)',title,re.I))
+    if '*' in expected:
+        pieces=[norm(p) for p in re.split(r'\*+',expected)]
+        return bool(re.search(r'\w{1,8}'.join(re.escape(p) for p in pieces),norm(title)))
+    return bool(norm(expected)) and norm(expected) in norm(title)
+
+def quick_rank(row,info):
+    title=str(info.get('title') or '').casefold()
+    priority=0 if 'official audio' in title else 1 if 'official' in title else 2 if any(
+        x in title for x in ('lyrics','lyric','가사','歌詞')) else 3
+    artist=norm(row['artist'])
+    artist_match=bool(artist and artist in norm(str(info.get('channel') or '')+' '+title))
+    return priority,not artist_match,abs(info['duration']-row['duration_ms']/1000)
+
+def select_quick_candidate(row,root):
+    candidates=search_candidates(row['artist'],row['title'],root)
+    matches=[{**x,'_odifyMatchedTitle':row['title']} for x in candidates if quick_candidate_matches(row,x)]
+    if not matches:
+        for artist,title in variants(row,root)[1:2]:
+            matches.extend({**x,'_odifyMatchedTitle':title} for x in search_candidates(artist,title,root)
+                if quick_candidate_matches({**row,'title':title},x))
+    if not matches:
+        for preference in ('lyrics','provided to YouTube'):
+            candidates=search_candidates(row['artist'],audio.recording_title(row['title']),root,preference)
+            matches=[x for x in candidates if quick_candidate_matches(row,x)]
+            if matches:break
+    return min(matches,key=lambda x:quick_rank(row,x)) if matches else None
+
+def quick_links(root,rows,include_downloaded=False):
+    """Select cached search links in one batch before starting audio transfers."""
+    pending=[r for r in rows if r['status'] not in (('REUSED_EXISTING','UPLOADED_VERIFIED') if include_downloaded else
+        ('REUSED_EXISTING','UPLOADED_VERIFIED','DOWNLOADED_VERIFIED'))
+        and not age_restricted(r.get('error',''))]
+    stop=Event();selected={}
+    def one(row):
+        if stop.is_set():return row['id'],None,'Source requests paused'
+        try:
+            if row['status']=='DOWNLOADED_VERIFIED':
+                info=json.loads((root/'Metadata'/('CHART'+row['id']+'.json')).read_text(encoding='utf-8'))
+                info['_odifySelectionPolicy']=row.get('selection_policy','prior-studio-identity')
+                return row['id'],info,''
+            chosen=select_quick_candidate(row,root)
+            if chosen is None:return row['id'],None,'No equal-length non-live title match in search results'
+            return row['id'],{**chosen,'_odifySelectionPolicy':'duration-title-prefer-official-then-lyrics-v1'},''
+        except Exception as error:
+            if access_blocked(str(error)):stop.set()
+            return row['id'],None,str(error)[-700:]
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        for future in as_completed([pool.submit(one,row) for row in pending]):
+            identity,info,error=future.result();selected[identity]={'metadata':info,'error':error}
+    output=[]
+    for row in rows:
+        result=selected.get(row['id'])
+        if result is None:continue
+        info=result['metadata']
+        row.update(status='LINK_SELECTED' if info else 'HELD_REVIEW',error=result['error'])
+        if info:row['video_url']='https://www.youtube.com/watch?v='+info['id']
+        output.append({'id':row['id'],'artist':row['artist'],'title':row['title'],
+            'status':row['status'],'url':row.get('video_url','') if info else '',
+            'video_title':info.get('title','') if info else '',
+            'duration':info.get('duration') if info else None,'metadata':info,'error':result['error']})
+    (root/'Links').mkdir(exist_ok=True)
+    write_cache(root/'Links'/'selected_links.json',{'policy':'user-requested-duration-title',
+        'selected':sum(x['metadata'] is not None for x in output),'tracks':output})
+    with (root/'Links'/'selected_links.csv').open('w',encoding='utf-8-sig',newline='') as handle:
+        fields=['id','artist','title','status','url','video_title','duration','error']
+        writer=csv.DictWriter(handle,fieldnames=fields,extrasaction='ignore');writer.writeheader();writer.writerows(output)
+    print('LINKS SELECTED',sum(x['metadata'] is not None for x in output),'/',len(pending),flush=True)
+    return selected
+
+def validate_quick_metadata(row,url,title,info):
+    matched={**row,'title':info.get('_odifyMatchedTitle') or row['title']}
+    if audio.youtube_video_id(url)!=info.get('id') or not quick_candidate_matches(matched,info):
+        raise ValueError('Quick chart evidence mismatch')
+    return info
+
+def quick_cover(row,root,video):
+    folder=root/'Artwork';folder.mkdir(exist_ok=True)
+    cached=folder/('CHART'+row['id']+'.jpg')
+    if cached.exists():return cached.read_bytes(),'chart_or_thumbnail'
+    for url,origin in ((row.get('artwork',''),'chart'),('https://i.ytimg.com/vi/'+video+'/hqdefault.jpg','youtube_thumbnail')):
+        if not url:continue
+        try:
+            with urlopen(Request(url,headers={'User-Agent':'Odify music artwork'}),timeout=6) as response:
+                data=response.read(4*1024*1024+1)
+            if 1024<len(data)<=4*1024*1024 and data.startswith(b'\xff\xd8'):
+                cached.write_bytes(data);return data,origin
+        except Exception:pass
+    return None,'unavailable'
+
+def collect_quick(args,root,rows,selected):
+    """Independent files/DB connections; one coordinator writes all receipts."""
+    from mutagen import File as AudioFile
+    rc=[args.rclone,'--config',str(args.config),'--drive-root-folder-id',str(args.folder_id)]
+    if not args.download_only:
+        quota=json.loads(execute(rc+['about','mydrive:','--json']))
+        if quota.get('free',0)<512*1024*1024:raise RuntimeError('Insufficient Drive headroom')
+    work=[r for r in rows if r['id'] in selected and selected[r['id']]['metadata']]
+    stop=Event()
+    def one(row):
+        if stop.is_set():return row,'LINK_SELECTED','',None
+        identity='CHART'+row['id'];info=selected[row['id']]['metadata'];url=row['video_url']
+        db=audio.connection(root/'charts.sqlite3')
+        try:
+            db.execute('INSERT OR IGNORE INTO tracks(id,country,artist,title,album,genre,video_url,verified) VALUES(?,?,?,?,?,?,?,?)',
+                (identity,row['country'],row['artist'],row['title'],row['album'],'',url,'user chart duration/title policy'));db.commit()
+            path=root/'Audio'/f'{identity}.mp3'
+            if path.exists():
+                stored=db.execute('SELECT status,sha256 FROM tracks WHERE id=?',(identity,)).fetchone()
+                if not stored or stored[0]!='downloaded' or hashlib.sha256(path.read_bytes()).hexdigest()!=stored[1]:
+                    raise ValueError('Existing incomplete or changed file protected')
+            else:
+                audio.download_one(db,(identity,row['artist'],row['title'],row['album'],'',url),root,False,True,
+                    audio_format='mp3',inspected_metadata=info,
+                    metadata_validator=lambda u,t,i:validate_quick_metadata(row,u,t,i))
+            actual=AudioFile(path)
+            if actual is None or abs(actual.info.length-row['duration_ms']/1000)>3.5:
+                raise ValueError('Downloaded audio length differs from selected chart recording')
+            cover,origin=quick_cover(row,root,info['id'])
+            if cover:
+                audio.tag_audio(path,row['artist'],row['title'],row['album'],'',cover,None)
+                audio.status(db,identity,'downloaded',str(path.relative_to(root)),hashlib.sha256(path.read_bytes()).hexdigest(),origin,'deferred')
+            digest=hashlib.sha256(path.read_bytes()).hexdigest()
+            if args.download_only:return row,'DOWNLOADED_VERIFIED','',{'sha256':digest,'selection_policy':info['_odifySelectionPolicy']}
+            destination='mydrive:Charts_'+root.name+'/Audio/'+path.name
+            execute(rc+['copyto',str(path),destination,'--immutable','--retries','2'],900)
+            observed=json.loads(execute(rc+['lsjson',destination,'--stat','--hash']))
+            if observed['Size']!=path.stat().st_size or observed.get('Hashes',{}).get('md5')!=hashlib.md5(path.read_bytes()).hexdigest():
+                raise RuntimeError('Remote checksum mismatch')
+            return row,'UPLOADED_VERIFIED','',{'sha256':digest,'file_id':observed['ID'],'selection_policy':info['_odifySelectionPolicy']}
+        except Exception as error:
+            if access_blocked(str(error)) and not age_restricted(str(error)):stop.set()
+            return row,'HELD_REVIEW',str(error)[-1000:],None
+        finally:db.close()
+    for row in work:row['status']='DOWNLOADING'
+    snapshot(root,rows,True,'Four parallel downloads with covers; lyrics deferred')
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        for future in as_completed([pool.submit(one,row) for row in work]):
+            row,state,error,receipt=future.result();row.update(status=state,error=error)
+            if receipt:row.update(receipt)
+            snapshot(root,rows,True,'Four parallel downloads with covers; lyrics deferred')
+            print(row['id'],state,'|',row['artist'],'-',row['title'],flush=True)
+            if error:print('  Reason:',error[:220],flush=True)
+    snapshot(root,rows,False,'Paused by source access' if stop.is_set() else 'Selected links processed; unmatched recordings remain separate')
 
 def prepare_link_plan(root,rows):
     """Fast public search metadata only; candidate links are never approved."""
@@ -227,6 +386,9 @@ def collect(args):
             reused=reuse_cached_owned(rows,known,root)
             snapshot(root,rows,False,'Source downloads paused; network-free owned-file reuse pass complete')
             print('Additional owned files reused:',reused);return
+        selected=quick_links(root,rows,include_downloaded=not args.download_only) if getattr(args,'quick_match',False) else None
+        if selected is not None:
+            collect_quick(args,root,rows,selected);return
         db=audio.connection(root/'charts.sqlite3')
         rc=[args.rclone,'--config',str(args.config),'--drive-root-folder-id',args.folder_id]
         # One exact existing library root; all new files live under a dated child.
@@ -239,13 +401,17 @@ def collect(args):
                 if row['status'] in ('UPLOADED_VERIFIED','REUSED_EXISTING') or row['status']=='HELD_REVIEW' and (
                     not args.retry_held or age_restricted(row.get('error',''))):continue
                 try:
+                    if selected is not None and row['id'] in selected and not selected[row['id']]['metadata']:continue
                     candidates=variants(row,root)
                     existing=next((known.get(norm(a)+'|'+norm(t)) for a,t in candidates if known.get(norm(a)+'|'+norm(t))),None)
                     if existing:
                         failures=0
                         row.update(status='REUSED_EXISTING',file_id=existing,error='');snapshot(root,rows,True);continue
                     row.update(status='LINK_REVIEW',error='');snapshot(root,rows,True)
-                    url,artist,title,evidence=resolve(row,root,getattr(args,'official_visuals',False))
+                    if selected is not None and row['id'] in selected:
+                        evidence=selected[row['id']]['metadata'];url='https://www.youtube.com/watch?v='+evidence['id']
+                        artist,title=row['artist'],row['title']
+                    else:url,artist,title,evidence=resolve(row,root,getattr(args,'official_visuals',False))
                     identity='CHART'+row['id'];row['video_url']=url
                     (root/'Metadata'/f'{identity}_identity.json').write_text(json.dumps(evidence,ensure_ascii=False,indent=2),encoding='utf-8')
                     db.execute('INSERT OR IGNORE INTO tracks(id,country,artist,title,album,genre,video_url,verified) VALUES(?,?,?,?,?,?,?,?)',
@@ -258,7 +424,8 @@ def collect(args):
                     else:
                         row['status']='DOWNLOADING';snapshot(root,rows,True)
                         audio.download_one(db,(identity,artist,title,row['album'],'',url),root,True,True,audio_format='mp3',
-                            inspected_metadata=evidence,accept_lyric_or_mv=bool(evidence.get('_odifyOfficialVisual')))
+                            inspected_metadata=evidence,accept_lyric_or_mv=bool(evidence.get('_odifyOfficialVisual')),
+                            metadata_validator=(lambda u,t,i:validate_quick_metadata(row,u,t,i)) if selected is not None else None)
                     if args.download_only:
                         row.update(status='DOWNLOADED_VERIFIED',sha256=hashlib.sha256(path.read_bytes()).hexdigest(),error='')
                         snapshot(root,rows,True)
@@ -296,6 +463,7 @@ def main():
     p.add_argument('--links-only',action='store_true',help='Cache public search candidates; do not inspect/download/approve audio')
     p.add_argument('--download-only',action='store_true',help='Download verified audio locally; no Drive credentials or uploads')
     p.add_argument('--official-visuals',action='store_true',help='Accept artist-verified official visual audio only within 2s of the recording runtime')
+    p.add_argument('--quick-match',action='store_true',help='User chart policy: equal runtime/title; reject live/concert; prefer official then lyrics')
     p.add_argument('--config',type=Path);p.add_argument('--folder-id');p.add_argument('--rclone',default='rclone')
     a=p.parse_args()
     if not (a.plan or a.links_only or a.download_only) and (not a.config or not re.fullmatch(r'[A-Za-z0-9_-]{10,150}',a.folder_id or '')):p.error('Exact Drive root and private config required')

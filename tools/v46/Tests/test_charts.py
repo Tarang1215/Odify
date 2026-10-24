@@ -12,6 +12,18 @@ publisher_spec=importlib.util.spec_from_file_location('publish_chart_index',Path
 publisher=importlib.util.module_from_spec(publisher_spec);publisher_spec.loader.exec_module(publisher)
 
 class ChartTests(unittest.TestCase):
+    def test_quick_chart_policy_accepts_lyrics_without_verified_channel_and_rejects_live(self):
+        row={'title':'Song Name','artist':'Artist','duration_ms':180000}
+        info={'id':'abcdefghijk','title':'Artist - Song Name (Lyrics)','duration':181,'channel':'Lyrics fan'}
+        self.assertTrue(charts.quick_candidate_matches(row,info))
+        for change in ({'duration':190},{'title':'Artist - Song Name (Live concert)'},
+                       {'title':'Artist - Song Name (Instrumental)'},{'title':'Different Song'},
+                       {'title':'Artist - Song Name remix'}):
+            self.assertFalse(charts.quick_candidate_matches(row,{**info,**change}))
+        self.assertLess(charts.quick_rank(row,{**info,'title':'Artist - Song Name Official Audio'}),
+                        charts.quick_rank(row,info))
+        with self.assertRaises(ValueError):
+            charts.validate_quick_metadata(row,'https://youtube.com/watch?v=XXXXXXXXXXX','Song Name',info)
     def test_official_visuals_require_owner_identity_exact_title_and_tighter_runtime(self):
         expected={'Track ID':'CHART123','아티스트':'Artist','곡명':'Song'}
         info={'id':'abcdefghijk','title':'Artist - Song (Lyric Video)','duration':181,

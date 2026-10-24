@@ -366,13 +366,15 @@ def validate_audio_metadata(url: str, title: str, info: dict,
 
 def download_one(db: sqlite3.Connection, row: tuple, root: Path,
                  enrich: bool, ffmpeg: bool, audio_format: str = "m4a",
-                 accept_lyric_or_mv: bool = False, *, inspected_metadata: dict | None = None) -> str:
+                 accept_lyric_or_mv: bool = False, *, inspected_metadata: dict | None = None,
+                 metadata_validator=None) -> str:
     track_id, artist, title, album, genre, url = row
     if audio_format not in ("m4a", "mp3"):
         raise ValueError("Audio format must be m4a or mp3")
     if (root / 'Audio' / f'{track_id}.{audio_format}').exists():
         raise FileExistsError('Existing audio is protected; reuse or review it separately')
-    metadata = (validate_audio_metadata(url,title,inspected_metadata,accept_lyric_or_mv,artist=artist)
+    metadata = (metadata_validator(url,title,inspected_metadata) if metadata_validator is not None else
+        validate_audio_metadata(url,title,inspected_metadata,accept_lyric_or_mv,artist=artist)
         if inspected_metadata is not None else
         inspect_audio_video(url, title, accept_lyric_or_mv=accept_lyric_or_mv, artist=artist))
     metadata_folder = root / 'Metadata'

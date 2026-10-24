@@ -4,6 +4,15 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class PersonalMusicTest {
+    @Test fun chartsRetainUntaggedPersonalAudioAndTagsFromByteIdenticalCloudCopies() {
+        val track=ExploreTrack("123","Hype Boy","뉴진스","",emptyList(),1)
+        val local=song("localfolder:hype").copy(title="Hype Boy",artist="",durationMs=179064,contentMd5="a".repeat(32))
+        assertEquals(local,OdifyChartMatching.resolve(track,listOf(local)))
+        val cloud=local.copy(id="gdrive:hype",artist="뉴진스")
+        assertEquals(local,OdifyChartMatching.resolve(track,listOf(local,cloud)))
+        assertNull(OdifyChartMatching.resolve(track,listOf(local,local.copy(id="other",contentMd5="b".repeat(32)))))
+        assertNull(OdifyChartMatching.resolve(track,listOf(local.copy(artist="Other Artist"))))
+    }
     @Test fun closingAttractsUniformlyIntoMiniInsteadOfFadingAFullRectangle() {
         assertEquals(.06f,OdifyMotion.playerScale(0f,.3f,.06f),.0001f)
         assertEquals(.97f,OdifyMotion.playerScale(1f,.3f,.06f),.0001f)
