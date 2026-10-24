@@ -1,0 +1,67 @@
+name: Odify V4.5 Korean Japanese US false-match review queue
+on:
+  push:
+    branches: [feature/odify-v12-master-db]
+    paths:
+      - 'scripts/odify_v45_review_risk.py'
+      - '.github/workflows/odify-altlink-v45-review.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  offline-review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Restore 41416 recording metadata catalog with 1000 review-only YouTube candidates
+        uses: actions/download-artifact@v4
+        with:
+          repository: Tarang1215/Odify
+          run-id: 40012064191
+          name: odify-v43-1000-validated-app-ready
+          github-token: ${{ github.token }}
+          path: .local/v43final
+      - name: Restore V4.4 revised choices for same 1000 tracks
+        uses: actions/download-artifact@v4
+        with:
+          repository: Tarang1215/Odify
+          run-id: 40013630663
+          name: odify-v44-1000-false-match-audit
+          github-token: ${{ github.token }}
+          path: .local/v44
+      - name: Compute non-destructive false-match risk triage without network
+        run: |
+          python -u scripts/odify_v45_review_risk.py \
+            --database .local/v43final/enriched/odify_catalog_links_v43_enriched.sqlite3 \
+            --audit .local/v44/v44_audit_1000.csv \
+            --out .local/v45
+      - name: Check priority flags and prohibit automatic approval
+        run: |
+          python - <<'PY'
+          import csv,json,pathlib,os
+          folder=pathlib.Path('.local/v45')
+          s=json.loads((folder/'risk_summary.json').read_text())
+          rows=list(csv.DictReader((folder/'review_risk_1000.csv').open(encoding='utf-8-sig')))
+          assert len(rows)==s['selected_review_candidates']==827
+          assert all(r['manual_recording_identity']=='NOT_VERIFIED' and r['existing_master_write']=='NO' for r in rows)
+          assert s['automatic_url_approvals']==0 and s['master_writes']==0
+          assert s['changed_priority_1000']==62
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as f:
+            f.write('## Odify V4.5 1000-track review-only triage\n\n')
+            f.write(f'- Candidate recordings: **{len(rows)}**\n')
+            f.write(f'- Changed V4.4 selections: **{s["changed_priority_1000"]}**\n')
+            for k,v in sorted(s['flag_counts'].items()):
+              f.write(f'- {k}: **{v}**\n')
+            f.write('\nAll 0 audio streams tested and 0 master or APK modifications.\n')
+          PY
+      - name: Upload review queue and risk diagnostics
+        uses: actions/upload-artifact@v4
+        with:
+          name: odify-v45-1000-risk-review
+          path: .local/v45/**
+          retention-days: 60
