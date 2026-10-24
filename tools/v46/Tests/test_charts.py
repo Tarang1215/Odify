@@ -12,6 +12,36 @@ publisher_spec=importlib.util.spec_from_file_location('publish_chart_index',Path
 publisher=importlib.util.module_from_spec(publisher_spec);publisher_spec.loader.exec_module(publisher)
 
 class ChartTests(unittest.TestCase):
+    def test_prior_version_hold_can_use_two_unofficial_version_safe_peers(self):
+        row={'id':'history','title':'Song Name','artist':'Artist','duration_ms':180000,'require_metadata_identity':True}
+        candidates=[dict(id='abcdefghijk',title='Artist - Song Name (Lyrics)',duration=180,channel='Fan'),
+                    dict(id='lmnopqrstuv',title='Artist - Song Name (Audio)',duration=181,channel='Another fan')]
+        def detail(identity,root):return next(x for x in candidates if x['id']==identity)
+        with patch.object(charts,'search_candidates',return_value=candidates),patch.object(charts,'inspected_video',side_effect=detail), \
+             patch.object(charts,'variants',return_value=[('Artist','Song Name')]),patch.object(charts,'chart_candidate_matches',return_value=False):
+            self.assertIsNotNone(charts.select_quick_candidate(row,Path('.')))
+            candidates[1]['title']='Artist - Song Name (English ver.)'
+            self.assertIsNone(charts.select_quick_candidate(row,Path('.')))
+
+    def test_atomic_receipt_retries_temporary_windows_file_lock(self):
+        from unittest.mock import Mock
+        source=Mock();source.replace.side_effect=[PermissionError('temporary sharing lock'),None]
+        with patch.object(charts.time,'sleep') as sleep:
+            charts.replace_file(source,Path('receipt.json'))
+        self.assertEqual(2,source.replace.call_count);sleep.assert_called_once_with(0.05)
+
+    def test_worker_database_open_failure_is_recorded_without_losing_queue(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);row={'id':'123','artist':'Artist','title':'Song','album':'Album','country':'kr','rank':1,
+                'duration_ms':180000,'status':'LINK_SELECTED','video_url':'https://youtu.be/abcdefghijk',
+                'appearances':[{'id':'123','country':'kr','rank':1}]}
+            args=SimpleNamespace(download_only=True,config=None,folder_id=None,rclone='unavailable')
+            initial=SimpleNamespace(close=lambda:None)
+            with patch.object(charts.audio,'connection',side_effect=[initial,RuntimeError('database busy')]):
+                charts.collect_quick(args,root,[row],{'123':{'metadata':{'id':'abcdefghijk'}}})
+            self.assertEqual('HELD_REVIEW',row['status']);self.assertIn('database busy',row['error'])
+            self.assertEqual(1,len(json.loads((root/'chart_status.json').read_text('utf-8'))['tracks']))
+
     def test_parallel_quick_download_embeds_cover_without_querying_lyrics(self):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp);(root/'Audio').mkdir()
@@ -44,6 +74,8 @@ class ChartTests(unittest.TestCase):
                        {'title':'Artist - Song Name (Instrumental)'},{'title':'Different Song'},
                        {'title':'Artist - Song Name remix'},{'title':'Artist - Song Name【ライブ映像】'}):
             self.assertFalse(charts.quick_candidate_matches(row,{**info,**change}))
+        self.assertFalse(charts.quick_candidate_matches(row,{**info,'title':'Artist - Song Name (English ver.)'}))
+        self.assertFalse(charts.quick_candidate_matches(row,{**info,'track':'Song Name (Japanese version)'}))
         self.assertLess(charts.quick_rank(row,{**info,'title':'Artist - Song Name Official Audio'}),
                         charts.quick_rank(row,info))
         with self.assertRaises(ValueError):

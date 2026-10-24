@@ -113,7 +113,7 @@ def try_youtube_thumbnail(video_url: str) -> bytes | None:
 
 def connection(database: Path) -> sqlite3.Connection:
     database.parent.mkdir(parents=True, exist_ok=True)
-    db = sqlite3.connect(database)
+    db = sqlite3.connect(database, timeout=30)
     db.execute("PRAGMA journal_mode=WAL")
     db.execute("""CREATE TABLE IF NOT EXISTS tracks (
       id TEXT PRIMARY KEY,

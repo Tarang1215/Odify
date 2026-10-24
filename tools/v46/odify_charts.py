@@ -83,7 +83,16 @@ def variants(row,root):
 def write_cache(path,data):
     path.parent.mkdir(parents=True,exist_ok=True)
     temporary=path.with_name(path.name+f'.{os.getpid()}.{time.time_ns()}.tmp')
-    temporary.write_text(json.dumps(data,ensure_ascii=False),encoding='utf-8');temporary.replace(path)
+    temporary.write_text(json.dumps(data,ensure_ascii=False),encoding='utf-8');replace_file(temporary,path)
+
+def replace_file(source,destination):
+    # Windows indexers/antivirus can briefly open a progress receipt without
+    # delete sharing. Keep the previous valid JSON until the replacement succeeds.
+    for attempt in range(12):
+        try:source.replace(destination);return
+        except PermissionError:
+            if attempt==11:raise
+            time.sleep(min(0.05*2**attempt,0.5))
 def fresh_cache(path):
     if path.exists() and time.time()-path.stat().st_mtime<86400:
         return json.loads(path.read_text(encoding='utf-8'))
@@ -158,12 +167,17 @@ def quick_candidate_matches(row,info):
     if not target or not isinstance(duration,(int,float)) or abs(duration-target)>4:return False
     if info.get('is_live') or info.get('live_status') in ('is_live','was_live','is_upcoming'):return False
     title=str(info.get('title') or '')
+    # Equal duration does not make a translated re-recording the same version.
+    expected_language=re.findall(r'(english|japanese|korean|chinese)\s*(?:ver\b|version\b)',row['title'],re.I)
+    candidate_language=re.findall(r'(english|japanese|korean|chinese)\s*(?:ver\b|version\b)',
+        title+' '+str(info.get('track') or ''),re.I)
+    if {x.lower() for x in candidate_language}-{x.lower() for x in expected_language}:return False
     for marker in ('concert','live','cover','instrumental','karaoke','nightcore','slowed','sped up',
                    'sped-up','remix','loop','teaser','reaction','performance','short ver',
                    '라이브','직캠','콘서트','커버','노래방','歌ってみた','カラオケ','ライブ','カバー','弾き語り'):
         if (marker in title if not marker.isascii() else
             re.search(r'(?<!\w)'+re.escape(marker)+r'(?!\w)',title,re.I)):return False
-    expected=audio.recording_title(row['title'])
+    expected=audio.recording_title(row['title'].replace('(ハート)','♥'))
     expected=re.sub(r'\s*[\[(](?:mixed|with |prod\.?|\d{4} remaster|영화 |spider-man:).*?[\])]', '',expected,flags=re.I).strip()
     if len(norm(expected))<5 and expected.isascii():
         return bool(re.search(r'(?<!\w)'+re.escape(expected)+r'(?!\w)',title,re.I))
@@ -192,6 +206,21 @@ def select_quick_candidate(row,root):
             candidates=search_candidates(row['artist'],audio.recording_title(row['title']),root,preference)
             matches=[x for x in candidates if quick_candidate_matches(row,x)]
             if matches:break
+    if row.get('require_metadata_identity'):
+        checked=[]
+        for candidate in sorted(matches,key=lambda x:quick_rank(row,x)):
+            detail=inspected_video(candidate['id'],root)
+            if not quick_candidate_matches(row,detail):continue
+            checked.append({**candidate,**detail})
+            for artist,title in variants(row,root):
+                expected={'Track ID':'CHART'+row['id'],'아티스트':artist,'곡명':title}
+                if chart_candidate_matches(expected,detail):return {**candidate,**detail}
+        # The user also permits unofficial studio/lyrics uploads. When ownership
+        # metadata is absent, require independent equal-length, version-safe peers.
+        for candidate in checked:
+            peers={x['id'] for x in checked if abs(x['duration']-candidate['duration'])<=2}
+            if len(peers)>=2:return candidate
+        return None
     return min(matches,key=lambda x:quick_rank(row,x)) if matches else None
 
 def quick_links(root,rows,include_downloaded=False):
@@ -264,12 +293,15 @@ def collect_quick(args,root,rows,selected):
         quota=json.loads(execute(rc+['about','mydrive:','--json']))
         if quota.get('free',0)<512*1024*1024:raise RuntimeError('Insufficient Drive headroom')
     work=[r for r in rows if r['id'] in selected and selected[r['id']]['metadata']]
+    # Establish the schema/WAL before workers open connections on a slow USB disk.
+    initial=audio.connection(root/'charts.sqlite3');initial.close()
     stop=Event()
     def one(row):
         if stop.is_set():return row,'LINK_SELECTED','',None
         identity='CHART'+row['id'];info=selected[row['id']]['metadata'];url=row['video_url']
-        db=audio.connection(root/'charts.sqlite3')
+        db=None
         try:
+            db=audio.connection(root/'charts.sqlite3')
             db.execute('INSERT OR IGNORE INTO tracks(id,country,artist,title,album,genre,video_url,verified) VALUES(?,?,?,?,?,?,?,?)',
                 (identity,row['country'],row['artist'],row['title'],row['album'],'',url,'user chart duration/title policy'));db.commit()
             path=root/'Audio'/f'{identity}.mp3'
@@ -299,14 +331,16 @@ def collect_quick(args,root,rows,selected):
         except Exception as error:
             if access_blocked(str(error)) and not age_restricted(str(error)):stop.set()
             return row,'HELD_REVIEW',str(error)[-1000:],None
-        finally:db.close()
+        finally:
+            if db is not None:db.close()
     for row in work:row['status']='DOWNLOADING'
-    snapshot(root,rows,True,'Four parallel downloads with covers; lyrics deferred')
-    with ThreadPoolExecutor(max_workers=4) as pool:
+    workers=max(1,min(8,int(getattr(args,'workers',4))))
+    snapshot(root,rows,True,f'{workers} parallel downloads with covers; lyrics deferred')
+    with ThreadPoolExecutor(max_workers=workers) as pool:
         for future in as_completed([pool.submit(one,row) for row in work]):
             row,state,error,receipt=future.result();row.update(status=state,error=error)
             if receipt:row.update(receipt)
-            snapshot(root,rows,True,'Four parallel downloads with covers; lyrics deferred')
+            snapshot(root,rows,True,f'{workers} parallel downloads with covers; lyrics deferred')
             print(row['id'],state,'|',row['artist'],'-',row['title'],flush=True)
             if error:print('  Reason:',error[:220],flush=True)
     snapshot(root,rows,False,'Paused by source access' if stop.is_set() else 'Selected links processed; unmatched recordings remain separate')
@@ -350,7 +384,7 @@ def snapshot(root,rows,running,detail=''):
     for row in rows:counts[row['status']]=counts.get(row['status'],0)+1
     result={'updated_at':datetime.now(timezone.utc).isoformat(),'running':running,'detail':detail,
         'chart_entries':sum(len(r['appearances']) for r in rows),'unique_recordings':len(rows),'counts':counts,'tracks':rows}
-    temp=root/'chart_status.tmp';temp.write_text(json.dumps(result,ensure_ascii=False,indent=2),encoding='utf-8');temp.replace(root/'chart_status.json')
+    temp=root/'chart_status.tmp';temp.write_text(json.dumps(result,ensure_ascii=False,indent=2),encoding='utf-8');replace_file(temp,root/'chart_status.json')
     with (root/'chart_status.csv').open('w',encoding='utf-8-sig',newline='') as h:
         fields=['id','country','rank','artist','title','status','video_url','file_id','error']
         writer=csv.DictWriter(h,fieldnames=fields,extrasaction='ignore');writer.writeheader();writer.writerows(rows)
