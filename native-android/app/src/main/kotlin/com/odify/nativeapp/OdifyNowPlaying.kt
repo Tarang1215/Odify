@@ -99,25 +99,33 @@ fun OdifyNowPlaying(
     val viewportHeightPx = with(LocalDensity.current) {
         androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp.toPx()
     }.coerceAtLeast(1f)
-    SideEffect { onDragProgress((dragOffset / viewportHeightPx).coerceIn(0f, .65f)) }
+    var settling by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    fun updateDrag(value: Float) {
+        dragOffset = value.coerceAtLeast(0f)
+        // Publish from input/animation callbacks, never read this offset during
+        // composition. A slow drag must only invalidate the parent render layer.
+        onDragProgress((dragOffset / viewportHeightPx).coerceIn(0f, .65f))
+    }
     fun finishDrag(velocity: Float) {
+        settling?.cancel()
         if (dragOffset > threshold || (dragOffset > 0f && velocity > 1500f)) {
             onDismiss()
         } else {
-            scope.launch {
+            settling = scope.launch {
                 val springBack = Animatable(dragOffset)
                 springBack.animateTo(0f, spring(dampingRatio = .9f, stiffness = 420f)) {
-                    dragOffset = value
+                    updateDrag(value)
                 }
             }
         }
     }
-    val collapseScroll = remember(scrollState, threshold) { object : NestedScrollConnection {
+    val collapseScroll = remember(scrollState, threshold, viewportHeightPx) { object : NestedScrollConnection {
         override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
             if (source != NestedScrollSource.UserInput) return Offset.Zero
             if ((available.y > 0f && scrollState.value == 0) || dragOffset > 0f) {
                 val previous = dragOffset
-                dragOffset = (dragOffset + available.y).coerceAtLeast(0f)
+                settling?.cancel()
+                updateDrag(dragOffset + available.y)
                 return Offset(0f, dragOffset - previous)
             }
             return Offset.Zero
@@ -143,7 +151,8 @@ fun OdifyNowPlaying(
     val waveform = remember(song.id) { OdifyWaveformPatterns.samples(kotlin.random.Random.nextInt(OdifyWaveformPatterns.count)) }
     val dragState = rememberDraggableState { delta ->
         // Direct state update follows the finger at display refresh rate.
-        dragOffset = (dragOffset + delta).coerceAtLeast(0f)
+        settling?.cancel()
+        updateDrag(dragOffset + delta)
     }
 
     Box(
@@ -357,7 +366,7 @@ fun OdifyNowPlaying(
                     duration = duration,
                     waveform = waveform,
                     onSeek = onSeek,
-                    modifier = Modifier.fillMaxWidth().height(48.dp)
+                    modifier = Modifier.fillMaxWidth().height(54.dp)
                 )
                 Row(Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween) {
@@ -548,7 +557,7 @@ private fun OdifyWaveformProgress(
         if (waveform.size == 96 && reveal > 0f) {
             waveform.forEachIndexed { index, amplitude ->
                 val x = (index + .5f) / waveform.size * size.width
-                val height = max(2.dp.toPx(), amplitude * size.height * .42f)
+                val height = max(1.dp.toPx(), amplitude * size.height * .46f)
                 val barColor = if ((index + .5f) / waveform.size <= fraction) played else unplayed
                 drawLine(
                     color = barColor.copy(alpha = barColor.alpha * reveal),

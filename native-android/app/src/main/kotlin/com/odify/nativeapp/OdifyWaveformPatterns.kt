@@ -16,8 +16,8 @@ object OdifyWaveformPatterns {
             val phraseA = phrase(.16 + (variant % 3)*.025, .10)
             val phraseB = phrase(.39 + (variant % 4)*.025, .075)
             val phraseC = phrase(.62 + (variant % 3)*.025, .13)
-            val envelope = .045 + .30*phraseA + .88*phraseB + .56*phraseC
-            val detail = .18 + .82*abs(sin(i*1.91+phase))
+            val envelope = .02 + .22*phraseA + 1.14*phraseB + .65*phraseC
+            val detail = .08 + .92*abs(sin(i*1.91+phase)).pow(1.6)
             val spikes = if ((i+variant*3)%7==0) 1.0 else detail
             (.07 + envelope*spikes).toFloat().coerceIn(.07f, .94f)
         }

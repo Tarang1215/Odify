@@ -260,8 +260,8 @@ fun OdifyRoot(
         if (!added) "이미 이 플레이리스트에 있는 곡입니다." else ""
     }.getOrElse { it.message ?: "플레이리스트 저장 실패" }
     var selectedTab by remember { mutableStateOf(OdifyTab.Home) }
-    var searchSeed by rememberSaveable { mutableStateOf("") }
-    var searchRequest by rememberSaveable { mutableIntStateOf(0) }
+    var searchQuery by rememberSaveable { mutableStateOf("") }
+    var searchGenre by rememberSaveable { mutableStateOf("All") }
     val pageState = rememberSaveableStateHolder()
     val tabHistory = remember { mutableStateListOf<OdifyTab>() }
     fun navigateTo(tab: OdifyTab) {
@@ -423,13 +423,15 @@ fun OdifyRoot(
                 OdifyTab.Explore -> OdifyExplore(
                     onProfile = { navigateTo(OdifyTab.Profile) },
                     onSearch = { title ->
-                        searchSeed = title; searchRequest++
+                        searchQuery = title
+                        searchGenre = "All"
                         navigateTo(OdifyTab.Search)
                     }
                 )
                 OdifyTab.Search -> OdifySearch(songs, onImport, ::playList,
                     onProfile = { navigateTo(OdifyTab.Profile) },
-                    initialQuery = searchSeed, queryRequest = searchRequest)
+                    query = searchQuery, onQueryChange = { searchQuery = it },
+                    genre = searchGenre, onGenreChange = { searchGenre = it })
                 OdifyTab.Library -> OdifyLibraryScreen(
                     songs = songs, liked = liked, onPlay = ::playList,
                     onImport = onImport, onRemove = onRemove, onEdit = onEdit,
@@ -513,8 +515,8 @@ fun OdifyRoot(
             Box(
                 Modifier.fillMaxSize()
                     .graphicsLayer {
-                        val progress = fullProgress.coerceIn(0f, 1f) *
-                            (1f - playerDragFraction.coerceIn(0f, 0.65f))
+                        val progress = fullProgress.coerceIn(0f, 1f)
+                        val drag = playerDragFraction.coerceIn(0f, .65f)
                         val closed = 1f - progress
                         val origin = expansionOrigin ?: Rect(
                             11.dp.toPx(), size.height - gestureInsetPx -
@@ -525,11 +527,13 @@ fun OdifyRoot(
                         // Keep a single opaque surface anchored to the measured
                         // mini-player; opening and closing use the same geometry.
                         transformOrigin = TransformOrigin(0f, 0f)
-                        translationX = origin.left * closed
-                        translationY = origin.top * closed
-                        scaleX = origin.width / size.width * closed + progress
-                        scaleY = origin.height / size.height * closed + progress
-                        shape = RoundedCornerShape((22f * closed).dp)
+                        // Follow the finger at a uniform scale; do not squash
+                        // portrait content into mini-player proportions mid-drag.
+                        translationX = origin.left * closed + size.width * drag * .05f * progress
+                        translationY = origin.top * closed + size.height * drag * progress
+                        scaleX = origin.width / size.width * closed + progress * (1f - drag * .10f)
+                        scaleY = origin.height / size.height * closed + progress * (1f - drag * .10f)
+                        shape = RoundedCornerShape((22f * maxOf(closed, drag)).dp)
                         clip = true
                     }
             ) {
@@ -754,14 +758,11 @@ private fun OdifySearch(
     onImport: () -> Unit,
     onPlay: (List<OdifySong>, Int) -> Unit,
     onProfile: () -> Unit,
-    initialQuery: String = "",
-    queryRequest: Int = 0
+    query: String,
+    onQueryChange: (String) -> Unit,
+    genre: String,
+    onGenreChange: (String) -> Unit
 ) {
-    var query by rememberSaveable { mutableStateOf("") }
-    var genre by rememberSaveable { mutableStateOf("All") }
-    LaunchedEffect(queryRequest) {
-        if (queryRequest > 0) { query = initialQuery; genre = "All" }
-    }
     var showDuplicates by rememberSaveable { mutableStateOf(false) }
     val genres = remember(songs) {
         listOf("All") + songs.map { it.genre.substringBefore(" / ").trim() }
@@ -786,7 +787,7 @@ private fun OdifySearch(
             Icon(Icons.Default.Search, null, tint = grey, modifier = Modifier.size(20.dp))
             Spacer(Modifier.width(9.dp))
             BasicTextField(
-                value = query, onValueChange = { query = it },
+                value = query, onValueChange = onQueryChange,
                 textStyle = androidx.compose.ui.text.TextStyle(color = ink, fontSize = 14.sp),
                 singleLine = true,
                 modifier = Modifier.weight(1f),
@@ -799,7 +800,7 @@ private fun OdifySearch(
                 }
             )
             if (query.isNotBlank()) Icon(Icons.Default.Close, "지우기",
-                modifier = Modifier.size(20.dp).clickable { query = "" }, tint = grey)
+                modifier = Modifier.size(20.dp).clickable { onQueryChange("") }, tint = grey)
         }
         Spacer(Modifier.height(14.dp))
         LazyRow(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
@@ -808,7 +809,7 @@ private fun OdifySearch(
                 Box(
                     Modifier.clip(RoundedCornerShape(30.dp))
                         .background(if (selected) ink else pale)
-                        .clickable { genre = option }
+                        .clickable { onGenreChange(option) }
                         .padding(horizontal = 13.dp, vertical = 8.dp)
                 ) {
                     Text(option, fontSize = 11.sp,

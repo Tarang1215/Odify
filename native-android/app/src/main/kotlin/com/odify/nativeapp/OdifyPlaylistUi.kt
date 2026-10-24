@@ -105,6 +105,7 @@ fun OdifyPlaylistLibrary(
     var newName by remember { mutableStateOf("") }
     var error by remember { mutableStateOf("") }
     var deletePending by remember { mutableStateOf<String?>(null) }
+    var songMenu by remember { mutableStateOf<String?>(null) }
     val selected = playlists.firstOrNull { it.id == selectedId }
     val songIndex = remember(songs) { songs.associateBy(OdifySong::id) }
     val tracks = selected?.songIds?.mapNotNull(songIndex::get).orEmpty()
@@ -160,17 +161,28 @@ fun OdifyPlaylistLibrary(
             } else LazyColumn(contentPadding = PaddingValues(bottom = 150.dp)) {
                 items(tracks, key = { it.id }) { song ->
                     ListItem(
-                        headlineContent = { Text(song.title, maxLines = 1) },
-                        supportingContent = { Text(song.artist, maxLines = 1) },
-                        leadingContent = { Icon(Icons.Default.MusicNote, null) },
+                        headlineContent = { Text(song.title, maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                            style = MaterialTheme.typography.bodyMedium) },
+                        supportingContent = { Text(song.artist, maxLines = 1,
+                            color = OdifyPalette.muted, style = MaterialTheme.typography.bodySmall) },
+                        leadingContent = { AlbumArt(song, Modifier.size(46.dp),
+                            radius = RoundedCornerShape(8.dp), fallbackKey = song.id.hashCode()) },
                         trailingContent = {
-                            IconButton(onClick = { onRemoveSong(selected.id, song.id) }) {
-                                Icon(Icons.Default.RemoveCircleOutline, "플레이리스트에서 제거")
+                            Box {
+                                IconButton(onClick = { songMenu = song.id }) {
+                                    Icon(Icons.Default.MoreHoriz, "${song.title} 곡 메뉴", tint = OdifyPalette.muted)
+                                }
+                                DropdownMenu(expanded = songMenu == song.id, onDismissRequest = { songMenu = null }) {
+                                    DropdownMenuItem(text = { Text("플레이리스트에서 제거") }, onClick = {
+                                        songMenu = null; onRemoveSong(selected.id, song.id)
+                                    })
+                                }
                             }
                         },
+                        colors = ListItemDefaults.colors(containerColor = OdifyPalette.background),
                         modifier = Modifier.clickable { onPlay(tracks, tracks.indexOf(song)) }
                     )
-                    HorizontalDivider()
                 }
             }
         }
