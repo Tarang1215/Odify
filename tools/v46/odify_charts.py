@@ -123,6 +123,21 @@ def existing_catalog(path):
     if not path:return {}
     with closing(sqlite3.connect(path.resolve().as_uri()+'?mode=ro',uri=True)) as db:
         return {norm(a)+'|'+norm(t):identity for identity,a,t in db.execute('SELECT id,artist,title FROM tracks') if a and t}
+def reuse_cached_owned(rows,known,root):
+    """Progress after a source block without any extraction/network requests."""
+    reused=0
+    for row in rows:
+        if row['status']!='QUEUED':continue
+        pairs=[(row['artist'],row['title'])]
+        cache=root/'Metadata'/f"lookup_{row['id']}.json"
+        if cache.exists():
+            pairs.extend((x.get('artistName',''),x.get('trackName',''))
+                for x in json.loads(cache.read_text(encoding='utf-8'))
+                if str(x.get('trackId'))==str(row['id']))
+        identity=next((known.get(norm(a)+'|'+norm(t)) for a,t in pairs if a and t and known.get(norm(a)+'|'+norm(t))),None)
+        if identity:
+            row.update(status='REUSED_EXISTING',file_id=identity,error='');reused+=1
+    return reused
 def collect(args):
     root=args.root.resolve();root.mkdir(parents=True,exist_ok=True)
     with single_instance(root):
@@ -131,6 +146,10 @@ def collect(args):
         if args.plan:
             print(json.dumps(snapshot(root,rows,False,'Preview; no collection or upload'),ensure_ascii=False)[:400]);return
         known=existing_catalog(args.catalog)
+        if args.reuse_only:
+            reused=reuse_cached_owned(rows,known,root)
+            snapshot(root,rows,False,'Source downloads paused; network-free owned-file reuse pass complete')
+            print('Additional owned files reused:',reused);return
         db=audio.connection(root/'charts.sqlite3')
         rc=[args.rclone,'--config',str(args.config),'--drive-root-folder-id',args.folder_id]
         # One exact existing library root; all new files live under a dated child.
@@ -187,6 +206,7 @@ def main():
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('--root',type=Path,required=True)
     p.add_argument('--snapshots',type=Path);p.add_argument('--catalog',type=Path);p.add_argument('--plan',action='store_true')
     p.add_argument('--retry-held',action='store_true',help='Explicitly retry prior review holds')
+    p.add_argument('--reuse-only',action='store_true',help='Only reuse cached owned files; make zero network requests')
     p.add_argument('--config',type=Path);p.add_argument('--folder-id');p.add_argument('--rclone',default='rclone')
     a=p.parse_args()
     if not a.plan and (not a.config or not re.fullmatch(r'[A-Za-z0-9_-]{10,150}',a.folder_id or '')):p.error('Exact Drive root and private config required')

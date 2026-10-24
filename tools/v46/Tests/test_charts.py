@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 import unittest
 from unittest.mock import patch
+import tempfile
 
 spec=importlib.util.spec_from_file_location('odify_charts',Path(__file__).parents[1]/'odify_charts.py')
 charts=importlib.util.module_from_spec(spec);spec.loader.exec_module(charts)
@@ -10,6 +11,12 @@ publisher_spec=importlib.util.spec_from_file_location('publish_chart_index',Path
 publisher=importlib.util.module_from_spec(publisher_spec);publisher_spec.loader.exec_module(publisher)
 
 class ChartTests(unittest.TestCase):
+    def test_reuse_only_is_network_free_and_preserves_holds_and_versions(self):
+        rows=[{'id':str(i),'artist':'Artist','title':title,'status':status,'file_id':''}
+            for i,title,status in [(1,'Song','QUEUED'),(2,'Song (English ver.)','QUEUED'),(3,'Song','HELD_REVIEW')]]
+        with tempfile.TemporaryDirectory() as tmp,patch.object(charts,'fetch',side_effect=AssertionError('Network prohibited')):
+            self.assertEqual(1,charts.reuse_cached_owned(rows,{'artist|song':'OwnedDriveID123'},Path(tmp)))
+        self.assertEqual(['REUSED_EXISTING','QUEUED','HELD_REVIEW'],[r['status'] for r in rows])
     def test_age_gated_recording_is_held_without_treating_it_as_site_wide_block(self):
         listing=json.dumps({'entries':[{'id':'abcdefghijk'}]})
         with patch.object(charts,'variants',return_value=[('Artist','Song')]), \
