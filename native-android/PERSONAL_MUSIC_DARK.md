@@ -16,6 +16,10 @@ The centered compact player follows measured title width within 168–216dp,
 contains the cover, title and a circular pause control, and reveals the full
 mini-player on tap or upward swipe. Long titles wait
 2.2 seconds before scrolling; the full mini-player also scrolls overflowing titles.
+The cover's dominant chromatic hue supplies a subdued inner glow and soft edge
+shadow. A maximum 64px local decode runs off the main thread and caches 64 colors;
+neutral/very dark artwork falls back to muted gray. Track changes blend the color
+over 700ms. Text and playback controls remain untinted and sharp.
 
 All main pages, search, settings, sheets, splash and system bars use the same dark
 palette. Artwork supplies color; the UI uses restrained charcoal surfaces and thin

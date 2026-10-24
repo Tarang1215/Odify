@@ -46,6 +46,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.TransformOrigin
@@ -759,6 +760,8 @@ private fun OdifyMiniPlayer(
     val titleMeasurer=rememberTextMeasurer()
     val measuredTitle=titleMeasurer.measure(song.title,style=titleStyle,maxLines=1,softWrap=false)
     val titleWidth=with(LocalDensity.current) {measuredTitle.size.width.toDp()}
+    val artworkGlow=rememberArtworkGlow(song.artworkPath)
+    val glow by animateColorAsState(artworkGlow,tween(700),label="artwork-glow")
     BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal=11.dp,vertical=5.dp),contentAlignment=Alignment.Center) {
     // Bounded organic sizing: short titles avoid a hollow center; long titles
     // retain breathing room and marquee instead of creating a screen-wide pill.
@@ -768,8 +771,13 @@ private fun OdifyMiniPlayer(
     Row(
         Modifier.width(width).height(height)
             .onGloballyPositioned { coordinates = it }
-            .shadow(8.dp, RoundedCornerShape(22.dp))
+            .shadow(10.dp, RoundedCornerShape(22.dp),ambientColor=glow.copy(alpha=.28f),spotColor=glow.copy(alpha=.24f))
             .odifyGlass(backdrop,RoundedCornerShape(22.dp))
+            .drawBehind {
+                drawRect(Brush.radialGradient(listOf(glow.copy(alpha=.28f),
+                    glow.copy(alpha=.09f),Color.Transparent),
+                    center=Offset(size.width*.22f,size.height*.8f),radius=size.width*.85f))
+            }
             .clickable {
                 // Read at the tap: the nav spring can move the parent render
                 // layer without issuing a fresh layout-position callback.
