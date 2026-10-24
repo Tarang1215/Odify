@@ -297,12 +297,10 @@ fun OdifyRoot(
         mutableStateOf(prefs.getString("history", "")!!.split("|").filter { it.isNotBlank() })
     }
     var navVisible by remember { mutableStateOf(true) }
-    var miniBounds by remember { mutableStateOf<Rect?>(null) }
     var expansionOrigin by remember { mutableStateOf<Rect?>(null) }
     var playerDragFraction by remember { mutableFloatStateOf(0f) }
     LaunchedEffect(expanded) {
         if (expanded) {
-            expansionOrigin = miniBounds
             playerDragFraction = 0f
         }
     }
@@ -505,10 +503,13 @@ fun OdifyRoot(
                     }
             ) {
                 OdifyMiniPlayer(active, playback.isPlaying, active.id in liked,
-                    onExpand = { onExpandedChange(true) },
+                    onExpand = { bounds ->
+                        expansionOrigin = bounds
+                        playerDragFraction = 0f
+                        onExpandedChange(true)
+                    },
                     onToggle = onTogglePlayback,
-                    onLike = { toggleLike(active.id) },
-                    onBoundsChanged = { miniBounds = it })
+                    onLike = { toggleLike(active.id) })
             }
         }
 
@@ -736,20 +737,24 @@ private fun OdifyMiniPlayer(
     song: OdifySong,
     playing: Boolean,
     liked: Boolean,
-    onExpand: () -> Unit,
+    onExpand: (Rect?) -> Unit,
     onToggle: () -> Unit,
-    onLike: () -> Unit,
-    onBoundsChanged: (Rect) -> Unit
+    onLike: () -> Unit
 ) {
+    var coordinates by remember { mutableStateOf<androidx.compose.ui.layout.LayoutCoordinates?>(null) }
     Row(
         Modifier.fillMaxWidth().padding(horizontal = 11.dp, vertical = 5.dp)
             .height(56.dp)
-            .onGloballyPositioned { onBoundsChanged(it.boundsInRoot()) }
+            .onGloballyPositioned { coordinates = it }
             .shadow(8.dp, RoundedCornerShape(22.dp))
             .clip(RoundedCornerShape(22.dp))
             .background(glass)
             .border(0.8.dp, Color.White.copy(alpha = .17f), RoundedCornerShape(22.dp))
-            .clickable(onClick = onExpand)
+            .clickable {
+                // Read at the tap: the nav spring can move the parent render
+                // layer without issuing a fresh layout-position callback.
+                onExpand(coordinates?.takeIf { it.isAttached }?.boundsInRoot())
+            }
             .padding(horizontal = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
