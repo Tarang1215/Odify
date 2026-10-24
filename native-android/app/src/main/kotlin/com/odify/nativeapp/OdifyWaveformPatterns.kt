@@ -10,11 +10,16 @@ object OdifyWaveformPatterns {
         return List(96) { i ->
             val x = i / 95.0
             val phase = variant * .73
-            val pulse = abs(sin(i * (.63 + variant * .017) + phase))
-            val envelope = .25 + .40 * abs(sin(x * PI * (1 + variant % 3) + phase))
-            val bloom = exp(-((x - (.25 + (variant % 5) * .11)) / .18).pow(2.0)) * .24
-            val air = .30 + .70 * abs(sin(i * 1.77 + phase * 2))
-            (.08 + pulse * air * (envelope + bloom)).toFloat().coerceIn(.07f, .94f)
+            // Separate phrases, a clear climax and tapered edges create the
+            // reference's speech-like silhouette instead of a uniform EQ band.
+            fun phrase(center: Double, width: Double) = exp(-((x-center)/width).pow(2.0))
+            val phraseA = phrase(.16 + (variant % 3)*.025, .10)
+            val phraseB = phrase(.39 + (variant % 4)*.025, .075)
+            val phraseC = phrase(.62 + (variant % 3)*.025, .13)
+            val envelope = .045 + .30*phraseA + .88*phraseB + .56*phraseC
+            val detail = .18 + .82*abs(sin(i*1.91+phase))
+            val spikes = if ((i+variant*3)%7==0) 1.0 else detail
+            (.07 + envelope*spikes).toFloat().coerceIn(.07f, .94f)
         }
     }
 }

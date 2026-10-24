@@ -613,7 +613,7 @@ private fun EmptyMusicPrompt(onImport: () -> Unit, importing: Boolean) {
     }
 }
 
-/** Icon-only navigation; the visual capsule stays smaller than its touch targets. */
+/** Edge-attached navigation; the page ends at one quiet, full-width dark surface. */
 @Composable
 private fun OdifyBottomBar(
     selected: OdifyTab,
@@ -622,16 +622,13 @@ private fun OdifyBottomBar(
 ) {
     Box(
         Modifier.fillMaxWidth().height(navigationHeight + bottomInset)
-            .padding(start = 24.dp, end = 24.dp, bottom = bottomInset + 8.dp),
-        contentAlignment = Alignment.Center
+            .background(OdifyPalette.background)
+            .padding(bottom = bottomInset),
+        contentAlignment = Alignment.TopCenter
     ) {
-        val shape = RoundedCornerShape(28.dp)
         Row(
-            Modifier.widthIn(max = 312.dp).fillMaxWidth().height(56.dp)
-                .shadow(6.dp, shape, clip = false)
-                .clip(shape).background(OdifyPalette.surface.copy(alpha=.96f))
-                .border(0.7.dp, OdifyPalette.hairline, shape)
-                .selectableGroup().padding(horizontal = 12.dp),
+            Modifier.widthIn(max = 480.dp).fillMaxWidth().height(navigationHeight)
+                .selectableGroup().padding(horizontal = 24.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             odifyPrimaryTabs.forEach { tab ->
@@ -651,7 +648,7 @@ private fun OdifyBottomBar(
                     OdifyTab.Profile -> Icons.Outlined.PersonOutline
                 }
                 val highlight by animateColorAsState(
-                    if (isSelected) OdifyPalette.raised else Color.Transparent,
+                    if (isSelected) Color.White.copy(alpha = .065f) else Color.Transparent,
                     animationSpec = tween(180), label = "navigation-selection"
                 )
                 Box(
@@ -661,8 +658,8 @@ private fun OdifyBottomBar(
                             onClick = { onSelected(tab) }),
                     contentAlignment = Alignment.Center
                 ) {
-                    Box(Modifier.size(width = 48.dp, height = 36.dp)
-                        .clip(RoundedCornerShape(14.dp)).background(highlight),
+                    Box(Modifier.size(width = 38.dp, height = 32.dp)
+                        .clip(RoundedCornerShape(10.dp)).background(highlight),
                         contentAlignment = Alignment.Center) {
                         Icon(icon, contentDescription = label,
                             tint = if (isSelected) ink else Color(0xFF93969E),

@@ -161,11 +161,11 @@ fun OdifyNowPlaying(
         // Reuse the bounded local cover cache. One blurred image behind all
         // controls avoids repeated backdrop capture or downloading audio.
         AlbumArt(song, Modifier.fillMaxSize()
-            .graphicsLayer { scaleX = 1.3f; scaleY = 1.3f; alpha = .8f }
-            .blur(52.dp), radius = RoundedCornerShape(0.dp),
+            .graphicsLayer { scaleX = 1.16f; scaleY = 1.16f }
+            .blur(24.dp), radius = RoundedCornerShape(0.dp),
             fallbackKey = song.id.hashCode())
         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(
-            Color(0x80101216), Color(0x65101216), Color(0xD4101216)))))
+            Color(0x40101216), Color(0x65101216), Color(0xB8101216)))))
         BoxWithConstraints(
             Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()
         ) {
@@ -243,6 +243,7 @@ fun OdifyNowPlaying(
                 } else Box(
                     Modifier.size(artSize)
                         .clip(RoundedCornerShape(22.dp))
+                        .border(.7.dp, Color.White.copy(alpha = .22f), RoundedCornerShape(22.dp))
                         .pointerInput(song.id, previousSong?.id, nextSong?.id) {
                             detectHorizontalDragGestures(
                                 onHorizontalDrag = { change, amount ->
@@ -353,7 +354,7 @@ fun OdifyNowPlaying(
                     duration = duration,
                     waveform = waveform,
                     onSeek = onSeek,
-                    modifier = Modifier.fillMaxWidth().height(45.dp)
+                    modifier = Modifier.fillMaxWidth().height(48.dp)
                 )
                 Row(Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween) {
@@ -405,9 +406,9 @@ fun OdifyNowPlaying(
                     Modifier.fillMaxWidth().height(53.dp)
                         .clip(RoundedCornerShape(24.dp))
                         .background(Brush.horizontalGradient(
-                            listOf(Color(0x7040444A), Color(0x7844484E))
+                            listOf(Color.White.copy(alpha = .20f), Color.White.copy(alpha = .09f))
                         ))
-                        .border(0.7.dp, Color.White.copy(alpha = 0.18f),
+                        .border(0.7.dp, Color.White.copy(alpha = 0.30f),
                             RoundedCornerShape(24.dp))
                 ) {
                     IconButton(
@@ -534,7 +535,7 @@ private fun OdifyWaveformProgress(
     ) {
         val center = size.height / 2f
         val played = Color(0xFFF6F7F8)
-        val unplayed = Color(0xFF555961)
+        val unplayed = Color.White.copy(alpha = .28f)
         if (reveal < 1f) {
             drawLine(unplayed.copy(alpha = 1f - reveal), Offset(0f, center),
                 Offset(size.width, center), strokeWidth = 2.dp.toPx())
@@ -545,17 +546,18 @@ private fun OdifyWaveformProgress(
             waveform.forEachIndexed { index, amplitude ->
                 val x = (index + .5f) / waveform.size * size.width
                 val height = max(2.dp.toPx(), amplitude * size.height * .42f)
+                val barColor = if ((index + .5f) / waveform.size <= fraction) played else unplayed
                 drawLine(
-                    color = (if ((index + .5f) / waveform.size <= fraction)
-                        played else unplayed).copy(alpha = reveal),
+                    color = barColor.copy(alpha = barColor.alpha * reveal),
                     start = Offset(x, center - height),
                     end = Offset(x, center + height),
-                    strokeWidth = 2.dp.toPx()
+                    strokeWidth = 1.1.dp.toPx(),
+                    cap = androidx.compose.ui.graphics.StrokeCap.Round
                 )
             }
         }
-        // Thin position marker gives a continuous indicator between waveform bins.
-        if (duration > 0L) {
+        // Keep the silhouette uninterrupted; show the handle only while seeking.
+        if (duration > 0L && scrubbing != null) {
             val x = fraction.coerceIn(0f, 1f) * size.width
             drawCircle(
                 color = playerWhite,

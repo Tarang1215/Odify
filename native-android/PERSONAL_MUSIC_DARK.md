@@ -2,8 +2,9 @@
 
 Requested navigation: **Home → Explore → Search → Library**, with icon-only tabs,
 a 48dp touch target and accessible names. Profile and account/source management
-are utilities reached from the page headers. The 56dp charcoal navigation capsule
-stays visible on primary screens; fullscreen playback covers it.
+are utilities reached from the page headers. A full-width, edge-attached black
+navigation surface stays visible on primary screens; fullscreen playback covers it.
+There is no floating capsule, outer shadow or detached grey navigation background.
 
 All main pages, search, settings, sheets, splash and system bars use the same dark
 palette. Artwork supplies color; the UI uses restrained charcoal surfaces and thin
@@ -34,7 +35,9 @@ files and supported local document URIs count as offline. Google Drive document
 links and Media3's temporary streaming cache do not. Completed exports to a local
 document are registered as offline copies without modifying their source.
 
-The seek bar uses **12 decorative 96-bar patterns**. A randomly selected pattern is
+The seek bar uses **12 decorative 96-bar patterns**, with tapered ends, separated
+phrases and a tall climax. Thin rounded bars distinguish elapsed white from muted
+unplayed bars; a seek handle appears only during interaction. A randomly selected pattern is
 stable for the currently displayed song. These are stylized artwork, not an audio
 measurement. Tapping/dragging and accessibility progress actions still seek actual
 audio position. Embedded lyrics, queue editing, source audio, playlists, OAuth
