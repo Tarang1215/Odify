@@ -51,7 +51,7 @@ fun OdifyPersonalHome(
             }
             Spacer(Modifier.height(12.dp))
             if (hero != null) {
-                Box(Modifier.fillMaxWidth().height(218.dp).clip(RoundedCornerShape(25.dp))
+                Box(Modifier.fillMaxWidth().height(164.dp).clip(RoundedCornerShape(25.dp))
                     .clickable { selectedMix = hero }) {
                     AlbumArt(hero.coverSong(), Modifier.fillMaxSize(), radius = RoundedCornerShape(25.dp))
                     Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(
@@ -73,27 +73,6 @@ fun OdifyPersonalHome(
                 TextButton(onClick=onProfile) { Text("음악 소스 연결",color=homeInk) }
             }
             Spacer(Modifier.height(27.dp))
-            Row(Modifier.fillMaxWidth(), verticalAlignment=Alignment.CenterVertically) {
-                Text("Made for you",fontSize=20.sp,fontWeight=FontWeight.Bold,color=homeInk,modifier=Modifier.weight(1f))
-                Icon(Icons.Outlined.AutoAwesome,null,tint=homeGrey,modifier=Modifier.size(18.dp))
-            }
-            Text("들을수록 가까워지는 취향",fontSize=11.sp,color=homeGrey,modifier=Modifier.padding(top=4.dp,bottom=14.dp))
-        }
-        if (mixes.isNotEmpty()) item {
-            LazyRow(horizontalArrangement=Arrangement.spacedBy(13.dp)) {
-                items(mixes,key={it.key}) { mix ->
-                    Column(Modifier.width(155.dp).clickable {selectedMix=mix}) {
-                        Box(Modifier.size(155.dp).clip(RoundedCornerShape(19.dp))) {
-                            AlbumArt(mix.coverSong(),Modifier.fillMaxSize(),radius=RoundedCornerShape(19.dp))
-                            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent,Color.Black.copy(alpha=.6f)))))
-                            Text(mix.name,modifier=Modifier.align(Alignment.BottomStart).padding(13.dp),fontSize=18.sp,
-                                fontWeight=FontWeight.SemiBold,color=Color.White,maxLines=2)
-                        }
-                        Text("${mix.songs.size}곡 · 나만의 믹스",fontSize=11.sp,color=homeGrey,modifier=Modifier.padding(top=7.dp))
-                    }
-                }
-            }
-            Spacer(Modifier.height(29.dp))
         }
         if (recent.isNotEmpty()) item {
             Text(if(hasHistory) "Your recent moments" else "Ready when you are",fontSize=20.sp,fontWeight=FontWeight.Bold,color=homeInk)
@@ -110,6 +89,29 @@ fun OdifyPersonalHome(
                 }
             }
             Spacer(Modifier.height(28.dp))
+        }
+        item {
+            Row(Modifier.fillMaxWidth(), verticalAlignment=Alignment.CenterVertically) {
+                Text("Made for you",fontSize=20.sp,fontWeight=FontWeight.Bold,color=homeInk,modifier=Modifier.weight(1f))
+                Icon(Icons.Outlined.AutoAwesome,null,tint=homeGrey,modifier=Modifier.size(18.dp))
+            }
+            Text("들을수록 가까워지는 취향",fontSize=11.sp,color=homeGrey,modifier=Modifier.padding(top=4.dp,bottom=14.dp))
+        }
+        if (mixes.isNotEmpty()) item {
+            LazyRow(horizontalArrangement=Arrangement.spacedBy(13.dp)) {
+                items(mixes,key={it.key}) { mix ->
+                    Column(Modifier.width(132.dp).clickable {selectedMix=mix}) {
+                        Box(Modifier.size(132.dp).clip(RoundedCornerShape(19.dp))) {
+                            AlbumArt(mix.coverSong(),Modifier.fillMaxSize(),radius=RoundedCornerShape(19.dp))
+                            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent,Color.Black.copy(alpha=.6f)))))
+                            Text(mix.name,modifier=Modifier.align(Alignment.BottomStart).padding(13.dp),fontSize=18.sp,
+                                fontWeight=FontWeight.SemiBold,color=Color.White,maxLines=2)
+                        }
+                        Text("${mix.songs.size}곡 · 나만의 믹스",fontSize=11.sp,color=homeGrey,modifier=Modifier.padding(top=7.dp))
+                    }
+                }
+            }
+            Spacer(Modifier.height(29.dp))
         }
         item {
             Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
