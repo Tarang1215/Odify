@@ -12,13 +12,37 @@ publisher_spec=importlib.util.spec_from_file_location('publish_chart_index',Path
 publisher=importlib.util.module_from_spec(publisher_spec);publisher_spec.loader.exec_module(publisher)
 
 class ChartTests(unittest.TestCase):
+    def test_parallel_quick_download_embeds_cover_without_querying_lyrics(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);(root/'Audio').mkdir()
+            row={'id':'123','artist':'Artist','title':'Song Name','album':'Album','country':'kr','rank':1,
+                 'duration_ms':180000,'status':'LINK_SELECTED','video_url':'https://youtu.be/abcdefghijk',
+                 'appearances':[{'id':'123','country':'kr','rank':1}]}
+            info={'id':'abcdefghijk','title':'Artist - Song Name (Lyrics)','duration':180,
+                  '_odifySelectionPolicy':'duration-title-prefer-official-then-lyrics-v1'}
+            def download(db,track,folder,*args,**kwargs):
+                self.assertFalse(args[0], 'Network enrichment must be deferred')
+                kwargs['metadata_validator'](track[-1],track[2],info)
+                (folder/'Audio'/'CHART123.mp3').write_bytes(b'new downloaded audio')
+            args=SimpleNamespace(download_only=True,config=None,folder_id=None,rclone='unavailable')
+            with patch.object(charts.audio,'download_one',side_effect=download), \
+                 patch.object(charts,'quick_cover',return_value=(b'jpeg cover','chart')), \
+                 patch.object(charts.audio,'tag_audio') as tag, \
+                 patch('mutagen.File',return_value=SimpleNamespace(info=SimpleNamespace(length=180))), \
+                 patch.object(charts.audio,'try_lyrics',side_effect=AssertionError('Lyrics deferred')):
+                charts.collect_quick(args,root,[row],{'123':{'metadata':info}})
+                self.assertEqual(b'jpeg cover',tag.call_args.args[5])
+                self.assertIsNone(tag.call_args.args[6])
+            self.assertEqual('DOWNLOADED_VERIFIED',row['status'])
+            self.assertEqual(64,len(row['sha256']))
     def test_quick_chart_policy_accepts_lyrics_without_verified_channel_and_rejects_live(self):
         row={'title':'Song Name','artist':'Artist','duration_ms':180000}
         info={'id':'abcdefghijk','title':'Artist - Song Name (Lyrics)','duration':181,'channel':'Lyrics fan'}
         self.assertTrue(charts.quick_candidate_matches(row,info))
+        self.assertTrue(charts.quick_candidate_matches({**row,'title':'Song Name (Mixed)'},info))
         for change in ({'duration':190},{'title':'Artist - Song Name (Live concert)'},
                        {'title':'Artist - Song Name (Instrumental)'},{'title':'Different Song'},
-                       {'title':'Artist - Song Name remix'}):
+                       {'title':'Artist - Song Name remix'},{'title':'Artist - Song Name【ライブ映像】'}):
             self.assertFalse(charts.quick_candidate_matches(row,{**info,**change}))
         self.assertLess(charts.quick_rank(row,{**info,'title':'Artist - Song Name Official Audio'}),
                         charts.quick_rank(row,info))

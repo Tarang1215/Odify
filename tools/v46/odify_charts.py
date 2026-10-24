@@ -154,15 +154,17 @@ def quick_candidate_matches(row,info):
     """User-selected chart policy: matching length/title, no official-owner gate."""
     target=row.get('duration_ms',0)/1000
     duration=info.get('duration')
-    if not target or not isinstance(duration,(int,float)) or abs(duration-target)>3:return False
+    # Search durations are rounded and can differ from the final audio by a few seconds.
+    if not target or not isinstance(duration,(int,float)) or abs(duration-target)>4:return False
     if info.get('is_live') or info.get('live_status') in ('is_live','was_live','is_upcoming'):return False
     title=str(info.get('title') or '')
     for marker in ('concert','live','cover','instrumental','karaoke','nightcore','slowed','sped up',
                    'sped-up','remix','loop','teaser','reaction','performance','short ver',
-                   '라이브','직캠','콘서트','커버','노래방','歌ってみた','カラオケ','ライブ映像'):
-        if re.search(r'(?<!\w)'+re.escape(marker)+r'(?!\w)',title,re.I):return False
+                   '라이브','직캠','콘서트','커버','노래방','歌ってみた','カラオケ','ライブ','カバー','弾き語り'):
+        if (marker in title if not marker.isascii() else
+            re.search(r'(?<!\w)'+re.escape(marker)+r'(?!\w)',title,re.I)):return False
     expected=audio.recording_title(row['title'])
-    expected=re.sub(r'\s*[\[(](?:with |prod\.?|\d{4} remaster|영화 |spider-man:).*?[\])]', '',expected,flags=re.I).strip()
+    expected=re.sub(r'\s*[\[(](?:mixed|with |prod\.?|\d{4} remaster|영화 |spider-man:).*?[\])]', '',expected,flags=re.I).strip()
     if len(norm(expected))<5 and expected.isascii():
         return bool(re.search(r'(?<!\w)'+re.escape(expected)+r'(?!\w)',title,re.I))
     if '*' in expected:
@@ -280,7 +282,7 @@ def collect_quick(args,root,rows,selected):
                     audio_format='mp3',inspected_metadata=info,
                     metadata_validator=lambda u,t,i:validate_quick_metadata(row,u,t,i))
             actual=AudioFile(path)
-            if actual is None or abs(actual.info.length-row['duration_ms']/1000)>3.5:
+            if actual is None or abs(actual.info.length-row['duration_ms']/1000)>5:
                 raise ValueError('Downloaded audio length differs from selected chart recording')
             cover,origin=quick_cover(row,root,info['id'])
             if cover:

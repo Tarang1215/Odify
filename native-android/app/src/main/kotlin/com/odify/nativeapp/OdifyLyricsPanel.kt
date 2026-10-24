@@ -155,7 +155,7 @@ fun OdifyLyricsPanel(song: OdifySong, positionMs: Long,
             }
         } else {
             Column(Modifier.verticalScroll(rememberScrollState()).padding(vertical=if(immersive) 35.dp else 0.dp)) {
-                Text(text,color=Color.White,fontSize=if(immersive) 17.sp else 13.sp,
+                Text(parsed.text,color=Color.White,fontSize=if(immersive) 17.sp else 13.sp,
                     lineHeight=if(immersive) 30.sp else 22.sp,fontWeight=if(immersive) FontWeight.SemiBold else FontWeight.Normal,textAlign=TextAlign.Center,
                     modifier=Modifier.fillMaxWidth())
             }
