@@ -123,7 +123,8 @@ fun AlbumArt(
     modifier: Modifier = Modifier,
     radius: androidx.compose.ui.graphics.Shape = RoundedCornerShape(14.dp),
     fallbackKey: Int = 0,
-    muted: Boolean = false
+    muted: Boolean = false,
+    contentScale: ContentScale = ContentScale.Crop
 ) {
     val coverPath = song?.artworkPath
     // produceState(key1=...) restarts its loader but keeps the OLD image value
@@ -179,7 +180,7 @@ fun AlbumArt(
         val bitmap = image
         if (bitmap != null) {
             Image(bitmap = bitmap, contentDescription = song?.album ?: song?.title,
-                contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize(),
+                contentScale = contentScale, modifier = Modifier.fillMaxSize(),
                 colorFilter = if (muted) ColorFilter.colorMatrix(
                     ColorMatrix().apply { setToSaturation(0.20f) }
                 ) else null)

@@ -163,7 +163,10 @@ fun OdifyNowPlaying(
         AlbumArt(song, Modifier.fillMaxSize()
             .graphicsLayer { scaleX = 1.16f; scaleY = 1.16f }
             .blur(24.dp), radius = RoundedCornerShape(0.dp),
-            fallbackKey = song.id.hashCode())
+            fallbackKey = song.id.hashCode(), muted = true,
+            // A portrait crop can reduce a square cover to one solid center
+            // color. Preserve its whole composition in the frosted backdrop.
+            contentScale = androidx.compose.ui.layout.ContentScale.FillBounds)
         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(
             Color(0x40101216), Color(0x65101216), Color(0xB8101216)))))
         BoxWithConstraints(
