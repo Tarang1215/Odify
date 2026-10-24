@@ -50,7 +50,7 @@ internal fun OdifyYoutubeSearch(query: String, connected: Boolean, onConnect: ()
         loading = true
         try { videos = repo.search(query.trim().take(160)) }
         catch (cancel: CancellationException) { throw cancel }
-        catch (_: Exception) { error = "검색을 불러오지 못했어요. 계정 연결·검색 한도를 확인하거나 YouTube 앱에서 검색해 주세요." }
+        catch (failure: Exception) { error = failure.message ?: "검색을 불러오지 못했어요. YouTube 앱에서 검색해 주세요." }
         finally { loading = false }
     }
     Column(Modifier.fillMaxSize()) {
@@ -68,7 +68,7 @@ internal fun OdifyYoutubeSearch(query: String, connected: Boolean, onConnect: ()
                         if (chosen != null) opened(OdifyExternalYoutube.openVideo(context, chosen.videoId))
                         else error = "재생할 후보가 없어요. 검색 결과에서 직접 선택해 주세요."
                     } catch (cancel: CancellationException) { throw cancel }
-                    catch (_: Exception) { error = "빠른 재생 검색을 불러오지 못했어요." }
+                    catch (failure: Exception) { error = failure.message ?: "빠른 재생 검색을 불러오지 못했어요." }
                     finally { loading = false }
                 }
             }) { Text("가사 영상 바로 재생") }

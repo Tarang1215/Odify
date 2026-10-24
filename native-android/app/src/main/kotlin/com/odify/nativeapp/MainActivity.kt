@@ -358,6 +358,7 @@ private fun NativeOdify() {
     }
 
     LaunchedEffect(Unit) {
+        OdifyYoutubeAuth.restore(activity) { youtubeConnected=true;youtubeStatus="YouTube 연결 복원됨" }
         songs = withContext(Dispatchers.IO) {
             library.songs() + runCatching { driveCatalog.tracks() }.getOrElse {
                 // Preserve the database for diagnosis; a broken Drive cache
