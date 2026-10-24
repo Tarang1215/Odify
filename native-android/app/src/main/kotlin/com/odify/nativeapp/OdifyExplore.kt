@@ -31,6 +31,17 @@ data class ExploreChart(val country:String,val updated:String,val fetchedAt:Long
 
 /** Public chart metadata. Playback always resolves to an owned, identified file. */
 class OdifyExploreRepository(private val context:Context) {
+    private val memory=java.util.concurrent.ConcurrentHashMap<String,ExploreChart>()
+    fun peek(country:String):ExploreChart?=memory[country]
+    suspend fun cached(country:String):ExploreChart?=withContext(Dispatchers.IO) {
+        require(country in setOf("kr","jp","us"))
+        memory[country] ?: run {
+            val file=File(context.cacheDir,"explore100_$country.json")
+            val saved=runCatching {parse(file.readText(),country,file.lastModified(),true)}.getOrNull()
+            val seed=saved ?: runCatching {parse(context.assets.open("charts/$country.json").bufferedReader().use {it.readText()},country,0,true)}.getOrNull()
+            seed?.also {memory[country]=it}
+        }
+    }
     private fun parse(raw:String,country:String,fetchedAt:Long,cached:Boolean):ExploreChart {
         val feed=JSONObject(raw).getJSONObject("feed")
         val array=feed.getJSONArray("results")
@@ -86,8 +97,7 @@ class OdifyExploreRepository(private val context:Context) {
     suspend fun load(country:String,force:Boolean=false):ExploreChart = withContext(Dispatchers.IO) {
         require(country in setOf("kr","jp","us"))
         val file=File(context.cacheDir,"explore100_$country.json")
-        val seed=runCatching {parse(context.assets.open("charts/$country.json").bufferedReader().use {it.readText()},country,0,true)}.getOrNull()
-        val existing=runCatching {parse(file.readText(),country,file.lastModified(),true)}.getOrNull() ?: seed
+        val existing=cached(country)
         if(!force && existing!=null && System.currentTimeMillis()-existing.fetchedAt < 6L*60*60*1000) return@withContext existing
         try {
             val raw=if(country=="kr") publicPlaylist(country,existing) else try {
@@ -98,6 +108,7 @@ class OdifyExploreRepository(private val context:Context) {
             val atomic=AtomicFile(file);val output=atomic.startWrite()
             try {output.write(raw.toByteArray(Charsets.UTF_8));atomic.finishWrite(output)}
             catch(failure:Exception) {atomic.failWrite(output);throw failure}
+            memory[country]=result
             result
         } catch(cancel:CancellationException) {throw cancel}
         catch(failure:Exception) {existing ?: throw failure}
@@ -113,7 +124,8 @@ private fun java.io.InputStream.readBytesBounded(limit:Int):ByteArray {
 @Composable
 private fun ExploreCover(track:ExploreTrack,modifier:Modifier) {
     val context=LocalContext.current
-    val cover by produceState<ImageBitmap?>(null,track.artwork) {
+    val cover by produceState<ImageBitmap?>(ExploreArtworkMemory.peek(track.artwork),track.artwork) {
+        if(value!=null)return@produceState
         value=withContext(Dispatchers.IO) {
             runCatching {
                 val url=URL(track.artwork)
@@ -130,7 +142,10 @@ private fun ExploreCover(track:ExploreTrack,modifier:Modifier) {
                 val options=BitmapFactory.Options().apply {inJustDecodeBounds=true}
                 BitmapFactory.decodeByteArray(bytes,0,bytes.size,options)
                 require(options.outWidth in 1..2048 && options.outHeight in 1..2048)
-                BitmapFactory.decodeByteArray(bytes,0,bytes.size)?.asImageBitmap()
+                var sample=1
+                while(options.outWidth/sample>256 || options.outHeight/sample>256)sample*=2
+                BitmapFactory.decodeByteArray(bytes,0,bytes.size,BitmapFactory.Options().apply {inSampleSize=sample})
+                    ?.asImageBitmap()?.also {ExploreArtworkMemory.put(track.artwork,it)}
             }.getOrNull()
         }
     }
@@ -140,26 +155,34 @@ private fun ExploreCover(track:ExploreTrack,modifier:Modifier) {
     }
 }
 
+private object ExploreArtworkMemory {
+    private val entries=object:LinkedHashMap<String,ImageBitmap>(48,.75f,true) {
+        override fun removeEldestEntry(eldest:MutableMap.MutableEntry<String,ImageBitmap>?)=size>48
+    }
+    @Synchronized fun peek(key:String)=entries[key]
+    @Synchronized fun put(key:String,value:ImageBitmap) {entries[key]=value}
+}
+
 @Composable
-fun OdifyExplore(songs:List<OdifySong>,onProfile:()->Unit,onPlay:(List<OdifySong>,Int)->Unit,
+fun OdifyExplore(index:OdifyChartMatching.Index,repository:OdifyExploreRepository,onProfile:()->Unit,onPlay:(List<OdifySong>,Int)->Unit,
     onSaveChart:(String,List<String>)->Unit,onSync:()->Unit) {
     val context=LocalContext.current
-    val repository=remember {OdifyExploreRepository(context.applicationContext)}
     var country by rememberSaveable {mutableStateOf("kr")}
     var genre by rememberSaveable {mutableStateOf("")}
     var refresh by remember {mutableIntStateOf(0)}
-    var chart by remember {mutableStateOf<ExploreChart?>(null)}
+    var chart by remember {mutableStateOf(repository.peek(country))}
     var busy by remember {mutableStateOf(false)}
     var error by remember {mutableStateOf<String?>(null)}
     LaunchedEffect(country,refresh) {
-        busy=true;error=null;chart=null;genre=""
+        busy=true;error=null;chart=repository.peek(country);genre=""
+        if(chart==null) chart=repository.cached(country)
         try {chart=repository.load(country,refresh>0)}
         catch(cancel:CancellationException) {throw cancel}
         catch(_:Exception) {error="차트를 불러오지 못했어요. 연결을 확인하고 다시 시도해 주세요."}
         finally {busy=false}
     }
     val visible=chart?.tracks.orEmpty().filter {genre.isEmpty() || genre in it.genres}
-    val matched=remember(chart,songs) {chart?.tracks.orEmpty().associate {it.id to OdifyChartMatching.resolve(it,songs)}}
+    val matched=remember(chart,index) {chart?.tracks.orEmpty().associate {it.id to index.resolve(it)}}
     val ready=visible.mapNotNull {matched[it.id]}.distinctBy {it.contentMd5.ifBlank {it.id}}
     val countryName=when(country) {"kr"->"한국";"jp"->"일본";else->"미국"}
     fun play(shuffle:Boolean=false) {if(ready.isNotEmpty()) onPlay(if(shuffle) ready.shuffled() else ready,0)}

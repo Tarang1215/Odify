@@ -45,7 +45,7 @@ fun Modifier.recordOdifyBackdrop(backdrop: OdifyBackdrop): Modifier =
     }
 
 /** Replays the real page region through a bounded blur layer; foreground stays sharp. */
-fun Modifier.odifyGlass(backdrop: OdifyBackdrop, shape: Shape): Modifier = composed {
+fun Modifier.odifyGlass(backdrop: OdifyBackdrop, shape: Shape,glow:Color=Color.Transparent): Modifier = composed {
     var coordinates by remember {mutableStateOf<LayoutCoordinates?>(null)}
     val crop=rememberGraphicsLayer()
     val radius=with(LocalDensity.current) {24.dp.toPx()}
@@ -76,6 +76,9 @@ fun Modifier.odifyGlass(backdrop: OdifyBackdrop, shape: Shape): Modifier = compo
         drawRect(Brush.linearGradient(listOf(Color.White.copy(alpha=.17f),
             Color.White.copy(alpha=.025f),Color.White.copy(alpha=.08f)),
             start=Offset.Zero,end=Offset(size.width,size.height)))
+        if(glow.alpha>0f) drawRect(Brush.radialGradient(listOf(glow.copy(alpha=.28f),
+            glow.copy(alpha=.09f),Color.Transparent),
+            center=Offset(size.width*.22f,size.height*.8f),radius=size.width*.85f))
         drawContent()
     }.border(.7.dp,Brush.verticalGradient(listOf(Color.White.copy(alpha=.34f),
         Color.White.copy(alpha=.08f),Color.White.copy(alpha=.19f))),shape)

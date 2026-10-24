@@ -245,6 +245,13 @@ fun OdifyRoot(
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val pageBackdrop = rememberOdifyBackdrop()
+    val exploreRepository=remember {OdifyExploreRepository(context.applicationContext)}
+    val chartIndex by produceState(OdifyChartMatching.buildIndex(emptyList()),songs) {
+        value=withContext(Dispatchers.Default) {OdifyChartMatching.buildIndex(songs)}
+    }
+    LaunchedEffect(exploreRepository) {
+        for(country in listOf("kr","jp","us")) exploreRepository.cached(country)
+    }
     val prefs = remember { context.getSharedPreferences("odify_native_ui", 0) }
     val playlistStore = remember { OdifyPlaylists(context.applicationContext) }
     val listeningStore = remember { OdifyListeningStore(context.applicationContext) }
@@ -316,6 +323,8 @@ fun OdifyRoot(
 
     val songIndex = remember(songs) { songs.associateBy(OdifySong::id) }
     val active = songIndex[playback.mediaId]
+    val artworkGlow=rememberArtworkGlow(active?.artworkPath)
+    val sharedGlow by animateColorAsState(artworkGlow,tween(700),label="shared-artwork-glow")
     val recent = remember(history, songIndex) { history.mapNotNull(songIndex::get) }
     val displayed = remember(recent, songs) {
         OdifySongPresentation.visible(if (recent.isNotEmpty()) recent else songs.asReversed())
@@ -448,7 +457,7 @@ fun OdifyRoot(
                     }
                 )
                 OdifyTab.Explore -> OdifyExplore(
-                    songs=songs,onPlay=::playList,onSync=onDriveSync,
+                    index=chartIndex,repository=exploreRepository,onPlay=::playList,onSync=onDriveSync,
                     onProfile = { navigateTo(OdifyTab.Profile) },
                     onSaveChart = { name,ids ->
                         runCatching {playlistStore.saveMix(name,ids)}.onSuccess {
@@ -500,7 +509,7 @@ fun OdifyRoot(
                     alpha = navFraction
                 }
         ) {
-            OdifyBottomBar(selectedTab, gestureInset, pageBackdrop) {
+            OdifyBottomBar(selectedTab, gestureInset, pageBackdrop,sharedGlow) {
                 navigateTo(it)
                 navVisible = true
             }
@@ -513,7 +522,7 @@ fun OdifyRoot(
                             navFraction * (barHeightPx - gestureInsetPx)
                     }
             ) {
-                OdifyMiniPlayer(active, playback.isPlaying, active.id in liked, pageBackdrop,
+                OdifyMiniPlayer(active, playback.isPlaying, active.id in liked, pageBackdrop,sharedGlow,
                     compact=compactPlayer,onReveal={compactPlayer=false},
                     onExpand = { bounds ->
                         expansionOrigin = bounds
@@ -562,13 +571,18 @@ fun OdifyRoot(
                         transformOrigin = TransformOrigin(0f, 0f)
                         // Follow the finger at a uniform scale; do not squash
                         // portrait content into mini-player proportions mid-drag.
-                        val uniformScale = (1f - closed*.08f) * (1f-drag*.10f)
-                        translationX = size.width*(1f-uniformScale)/2f
-                        translationY = origin.top * closed + size.height * drag * progress
+                        val attraction=closed*closed*(3f-2f*closed)
+                        val terminalScale=minOf(origin.width/size.width,origin.height/size.height).coerceIn(.025f,.15f)
+                        val uniformScale=OdifyMotion.playerScale(progress,drag,terminalScale)
+                        val centerX=size.width/2f+(origin.center.x-size.width/2f)*attraction
+                        val draggedCenterY=size.height/2f+size.height*drag
+                        val centerY=draggedCenterY+(origin.center.y-draggedCenterY)*attraction
+                        translationX=centerX-size.width*uniformScale/2f
+                        translationY=centerY-size.height*uniformScale/2f
                         scaleX = uniformScale
                         scaleY = uniformScale
                         alpha = OdifyMotion.playerOpacity(progress)
-                        shape = RoundedCornerShape((22f * maxOf(closed, drag)).dp)
+                        shape = RoundedCornerShape((22f * maxOf(closed, drag)/uniformScale).dp)
                         clip = true
                     }
                     .featherPlayerEdges {
@@ -663,6 +677,7 @@ private fun OdifyBottomBar(
     selected: OdifyTab,
     bottomInset: androidx.compose.ui.unit.Dp,
     backdrop: OdifyBackdrop,
+    glow:Color,
     onSelected: (OdifyTab) -> Unit
 ) {
     Box(
@@ -672,7 +687,7 @@ private fun OdifyBottomBar(
     ) {
         Row(
             Modifier.widthIn(max = 480.dp).fillMaxWidth().height(58.dp)
-                .odifyGlass(backdrop,RoundedCornerShape(21.dp))
+                .odifyGlass(backdrop,RoundedCornerShape(21.dp),glow)
                 .selectableGroup().padding(horizontal = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -753,6 +768,7 @@ private fun OdifyMiniPlayer(
     playing: Boolean,
     liked: Boolean,
     backdrop: OdifyBackdrop,
+    glow:Color,
     compact: Boolean,
     onReveal: () -> Unit,
     onExpand: (Rect?) -> Unit,
@@ -764,8 +780,6 @@ private fun OdifyMiniPlayer(
     val titleMeasurer=rememberTextMeasurer()
     val measuredTitle=titleMeasurer.measure(song.title,style=titleStyle,maxLines=1,softWrap=false)
     val titleWidth=with(LocalDensity.current) {measuredTitle.size.width.toDp()}
-    val artworkGlow=rememberArtworkGlow(song.artworkPath)
-    val glow by animateColorAsState(artworkGlow,tween(700),label="artwork-glow")
     BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal=11.dp,vertical=5.dp),contentAlignment=Alignment.Center) {
     // Bounded organic sizing: short titles avoid a hollow center; long titles
     // retain breathing room and marquee instead of creating a screen-wide pill.
@@ -776,12 +790,7 @@ private fun OdifyMiniPlayer(
         Modifier.width(width).height(height)
             .onGloballyPositioned { coordinates = it }
             .shadow(10.dp, RoundedCornerShape(22.dp),ambientColor=glow.copy(alpha=.28f),spotColor=glow.copy(alpha=.24f))
-            .odifyGlass(backdrop,RoundedCornerShape(22.dp))
-            .drawBehind {
-                drawRect(Brush.radialGradient(listOf(glow.copy(alpha=.28f),
-                    glow.copy(alpha=.09f),Color.Transparent),
-                    center=Offset(size.width*.22f,size.height*.8f),radius=size.width*.85f))
-            }
+            .odifyGlass(backdrop,RoundedCornerShape(22.dp),glow)
             .clickable {
                 // Read at the tap: the nav spring can move the parent render
                 // layer without issuing a fresh layout-position callback.
@@ -793,7 +802,7 @@ private fun OdifyMiniPlayer(
             .padding(horizontal = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        AlbumArt(song, Modifier.size(if(compact) 29.dp else 41.dp), radius = RoundedCornerShape(10.dp),
+        AlbumArt(song, Modifier.size(if(compact) 29.dp else 41.dp), radius = if(compact) CircleShape else RoundedCornerShape(10.dp),
             fallbackKey = song.id.hashCode())
         Spacer(Modifier.width(10.dp))
         if(compact) {
@@ -814,11 +823,12 @@ private fun OdifyMiniPlayer(
             Icon(if (liked) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
                 "좋아요", tint = ink, modifier = Modifier.size(19.dp))
         }
-        Box(Modifier.size(37.dp)
-            .clip(if(compact) CircleShape else RoundedCornerShape(13.dp)).background(ink)
-            .clickable(onClick = onToggle), contentAlignment = Alignment.Center) {
+        Box(Modifier.size(37.dp).clickable(onClick = onToggle),contentAlignment=Alignment.Center) {
+        Box(Modifier.size(if(compact) 29.dp else 37.dp)
+            .clip(if(compact) CircleShape else RoundedCornerShape(13.dp)).background(ink), contentAlignment = Alignment.Center) {
             Icon(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow,
                 "재생·일시정지", tint = white, modifier = Modifier.size(23.dp))
+        }
         }
     }
     }

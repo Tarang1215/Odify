@@ -9,8 +9,9 @@ import java.net.URLDecoder
  * Never treat similarly named covers, remixes or live performances as exact.
  */
 object OdifyYouTubeMatcher {
+    private val nonWord=Regex("[^\\p{L}\\p{N}]")
     fun norm(input: String): String = Normalizer.normalize(input,Normalizer.Form.NFKC)
-        .lowercase(Locale.ROOT).replace(Regex("[^\\p{L}\\p{N}]"),"")
+        .lowercase(Locale.ROOT).replace(nonWord,"")
     fun videoId(url: String): String? {
         val pattern=Regex("^[A-Za-z0-9_-]{11}$")
         val uri=runCatching { URI(url) }.getOrNull() ?: return null

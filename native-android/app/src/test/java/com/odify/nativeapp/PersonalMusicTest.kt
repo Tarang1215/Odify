@@ -4,6 +4,19 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class PersonalMusicTest {
+    @Test fun closingAttractsUniformlyIntoMiniInsteadOfFadingAFullRectangle() {
+        assertEquals(.06f,OdifyMotion.playerScale(0f,.3f,.06f),.0001f)
+        assertEquals(.97f,OdifyMotion.playerScale(1f,.3f,.06f),.0001f)
+        val scales=(0..100).map {OdifyMotion.playerScale(it/100f,.3f,.06f)}
+        assertTrue(scales.zipWithNext().all {(a,b)->b>=a})
+        assertTrue(OdifyMotion.playerScale(.2f,.3f,.06f)<.2f)
+    }
+    @Test fun oneIndexedCatalogResolvesMultipleChartsWithoutRepeatingDeduplication() {
+        val songs=(1..1500).map {song("gdrive:$it").copy(title="Song $it",artist="Artist $it")}
+        val index=OdifyChartMatching.buildIndex(songs)
+        for(i in 1..100) assertEquals("gdrive:$i",index.resolve(ExploreTrack("$i","Song $i","Artist $i","",emptyList(),i))?.id)
+        assertNull(index.resolve(ExploreTrack("unknown","Song 1","Artist 2","",emptyList(),1)))
+    }
     @Test fun chartsUseIdentifiedAudioAndPendingPlaylistReferencesResolveAfterSync() {
         val track=ExploreTrack("123","NEON","A2O","",emptyList(),1)
         val unrelated=song("gdrive:a").copy(title="Drowning",artist="WOODZ",lyrics="NEON")

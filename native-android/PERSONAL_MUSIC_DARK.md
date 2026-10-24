@@ -1,4 +1,4 @@
-# Dark personal music experience — preview12.10
+# Dark personal music experience — preview12.11
 
 Requested navigation: **Home → Explore → Search → Library**, with icon-only tabs,
 a 48dp touch target and accessible names. Profile and account/source management
@@ -13,13 +13,17 @@ glyphs cannot show through. Live coordinate conversion and draw-only frame updat
 follow scrolling and ancestor translations without per-frame recomposition or bitmap
 readback. A 24dp blur with sampling bleed prevents a thin transparent edge.
 The centered compact player follows measured title width within 168–216dp,
-contains the cover, title and a circular pause control, and reveals the full
+contains matching 29dp circular cover and pause surfaces, and reveals the full
 mini-player on tap or upward swipe. Long titles wait
 2.2 seconds before scrolling; the full mini-player also scrolls overflowing titles.
 The cover's dominant chromatic hue supplies a subdued inner glow and soft edge
 shadow. A maximum 64px local decode runs off the main thread and caches 64 colors;
 neutral/very dark artwork falls back to muted gray. Track changes blend the color
 over 700ms. Text and playback controls remain untinted and sharp.
+The navigation shares that exact animated glow color with the mini-player.
+The catalog is deduplicated/indexed once per library update on Dispatchers.Default,
+then all chart matches use indexed lookup. Cached chart snapshots prewarm from
+Home, remain visible during refresh, and 48 bounded decoded covers are reused.
 
 All main pages, search, settings, sheets, splash and system bars use the same dark
 palette. Artwork supplies color; the UI uses restrained charcoal surfaces and thin
@@ -29,7 +33,8 @@ keeps portrait proportions and smoothly fades the final portion, avoiding the
 opaque flattened frame that flashed against the mini-player. Artwork needs no
 remote-audio decoding.
 During a downward drag or close, a draw-only alpha mask softly feathers the
-panel's outer rim before the overall fade. Artwork and text in the center stay
+panel's outer rim while its center and uniform scale converge into the measured
+mini-player, then it fades. Artwork and text in the center stay
 sharp. The extra offscreen mask exists only while closing/dragging.
 
 Home contains an actual artwork hero, personal mix cards, recent music and saved
@@ -72,7 +77,7 @@ measurement. Tapping/dragging and accessibility progress actions still seek actu
 audio position. Embedded lyrics, queue editing, source audio, playlists, OAuth
 scopes and the permanent package/signing identity are retained.
 
-Local validation: 28 JVM tests and Android-test Kotlin compilation passed. The
+Local validation: 30 JVM tests and Android-test Kotlin compilation passed. The
 fixed-signature GitHub build, private app-data backup and real Galaxy acceptance
 results are tracked in `docs/V46_PROGRESS.md`. Never uninstall the user's existing
 app to bypass a signature mismatch.
