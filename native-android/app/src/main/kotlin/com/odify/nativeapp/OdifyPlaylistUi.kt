@@ -2,6 +2,11 @@ package com.odify.nativeapp
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -11,6 +16,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 
@@ -128,20 +134,23 @@ fun OdifyPlaylistLibrary(
                 Text("플레이리스트가 없습니다. 곡 재생 화면의 ⋮ 메뉴에서 추가할 수 있습니다.",
                     style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.padding(vertical = 24.dp))
-            } else LazyColumn(contentPadding = PaddingValues(bottom = 150.dp)) {
+            } else LazyVerticalGrid(columns=GridCells.Fixed(2),contentPadding = PaddingValues(bottom = 150.dp),
+                horizontalArrangement=Arrangement.spacedBy(14.dp),verticalArrangement=Arrangement.spacedBy(18.dp)) {
                 items(playlists, key = { it.id }) { playlist ->
-                    ListItem(
-                        headlineContent = { Text(playlist.name) },
-                        supportingContent = { Text("${playlist.songIds.size}곡") },
-                        leadingContent = { Icon(Icons.Default.QueueMusic, null) },
-                        trailingContent = {
-                            IconButton(onClick = { deletePending = playlist.id }) {
-                                Icon(Icons.Default.DeleteOutline, "삭제")
+                    Column(Modifier.clip(RoundedCornerShape(17.dp)).clickable { selectedId=playlist.id }) {
+                        AlbumArt(playlist.songIds.firstNotNullOfOrNull(songIndex::get),Modifier.fillMaxWidth().aspectRatio(1f),
+                            radius=RoundedCornerShape(17.dp),fallbackKey=playlist.name.hashCode())
+                        Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f).padding(top=9.dp)) {
+                                Text(playlist.name,fontWeight=FontWeight.SemiBold,maxLines=1,
+                                    overflow=androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                                Text("${playlist.songIds.size}곡",style=MaterialTheme.typography.labelSmall,color=OdifyPalette.muted)
                             }
-                        },
-                        modifier = Modifier.clickable { selectedId = playlist.id }
-                    )
-                    HorizontalDivider()
+                            IconButton(onClick={deletePending=playlist.id},modifier=Modifier.size(38.dp)) {
+                                Icon(Icons.Default.MoreHoriz,"${playlist.name} 삭제 메뉴",tint=OdifyPalette.muted)
+                            }
+                        }
+                    }
                 }
             }
         } else {

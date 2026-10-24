@@ -64,6 +64,21 @@ class OdifyPlaylists(context: Context) {
         return true
     }
 
+    /** Save the exact current mix, atomically. Later recommendation changes leave it intact. */
+    @Synchronized fun saveMix(name: String, songIds: List<String>): OdifyPlaylist {
+        val ids = songIds.filter(String::isNotBlank).distinct()
+        require(ids.isNotEmpty()) { "저장할 음악이 없습니다." }
+        val base = name.trim().take(70).ifBlank { "My mix" }
+        val items = all()
+        items.firstOrNull { it.name == base && it.songIds == ids }?.let { return it }
+        var label = base
+        var suffix = 2
+        while (items.any { it.name.equals(label, true) }) label = "$base · ${suffix++}"
+        val playlist = OdifyPlaylist(UUID.randomUUID().toString(), label, ids)
+        save(items + playlist)
+        return playlist
+    }
+
     @Synchronized fun removeSong(playlistId: String, songId: String) {
         save(all().map {
             if (it.id == playlistId) it.copy(songIds = it.songIds.filterNot { id -> id == songId })

@@ -48,6 +48,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.Velocity
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.progressBarRangeInfo
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
+import androidx.compose.ui.semantics.setProgress
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import kotlin.math.abs
@@ -133,15 +138,9 @@ fun OdifyNowPlaying(
         albumSlide = 0f
         albumSettling = false
     }
-    val waveform by produceState<List<Float>>(
-        initialValue = if (song.isCloud) emptyList()
-            else OdifyWaveformRepository.peek(song.id), song.id
-    ) {
-        // Never decode a remote Drive file merely to draw a waveform: that
-        // defeats range-streaming and can burn through the free-tier data plan.
-        value = if (song.isCloud) emptyList()
-            else OdifyWaveformRepository.load(context = context, song = song)
-    }
+    // Decorative 12-pattern seek art stays stable during one song view.
+    // No decoding/download, and no claim to visualize the audio's real waveform.
+    val waveform = remember(song.id) { OdifyWaveformPatterns.samples(kotlin.random.Random.nextInt(OdifyWaveformPatterns.count)) }
     val dragState = rememberDraggableState { delta ->
         // Direct state update follows the finger at display refresh rate.
         dragOffset = (dragOffset + delta).coerceAtLeast(0f)
@@ -381,14 +380,12 @@ fun OdifyNowPlaying(
                     Box(
                         Modifier.size(65.dp)
                             .clip(CircleShape)
-                            .background(Brush.linearGradient(listOf(
-                                Color(0xFF32363C), Color(0xFF25292E))))
-                            .border(0.8.dp, Color.White.copy(alpha = 0.19f), CircleShape)
+                            .background(Color(0xFFF2F3F6))
                             .clickable(onClick = onToggle),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow,
-                            "재생·일시정지", tint = playerWhite,
+                            "재생·일시정지", tint = playerBg,
                             modifier = Modifier.size(31.dp))
                     }
                     IconButton(onClick = onNext) {
@@ -501,7 +498,13 @@ private fun OdifyWaveformProgress(
         label = "odify-waveform-crossfade"
     )
     Canvas(
-        modifier.pointerInput(duration) {
+        modifier.semantics {
+            contentDescription = "재생 위치"
+            progressBarRangeInfo = ProgressBarRangeInfo(actualFraction,0f..1f)
+            setProgress { target ->
+                if(duration > 0) {onSeek((duration*target.coerceIn(0f,1f)).toLong());true} else false
+            }
+        }.pointerInput(duration) {
             awaitEachGesture {
                 val down = awaitFirstDown(requireUnconsumed = false)
                 if (duration <= 0L || size.width <= 0) return@awaitEachGesture

@@ -164,8 +164,12 @@ class V12PlaybackTest {
             playlists.removeSong(list.id, "localfolder:one")
             assertTrue(OdifyPlaylists(context).all().first { it.id == list.id }.songIds.isEmpty())
             val track = OdifySong("localfolder:one", "밤편지", "아이유", "", "")
-            assertEquals(track, OdifyYouTubeMatcher.find(
+            assertNull(OdifyYouTubeMatcher.find(
                 YoutubeVideo("abcdefghijk", "아이유 - 밤편지 (Official Audio)", "", ""), listOf(track), emptyList()))
+            val reviewed = MasterTrack("ODF000001", "2026", "", "아이유", "밤편지", "",
+                "https://www.youtube.com/watch?v=abcdefghijk", true, "", "", "studio")
+            assertEquals(track, OdifyYouTubeMatcher.find(
+                YoutubeVideo("abcdefghijk", "아이유 - 밤편지 (Official Audio)", "", ""), listOf(track), listOf(reviewed)))
             assertNull(OdifyYouTubeMatcher.find(
                 YoutubeVideo("abcdefghijk", "아이유 - 밤편지 (Live)", "", ""), listOf(track), emptyList()))
             assertEquals("米津玄師", OdifyYouTubeMatcher.norm("米津 玄師"))

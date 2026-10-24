@@ -271,7 +271,7 @@ class DriveCatalog(private val context: Context) {
     }
 
     /**
-     * Browse only the user's selected music root, recursively.
+     * Browse the selected music root and Odify's named upload roots recursively.
      * Sync is transactional: unsuccessful network listing leaves old catalog.
      * Volume-limited to 50k files and 4k folders to prevent runaway scans.
      */
@@ -288,7 +288,9 @@ class DriveCatalog(private val context: Context) {
         }
         val filter = "mimeType = '$FOLDER_MIME' and trashed = false and ($names)"
         var rootPage: String? = null
+        val rootPages = HashSet<String>()
         do {
+            check(rootPages.add(rootPage.orEmpty())) { "Drive 폴더 페이지가 반복되었습니다." }
             val result = JSONObject(apiJson("files", mapOf(
                 "q" to filter, "pageSize" to "1000",
                 "fields" to "nextPageToken,files(id,name)",
@@ -298,6 +300,7 @@ class DriveCatalog(private val context: Context) {
             for (i in 0 until entries.length()) {
                 roots += entries.getJSONObject(i).getString("id")
             }
+            check(roots.size <= 4_000) { "폴더 수 제한(4,000)을 초과했습니다." }
             rootPage = result.optString("nextPageToken").takeIf { it.isNotBlank() }
         } while (rootPage != null)
         if (roots.isEmpty()) error("Drive에서 Odify_Music_Test 또는 Odify_Auto_Upload 폴더를 찾지 못했습니다.")

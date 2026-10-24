@@ -1,5 +1,6 @@
 .local/
 native-android/.gradle/
+native-android/.kotlin/
 native-android/**/build/
 native-android/local.properties
 native-android/app/src/main/res/font/

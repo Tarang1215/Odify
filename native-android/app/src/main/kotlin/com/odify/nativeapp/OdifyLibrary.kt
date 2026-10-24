@@ -32,6 +32,11 @@ data class OdifySong(
 ) {
     val isCloud: Boolean get() = id.startsWith("gdrive:") || sourceUri?.startsWith("https://") == true && !id.startsWith("localfolder:")
     val isPhoneFolder: Boolean get() = id.startsWith("localfolder:")
+    val isOfflineSaved: Boolean get() = !isCloud && (
+        sourceUri.isNullOrBlank() && filePath.isNotBlank() ||
+            isPhoneFolder && (sourceUri?.startsWith("content://com.android.externalstorage.documents/") == true ||
+                sourceUri?.startsWith("content://com.android.providers.media.documents/") == true)
+        )
     fun mediaItem(): MediaItem = MediaItem.Builder()
         .setMediaId(id)
         .setUri(if (!sourceUri.isNullOrBlank()) Uri.parse(sourceUri) else Uri.fromFile(File(filePath)))
