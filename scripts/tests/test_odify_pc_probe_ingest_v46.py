@@ -1,4 +1,5 @@
 import csv,sqlite3,tempfile,sys,unittest
+from contextlib import closing
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 import odify_pc_probe_ingest_v46 as v46
@@ -31,7 +32,8 @@ class WindowsProbeIngestTests(unittest.TestCase):
             self.assertEqual(dbase.execute("SELECT approved_for_playback FROM pc_probe").fetchone()[0],0)
             self.assertEqual(dbase.execute("SELECT recording_id FROM pc_probe").fetchone()[0],"first")
             dbase.close()
-            self.assertEqual(sqlite3.connect(catalog).execute("SELECT COUNT(*) FROM source_candidate").fetchone()[0],1)
+            with closing(sqlite3.connect(catalog)) as check:
+                self.assertEqual(check.execute("SELECT COUNT(*) FROM source_candidate").fetchone()[0],1)
             with self.assertRaises(ValueError):v46.import_observations(catalog,[rowfile],out)
     def test_url_validation(self):
         self.assertIsNone(v46.URL.fullmatch("https://www.youtube.com.evil.example/watch?v=ZlDDiHK4tQM"))

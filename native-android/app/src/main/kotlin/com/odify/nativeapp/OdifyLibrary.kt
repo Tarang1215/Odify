@@ -34,7 +34,7 @@ data class OdifySong(
     val isPhoneFolder: Boolean get() = id.startsWith("localfolder:")
     val isOfflineSaved: Boolean get() = !isCloud && (
         sourceUri.isNullOrBlank() && filePath.isNotBlank() ||
-            isPhoneFolder && (sourceUri?.startsWith("content://com.android.externalstorage.documents/") == true ||
+            (sourceUri?.startsWith("content://com.android.externalstorage.documents/") == true ||
                 sourceUri?.startsWith("content://com.android.providers.media.documents/") == true)
         )
     fun mediaItem(): MediaItem = MediaItem.Builder()
@@ -106,6 +106,16 @@ class OdifyLibrary(private val context: Context) {
             })
         }
         prefs.edit().putString("songs", json.toString()).apply()
+    }
+
+    /** Register a completed local export; remote document providers are not offline copies. */
+    fun rememberOfflineExport(song: OdifySong, uri: Uri) {
+        if (uri.authority !in setOf("com.android.externalstorage.documents", "com.android.providers.media.documents")) return
+        runCatching { context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+        val id = "offline:" + MessageDigest.getInstance("SHA-256").digest(uri.toString().toByteArray())
+            .joinToString("") { "%02x".format(it) }
+        val current = songs()
+        store(current.filterNot { it.id == id } + song.copy(id=id,sourceUri=uri.toString(),filePath=""))
     }
 
     /**

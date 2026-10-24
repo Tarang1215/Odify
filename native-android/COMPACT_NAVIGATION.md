@@ -1,5 +1,9 @@
 # Music navigation, home and immersive player
 
+**Superseded by the user's dark four-tab direction:** see
+[PERSONAL_MUSIC_DARK.md](PERSONAL_MUSIC_DARK.md) for the current preview12.4 behavior.
+The rest of this document records the earlier three-tab reference implementation.
+
 This UI update builds on `feature/odify-v12-master-db` at
 `8304e79cb7e2986ceba87f160f0611791b130e03`.
 

@@ -289,6 +289,10 @@ private fun NativeOdify() {
                 savingDeviceSong = true
                 runCatching { deviceExport.save(current, destination) }
                     .onSuccess { total ->
+                        withContext(Dispatchers.IO) {
+                            library.rememberOfflineExport(current,destination)
+                            songs = library.songs() + driveCatalog.tracks() + phoneFolder.tracks()
+                        }
                         Toast.makeText(context,
                             "디바이스에 저장 완료 (${OdifyDiagnostics.humanBytes(total)})",
                             Toast.LENGTH_LONG).show()

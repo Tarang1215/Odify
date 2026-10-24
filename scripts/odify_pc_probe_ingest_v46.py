@@ -5,8 +5,10 @@ The original 41,416-recording catalog, MASTER, download list and app SQLite
 are never edited. Metadata-only extraction does not approve a recording.
 """
 from __future__ import annotations
-import argparse,csv,json,re,sqlite3,unicodedata
+import argparse,csv,json,math,re,sqlite3,unicodedata,sys
 from pathlib import Path
+sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'tools'/'v46'))
+from odify_review import evaluate
 
 URL=re.compile(r"^https://www\.youtube\.com/watch\?v=([A-Za-z0-9_-]{11})$")
 ALLOWED={"audio_formats_present","no_audio_only_formats","video_id_mismatch","extractor_failed","probe_exception"}
@@ -26,7 +28,8 @@ def import_observations(catalog,pc_results,out):
         for rid,artist,title in src.execute(
             "SELECT r.id,a.name,r.title FROM recording r JOIN artist a ON r.artist_id=a.id"):
             idmap.setdefault((norm(artist),norm(title)),[]).append(rid)
-        indexed=set(src.execute("SELECT recording_id,url FROM source_candidate").fetchall())
+        has_index=src.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='source_candidate'").fetchone() is not None
+        indexed=set(src.execute("SELECT recording_id,url FROM source_candidate").fetchall()) if has_index else set()
     finally:src.close()
     records=[]
     for item in pc_results:
@@ -43,14 +46,20 @@ def import_observations(catalog,pc_results,out):
                 flags=[]
                 if not matches:flags.append("artist_title_unmatched")
                 elif len(matches)>1:flags.append("ambiguous_recording_ids")
+                elif not has_index:flags.append("candidate_index_unavailable")
                 elif (rid,r["url"]) not in indexed:flags.append("candidate_not_in_top5")
                 if state=="video_id_mismatch":flags.append("youtube_id_changed")
                 if r.get("variant") not in ("positive_baseline",None,""):
                     flags.append("manual_version_review")
                 try:
-                    if float(r.get("length_difference_seconds") or 0)>7:
+                    delta=float(r.get("length_difference_seconds") or 'nan')
+                    if not math.isfinite(delta):raise ValueError('Non-finite duration')
+                    if abs(delta)>7:
                         flags.append("duration_difference_over_7s")
                 except ValueError:flags.append("duration_parse_error")
+                identity=evaluate(r)
+                flags.append('identity_decision:'+identity['identity_decision'])
+                flags.extend(filter(None,identity['identity_reasons'].split(';')))
                 records.append((key,rid,r["url"],r.get("region",""),
                     r.get("artist",""),r.get("track",""),r.get("variant",""),
                     state,int(r.get("audio_formats") or 0),r.get("preferred_format",""),
@@ -76,6 +85,9 @@ def import_observations(catalog,pc_results,out):
         summary={"observations":len(records),
            "pc_audio_formats_present":sum(r[7]=="audio_formats_present" for r in records),
            "unambiguous_catalog_id":sum(r[1] is not None for r in records),
+           "candidate_index_available":has_index,
+           "identity_decisions":{decision:sum('identity_decision:'+decision in r[13] for r in records)
+                                 for decision in ('METADATA_MATCH','REVIEW','REJECT')},
            "review_flagged":sum(bool(r[13]) for r in records),
            "auto_approved":0,"original_sqlite_modified":False,
            "note":"yt-dlp formats, identity and file transfer are distinct; review only"}

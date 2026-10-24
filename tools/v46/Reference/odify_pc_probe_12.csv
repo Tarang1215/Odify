@@ -1,0 +1,13 @@
+﻿region,artist,title,video_id,url,source,variant,channel,video_title,expected_seconds,candidate_score,manual_review,notes
+kr,AKMU (악뮤),후라이의 꿈,ZlDDiHK4tQM,https://www.youtube.com/watch?v=ZlDDiHK4tQM,odify_v44_review,positive_baseline,AKMU,후라이의 꿈,205,77,PENDING,unchanged_v44
+kr,신용재 (2F),빌려줄게,h1OvbhTihaY,https://www.youtube.com/watch?v=h1OvbhTihaY,odify_v44_review,lyric_fan_channel,도하의 흔적 Traces of Doha,[가사] 신용재 - 빌려줄게 | 내 어깰 빌려줄게 내게 적시면 돼 | ( Sin Yong Jae - Lean on ),212,39,PENDING,unchanged_v44
+kr,애프터스쿨,너 때문에,k5DdV45-EIA,https://www.youtube.com/watch?v=k5DdV45-EIA,odify_v44_review,lyrics_rerank_changed,Various Artists,너 때문에,239,55,PENDING,comparison_updated_v44
+kr,방탄소년단,Moon,xrs8JagG5R8,https://www.youtube.com/watch?v=xrs8JagG5R8,odify_v44_review,channel_mismatch,Mic Torrance,Moon,207,55,PENDING,unchanged_v44
+jp,安室奈美恵,FAST CAR,is2F_1eR8ek,https://www.youtube.com/watch?v=is2F_1eR8ek,odify_v44_review,cover_rerank_changed,Taio Cruz,Fast Car,226,55,PENDING,comparison_updated_v44
+jp,米津玄師 & 宇多田ヒカル,JANE DOE,zuO2fClon98,https://www.youtube.com/watch?v=zuO2fClon98,odify_v44_review,instrumental_rerank_changed,Kenshi Yonezu,JANE DOE,236,43,PENDING,comparison_updated_v44
+jp,米津玄師,Lemon,ltL7BqRWMCw,https://www.youtube.com/watch?v=ltL7BqRWMCw,odify_v44_review,lyrics_fan_channel,Funguypiano,Lemon,233,55,PENDING,comparison_updated_v44
+jp,多岐川舞子,越後平野,fnqplpKVKZk,https://www.youtube.com/watch?v=fnqplpKVKZk,odify_v44_review,artist_channel_mismatch,真木ことみ,越後平野 - Echigo Heiya,257,42,PENDING,unchanged_v44
+us,Drake,God's Plan,m1a_GqJf02M,https://www.youtube.com/watch?v=m1a_GqJf02M,odify_v44_review,positive_baseline,Drake,God's Plan,199,77,PENDING,unchanged_v44
+us,Justin Bieber,Love Yourself,p-IXgwqhfmg,https://www.youtube.com/watch?v=p-IXgwqhfmg,odify_v44_review,positive_baseline,Justin Bieber,Love Yourself,234,77,PENDING,unchanged_v44
+us,Brenda Lee,Rockin' Around The Christmas Tree,z0b7ZdR38_U,https://www.youtube.com/watch?v=z0b7ZdR38_U,odify_v44_review,short_song_real,Brenda Lee,Rockin' Around the Christmas Tree,127,77,PENDING,unchanged_v44
+us,Machine Gun Kelly & Lil Wayne,Ay!,D0Bx2WItp78,https://www.youtube.com/watch?v=D0Bx2WItp78,odify_v44_review,featured_artist_check,mgk,ay!,125,43,PENDING,unchanged_v44
