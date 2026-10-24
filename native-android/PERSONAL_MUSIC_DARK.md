@@ -14,13 +14,16 @@ follow scrolling and ancestor translations without per-frame recomposition or bi
 readback. A 24dp blur with sampling bleed prevents a thin transparent edge.
 The centered compact player follows measured title width within 168–216dp,
 contains matching 29dp circular cover and pause surfaces, and reveals the full
-mini-player on tap or upward swipe. Long titles wait
+mini-player on tap; tapping again collapses it. Upward swipe opens the full
+player from either size. Long titles wait
 2.2 seconds before scrolling; the full mini-player also scrolls overflowing titles.
 The cover's dominant chromatic hue supplies a subdued inner glow and soft edge
 shadow. A maximum 64px local decode runs off the main thread and caches 64 colors;
 neutral/very dark artwork falls back to muted gray. Track changes blend the color
 over 700ms. Text and playback controls remain untinted and sharp.
 The navigation shares that exact animated glow color with the mini-player.
+The full player's queue/lyrics bar uses the same glass treatment and glow, sampling
+only the player's background so controls are never captured back into themselves.
 The catalog is deduplicated/indexed once per library update on Dispatchers.Default,
 then all chart matches use indexed lookup. Cached chart snapshots prewarm from
 Home, remain visible during refresh, and 48 bounded decoded covers are reused.

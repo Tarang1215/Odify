@@ -70,6 +70,7 @@ private val playerWhite = Color(0xFFF5F6F7)
 @Composable
 fun OdifyNowPlaying(
     song: OdifySong,
+    glow:Color,
     previousSong: OdifySong?,
     nextSong: OdifySong?,
     playing: Boolean,
@@ -93,6 +94,7 @@ fun OdifyNowPlaying(
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+    val playerBackdrop=rememberOdifyBackdrop()
     var dragOffset by remember { mutableFloatStateOf(0f) }
     val threshold = with(LocalDensity.current) { 125.dp.toPx() }
     val scrollState = rememberScrollState()
@@ -169,6 +171,7 @@ fun OdifyNowPlaying(
     ) {
         // Reuse the bounded local cover cache. One blurred image behind all
         // controls avoids repeated backdrop capture or downloading audio.
+        Box(Modifier.fillMaxSize().recordOdifyBackdrop(playerBackdrop)) {
         AlbumArt(song, Modifier.fillMaxSize()
             .graphicsLayer { scaleX = 1.16f; scaleY = 1.16f }
             .blur(24.dp), radius = RoundedCornerShape(0.dp),
@@ -178,6 +181,7 @@ fun OdifyNowPlaying(
             contentScale = androidx.compose.ui.layout.ContentScale.FillBounds)
         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(
             Color(0x40101216), Color(0x65101216), Color(0xB8101216)))))
+        }
         BoxWithConstraints(
             Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()
         ) {
@@ -416,12 +420,7 @@ fun OdifyNowPlaying(
                 // Precisely center the AUDIO pill on the same x-axis as Play.
                 Box(
                     Modifier.fillMaxWidth().height(53.dp)
-                        .clip(RoundedCornerShape(24.dp))
-                        .background(Brush.horizontalGradient(
-                            listOf(Color.White.copy(alpha = .20f), Color.White.copy(alpha = .09f))
-                        ))
-                        .border(0.7.dp, Color.White.copy(alpha = 0.30f),
-                            RoundedCornerShape(24.dp))
+                        .odifyGlass(playerBackdrop,RoundedCornerShape(24.dp),glow)
                 ) {
                     IconButton(
                         onClick = { showLyrics = !showLyrics },

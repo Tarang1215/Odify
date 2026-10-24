@@ -523,7 +523,7 @@ fun OdifyRoot(
                     }
             ) {
                 OdifyMiniPlayer(active, playback.isPlaying, active.id in liked, pageBackdrop,sharedGlow,
-                    compact=compactPlayer,onReveal={compactPlayer=false},
+                    compact=compactPlayer,onCompactChange={compactPlayer=it},
                     onExpand = { bounds ->
                         expansionOrigin = bounds
                         playerDragFraction = 0f
@@ -592,6 +592,7 @@ fun OdifyRoot(
             ) {
                 OdifyNowPlaying(
                     song = active,
+                    glow=sharedGlow,
                     previousSong = songIndex[playback.previousMediaId],
                     nextSong = songIndex[playback.nextMediaId],
                     playing = playback.isPlaying,
@@ -770,12 +771,13 @@ private fun OdifyMiniPlayer(
     backdrop: OdifyBackdrop,
     glow:Color,
     compact: Boolean,
-    onReveal: () -> Unit,
+    onCompactChange: (Boolean) -> Unit,
     onExpand: (Rect?) -> Unit,
     onToggle: () -> Unit,
     onLike: () -> Unit
 ) {
     var coordinates by remember { mutableStateOf<androidx.compose.ui.layout.LayoutCoordinates?>(null) }
+    val expandAction by rememberUpdatedState(onExpand)
     val titleStyle=TextStyle(fontSize=12.sp,fontWeight=FontWeight.SemiBold)
     val titleMeasurer=rememberTextMeasurer()
     val measuredTitle=titleMeasurer.measure(song.title,style=titleStyle,maxLines=1,softWrap=false)
@@ -792,13 +794,15 @@ private fun OdifyMiniPlayer(
             .shadow(10.dp, RoundedCornerShape(22.dp),ambientColor=glow.copy(alpha=.28f),spotColor=glow.copy(alpha=.24f))
             .odifyGlass(backdrop,RoundedCornerShape(22.dp),glow)
             .clickable {
-                // Read at the tap: the nav spring can move the parent render
-                // layer without issuing a fresh layout-position callback.
-                if(compact) onReveal() else onExpand(coordinates?.takeIf { it.isAttached }?.boundsInRoot())
+                onCompactChange(!compact)
             }
-            .pointerInput(compact) {if(compact) detectVerticalDragGestures {change,delta ->
-                if(delta<0f) {change.consume();onReveal()}
-            }}
+            .pointerInput(Unit) {
+                var drag=0f
+                detectVerticalDragGestures(onDragStart={drag=0f},onDragCancel={drag=0f},
+                    onDragEnd={if(drag < -28.dp.toPx()) {
+                        expandAction(coordinates?.takeIf {it.isAttached}?.boundsInRoot())
+                    }},onVerticalDrag={change,delta -> change.consume();drag+=delta})
+            }
             .padding(horizontal = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
