@@ -262,6 +262,7 @@ fun OdifyRoot(
     var selectedTab by remember { mutableStateOf(OdifyTab.Home) }
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var searchGenre by rememberSaveable { mutableStateOf("All") }
+    var searchScope by rememberSaveable { mutableStateOf(OdifySearchScope.Music) }
     val pageState = rememberSaveableStateHolder()
     val tabHistory = remember { mutableStateListOf<OdifyTab>() }
     fun navigateTo(tab: OdifyTab) {
@@ -425,13 +426,15 @@ fun OdifyRoot(
                     onSearch = { title ->
                         searchQuery = title
                         searchGenre = "All"
+                        searchScope = OdifySearchScope.Music
                         navigateTo(OdifyTab.Search)
                     }
                 )
                 OdifyTab.Search -> OdifySearch(songs, onImport, ::playList,
                     onProfile = { navigateTo(OdifyTab.Profile) },
                     query = searchQuery, onQueryChange = { searchQuery = it },
-                    genre = searchGenre, onGenreChange = { searchGenre = it })
+                    genre = searchGenre, onGenreChange = { searchGenre = it },
+                    searchScope = searchScope, onScopeChange = { searchScope = it })
                 OdifyTab.Library -> OdifyLibraryScreen(
                     songs = songs, liked = liked, onPlay = ::playList,
                     onImport = onImport, onRemove = onRemove, onEdit = onEdit,
@@ -761,19 +764,19 @@ private fun OdifySearch(
     query: String,
     onQueryChange: (String) -> Unit,
     genre: String,
-    onGenreChange: (String) -> Unit
+    onGenreChange: (String) -> Unit,
+    searchScope: OdifySearchScope,
+    onScopeChange: (OdifySearchScope) -> Unit
 ) {
     var showDuplicates by rememberSaveable { mutableStateOf(false) }
     val genres = remember(songs) {
         listOf("All") + songs.map { it.genre.substringBefore(" / ").trim() }
             .filter { it.isNotBlank() }.distinct().sorted().take(60)
     }
-    val filtered = remember(songs, query, genre, showDuplicates) {
+    val filtered = remember(songs, query, genre, showDuplicates, searchScope) {
         val matches = songs.filter {
             (genre == "All" || it.genre.startsWith(genre, ignoreCase = true)) &&
-            (it.title.contains(query, true) || it.artist.contains(query, true) ||
-             it.album.contains(query, true) || it.genre.contains(query, true) ||
-             it.lyrics.contains(query, true))
+            OdifySearchMatching.matches(it, query, searchScope)
         }
         OdifySongPresentation.visible(matches, showDuplicates)
     }
@@ -793,7 +796,7 @@ private fun OdifySearch(
                 modifier = Modifier.weight(1f),
                 decorationBox = { inner ->
                     Box {
-                        if (query.isEmpty()) Text("노래, 가수, 앨범, 장르, 가사 검색",
+                        if (query.isEmpty()) Text(if (searchScope == OdifySearchScope.Lyrics) "떠오르는 가사로 검색" else "노래, 아티스트, 앨범 검색",
                             color = grey, fontSize = 13.sp)
                         inner()
                     }
@@ -803,6 +806,16 @@ private fun OdifySearch(
                 modifier = Modifier.size(20.dp).clickable { onQueryChange("") }, tint = grey)
         }
         Spacer(Modifier.height(14.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf(OdifySearchScope.Music to "곡·아티스트", OdifySearchScope.Lyrics to "가사").forEach { (scope, label) ->
+                val selected = searchScope == scope
+                Text(label, color = if (selected) white else grey, fontSize = 11.sp,
+                    modifier = Modifier.clip(RoundedCornerShape(20.dp))
+                        .background(if (selected) ink else pale)
+                        .clickable { onScopeChange(scope) }.padding(horizontal = 15.dp, vertical = 9.dp))
+            }
+        }
+        Spacer(Modifier.height(12.dp))
         LazyRow(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
             items(genres) { option ->
                 val selected = genre == option

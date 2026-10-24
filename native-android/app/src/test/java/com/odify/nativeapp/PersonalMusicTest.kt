@@ -4,6 +4,14 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class PersonalMusicTest {
+    @Test fun chartTitleDoesNotMatchAnUnrelatedLyricButLyricsStaySearchable() {
+        val drowning = song("gdrive:one").copy(title="Drowning", artist="WOODZ", lyrics="neon light")
+        val neon = song("gdrive:two").copy(title="NEON", artist="A2O")
+        assertFalse(OdifySearchMatching.matches(drowning, "NEON", OdifySearchScope.Music))
+        assertTrue(OdifySearchMatching.matches(neon, "NEON", OdifySearchScope.Music))
+        assertTrue(OdifySearchMatching.matches(drowning, "NEON", OdifySearchScope.Lyrics))
+        assertFalse(OdifySearchMatching.matches(neon, "NEON", OdifySearchScope.Lyrics))
+    }
     @Test fun twelveSeekArtPatternsAreDistinctAndNeverFormSolidBlocks() {
         val patterns=(0 until OdifyWaveformPatterns.count).map(OdifyWaveformPatterns::samples)
         assertEquals(12,patterns.distinct().size)
