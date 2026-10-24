@@ -290,6 +290,14 @@ def inspect_audio_video(url: str, title: str,
     if process.returncode:
         raise RuntimeError("Cannot inspect video metadata: " + process.stderr[-450:])
     info = json.loads(process.stdout)
+    return validate_audio_metadata(url,title,info,accept_lyric_or_mv,artist=artist)
+
+
+def validate_audio_metadata(url: str, title: str, info: dict,
+                            accept_lyric_or_mv: bool = False, *, artist: str | None = None) -> dict:
+    """Apply the same identity checks to freshly inspected or cached metadata."""
+    if not validate_video_url(url):
+        raise ValueError('Expected a trusted single-video HTTPS URL')
     if not isinstance(info, dict) or info.get("_type") == "playlist":
         raise ValueError("Expected one official audio video")
     duration = info.get("duration")
@@ -353,13 +361,15 @@ def inspect_audio_video(url: str, title: str,
 
 def download_one(db: sqlite3.Connection, row: tuple, root: Path,
                  enrich: bool, ffmpeg: bool, audio_format: str = "m4a",
-                 accept_lyric_or_mv: bool = False) -> str:
+                 accept_lyric_or_mv: bool = False, *, inspected_metadata: dict | None = None) -> str:
     track_id, artist, title, album, genre, url = row
     if audio_format not in ("m4a", "mp3"):
         raise ValueError("Audio format must be m4a or mp3")
     if (root / 'Audio' / f'{track_id}.{audio_format}').exists():
         raise FileExistsError('Existing audio is protected; reuse or review it separately')
-    metadata = inspect_audio_video(url, title, accept_lyric_or_mv=accept_lyric_or_mv, artist=artist)
+    metadata = (validate_audio_metadata(url,title,inspected_metadata,accept_lyric_or_mv,artist=artist)
+        if inspected_metadata is not None else
+        inspect_audio_video(url, title, accept_lyric_or_mv=accept_lyric_or_mv, artist=artist))
     metadata_folder = root / 'Metadata'
     metadata_folder.mkdir(parents=True, exist_ok=True)
     metadata_fields = ('id', 'title', 'track', 'artist', 'channel', 'album', 'duration',

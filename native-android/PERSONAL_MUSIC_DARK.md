@@ -30,6 +30,9 @@ lyrics-edit menu using the existing private LRC/import/search editor; audio byte
 are never retagged. Country swipes switch Korea/Japan/US without stealing horizontal
 genre chips. Each chart row plays from its cover/title; its trailing action chooses
 an existing playlist or creates a new one, including unresolved chart references.
+Tapping or holding the mini-player triggers a restrained render-only elastic
+surface response (1.2% horizontal/1.8% vertical stretch, 0.12° tilt), decaying on
+a damped spring. It does not trigger extra artwork decoding or page recomposition.
 The catalog is deduplicated/indexed once per library update on Dispatchers.Default,
 then all chart matches use indexed lookup. Cached chart snapshots prewarm from
 Home, remain visible during refresh, and 48 bounded decoded covers are reused.

@@ -21,6 +21,13 @@ def master_row(track_id, artist='Artist', title='Song', verified='검증완료',
 
 
 class MasterCollectionTests(unittest.TestCase):
+    def test_cached_download_metadata_is_still_identity_checked_without_another_request(self):
+        info={'id':'ABCDEFGHI_0','duration':180,'title':'Song','track':'Song',
+              'artist':'Wrong Artist','channel':'Wrong Artist - Topic'}
+        with TemporaryDirectory() as folder,patch.object(music_catalog.subprocess,'run',side_effect=AssertionError('No extraction before validation')):
+            with self.assertRaisesRegex(ValueError,'artist'):
+                music_catalog.download_one(MagicMock(),('CHART123','Artist','Song','','','https://youtu.be/ABCDEFGHI_0'),
+                    Path(folder),False,True,inspected_metadata=info)
     def test_download_inspection_rejects_wrong_artist_before_audio_write(self):
         info = {'id':'ABCDEFGHI_0','duration':127,'title':'Fast Car','track':'Fast Car',
                 'artist':'Taio Cruz','channel':'Taio Cruz - Topic'}

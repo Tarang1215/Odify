@@ -9,6 +9,7 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.animateDpAsState
@@ -78,6 +79,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.abs
 
@@ -765,6 +767,7 @@ private fun OdifyPageHeader(
     }
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun OdifyMiniPlayer(
     song: OdifySong,
@@ -780,6 +783,12 @@ private fun OdifyMiniPlayer(
 ) {
     var coordinates by remember { mutableStateOf<androidx.compose.ui.layout.LayoutCoordinates?>(null) }
     val expandAction by rememberUpdatedState(onExpand)
+    val wobble=remember {Animatable(0f)}
+    val wobbleScope=rememberCoroutineScope()
+    fun touchGlass() {wobbleScope.launch {
+        wobble.snapTo(1f)
+        wobble.animateTo(0f,spring(dampingRatio=.48f,stiffness=480f))
+    }}
     val titleStyle=TextStyle(fontSize=12.sp,fontWeight=FontWeight.SemiBold)
     val titleMeasurer=rememberTextMeasurer()
     val measuredTitle=titleMeasurer.measure(song.title,style=titleStyle,maxLines=1,softWrap=false)
@@ -793,11 +802,14 @@ private fun OdifyMiniPlayer(
     Row(
         Modifier.width(width).height(height)
             .onGloballyPositioned { coordinates = it }
+            .graphicsLayer {
+                scaleX=1f+wobble.value*.012f
+                scaleY=1f-wobble.value*.018f
+                rotationZ=wobble.value*.12f
+            }
             .shadow(10.dp, RoundedCornerShape(22.dp),ambientColor=glow.copy(alpha=.28f),spotColor=glow.copy(alpha=.24f))
             .odifyGlass(backdrop,RoundedCornerShape(22.dp),glow)
-            .clickable {
-                onCompactChange(!compact)
-            }
+            .combinedClickable(onClick={touchGlass();onCompactChange(!compact)},onLongClick={touchGlass()})
             .pointerInput(Unit) {
                 var drag=0f
                 detectVerticalDragGestures(onDragStart={drag=0f},onDragCancel={drag=0f},

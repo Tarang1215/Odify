@@ -5,6 +5,8 @@ from pathlib import Path
 from datetime import datetime, timezone
 from contextlib import closing
 from urllib.request import Request, urlopen
+from concurrent.futures import ThreadPoolExecutor,as_completed
+from threading import Event
 
 REPO=Path(__file__).resolve().parents[2]
 sys.path.insert(0,str(REPO/'windows-collector'))
@@ -78,37 +80,101 @@ def variants(row,root):
         cache.write_text(json.dumps(data,ensure_ascii=False),encoding='utf-8')
     pairs=[(row['artist'],row['title'])]+[(x.get('artistName',''),x.get('trackName','')) for x in data if str(x.get('trackId'))==str(row['id'])]
     return list(dict.fromkeys((a,t) for a,t in pairs if a and t))
+def write_cache(path,data):
+    path.parent.mkdir(parents=True,exist_ok=True)
+    temporary=path.with_name(path.name+f'.{os.getpid()}.{time.time_ns()}.tmp')
+    temporary.write_text(json.dumps(data,ensure_ascii=False),encoding='utf-8');temporary.replace(path)
+def fresh_cache(path):
+    if path.exists() and time.time()-path.stat().st_mtime<86400:
+        return json.loads(path.read_text(encoding='utf-8'))
+    return None
+def age_restricted(message):
+    return any(x in message.casefold() for x in ('confirm your age','age-restricted recording'))
+def search_candidates(artist,title,root):
+    digest=hashlib.sha256((artist+'|'+title).encode()).hexdigest()[:24]
+    cache=root/'Metadata'/f'search_{digest}.json'
+    known=fresh_cache(cache)
+    if known is not None:return known
+    listing=json.loads(execute([sys.executable,'-m','yt_dlp','--flat-playlist','--dump-single-json',
+        '--socket-timeout','15','--retries','0',f'ytsearch5:{artist} {title} official audio'],60))
+    candidates=[{k:x.get(k) for k in ('id','title','duration','channel','uploader','channel_id')}
+        for x in listing.get('entries') or [] if re.fullmatch(r'[A-Za-z0-9_-]{11}',x.get('id') or '')]
+    write_cache(cache,candidates);return candidates
+def inspected_video(video,root):
+    cache=root/'Metadata'/f'video_{video}.json';known=fresh_cache(cache)
+    if known is not None:return known
+    info=json.loads(execute([sys.executable,'-m','yt_dlp','--no-playlist','--skip-download',
+        '--dump-single-json','--socket-timeout','15','--retries','0','https://www.youtube.com/watch?v='+video],60))
+    known={k:info.get(k) for k in ('id','track','title','artist','creator','channel','uploader','duration',
+        'uploader_verified','description','album','is_live','live_status','release_date','upload_date')}
+    write_cache(cache,known);return known
+def chart_candidate_matches(expected,info):
+    if candidate_matches(expected,info):return True
+    # Explicit official-audio wrappers may be removed for the full-title
+    # equality check; artist, version, studio and duration checks still apply.
+    cleaned=re.sub(r'(?i)\s*[\[(](?:official audio|audio only|audio)[\])]','',str(info.get('title') or '')).strip()
+    prefix=expected['아티스트']+' - '
+    if cleaned.casefold().startswith(prefix.casefold()):cleaned=cleaned[len(prefix):].strip()
+    if norm(cleaned)!=norm(audio.recording_title(expected['곡명'])):return False
+    return candidate_matches(expected,{**info,'track':cleaned})
 def resolve(row,root):
-    pairs=variants(row,root)
-    candidates=[]
-    for artist,title in pairs[:2]:
-        listing=json.loads(execute([sys.executable,'-m','yt_dlp','--flat-playlist','--dump-single-json',
-            '--socket-timeout','20','--retries','1',f'ytsearch5:{artist} {title} official audio'],120))
-        candidates.extend(listing.get('entries') or [])
-    seen=set()
-    for candidate in candidates:
-        video=candidate.get('id','')
-        if video in seen or not re.fullmatch(r'[A-Za-z0-9_-]{11}',video):continue
-        seen.add(video);url='https://www.youtube.com/watch?v='+video
-        try:
-            info=json.loads(execute([sys.executable,'-m','yt_dlp','--no-playlist','--skip-download',
-                '--dump-single-json','--socket-timeout','20','--retries','1',url],120))
-        except Exception as error:
-            # An individual recording may require age authorization. Hold that
-            # recording without cookies/authentication, but do not classify it
-            # as a site-wide challenge or rate limit for the other chart songs.
-            if 'sign in to confirm your age' in str(error).casefold():
-                raise ValueError('Age-restricted recording held; no authentication attempted') from error
-            if access_blocked(str(error)):raise
-            continue
-        target=row.get('duration_ms',0)/1000
-        if target and abs((info.get('duration') or 0)-target)>5:continue
-        for artist,title in pairs:
-            expected={'Track ID':'CHART'+row['id'],'곡명':title,'아티스트':artist}
-            if candidate_matches(expected,info):
-                audio.inspect_audio_video(url,title,artist=artist)
-                return url,artist,title,{k:info.get(k) for k in ('id','track','title','artist','channel','duration')}
+    pairs=variants(row,root);seen=set();target=row.get('duration_ms',0)/1000
+    for query_artist,query_title in pairs[:2]:
+        for candidate in search_candidates(query_artist,query_title,root):
+            video=candidate.get('id','')
+            if video in seen or not re.fullmatch(r'[A-Za-z0-9_-]{11}',video):continue
+            seen.add(video)
+            duration=candidate.get('duration')
+            if target and isinstance(duration,(int,float)) and abs(duration-target)>5:continue
+            url='https://www.youtube.com/watch?v='+video
+            try:info=inspected_video(video,root)
+            except Exception as error:
+                if 'sign in to confirm your age' in str(error).casefold():
+                    raise ValueError('Age-restricted recording held; no authentication attempted') from error
+                if access_blocked(str(error)):raise
+                continue
+            if target and abs((info.get('duration') or 0)-target)>5:continue
+            for artist,title in pairs:
+                expected={'Track ID':'CHART'+row['id'],'곡명':title,'아티스트':artist}
+                if chart_candidate_matches(expected,info):
+                    audio.validate_audio_metadata(url,title,info,artist=artist)
+                    return url,artist,title,info
     raise ValueError('No unambiguous original studio recording; held for review')
+
+def prepare_link_plan(root,rows):
+    """Fast public search metadata only; candidate links are never approved."""
+    stop=Event();results={};destination=root/'Links';destination.mkdir(exist_ok=True)
+    def one(row):
+        result={'id':row['id'],'artist':row['artist'],'title':row['title'],'status':row['status'],
+            'verified_url':row.get('video_url','') if row['status']=='UPLOADED_VERIFIED' else '',
+            'drive_id':row.get('file_id',''),'candidates':[]}
+        if row['status'] in ('UPLOADED_VERIFIED','REUSED_EXISTING') or age_restricted(row.get('error','')):return result
+        if stop.is_set():result['link_status']='PAUSED';return result
+        try:
+            candidates=search_candidates(row['artist'],row['title'],root)
+            result['candidates']=[{'url':'https://www.youtube.com/watch?v='+c['id'],'title':c.get('title'),
+                'channel':c.get('channel') or c.get('uploader'),'duration':c.get('duration')} for c in candidates]
+            result['link_status']='CANDIDATE_ONLY' if candidates else 'NOT_FOUND'
+        except Exception as error:
+            result.update(link_status='ERROR',error=str(error)[-500:])
+            if access_blocked(str(error)):stop.set()
+        return result
+    def save():
+        ordered=[results[r['id']] for r in rows if r['id'] in results]
+        write_cache(destination/'chart_links.json',{'schemaVersion':1,'candidateLinksAreUnverified':True,
+            'processed':len(ordered),'total':len(rows),'paused':stop.is_set(),'tracks':ordered})
+        temp=destination/'chart_links.csv.tmp'
+        with temp.open('w',encoding='utf-8-sig',newline='') as h:
+            writer=csv.DictWriter(h,fieldnames=['id','artist','title','status','link_status','verified_url','drive_id']+
+                [f'candidate_{i}' for i in range(1,6)],extrasaction='ignore');writer.writeheader()
+            for item in ordered:
+                writer.writerow({**item,**{f'candidate_{i+1}':x['url'] for i,x in enumerate(item['candidates'])}})
+        temp.replace(destination/'chart_links.csv')
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        for future in as_completed([pool.submit(one,row) for row in rows]):
+            result=future.result();results[result['id']]=result;save()
+            print('Link plan:',len(results),'/',len(rows),result.get('link_status',result['status']),flush=True)
+    return results
 def snapshot(root,rows,running,detail=''):
     counts={}
     for row in rows:counts[row['status']]=counts.get(row['status'],0)+1
@@ -145,6 +211,8 @@ def collect(args):
         rows=json.loads(status.read_text(encoding='utf-8'))['tracks'] if status.exists() else prepare(root,args.snapshots)
         if args.plan:
             print(json.dumps(snapshot(root,rows,False,'Preview; no collection or upload'),ensure_ascii=False)[:400]);return
+        if args.links_only:
+            prepare_link_plan(root,rows);return
         known=existing_catalog(args.catalog)
         if args.reuse_only:
             reused=reuse_cached_owned(rows,known,root)
@@ -158,7 +226,8 @@ def collect(args):
         failures=0
         try:
             for row in rows:
-                if row['status'] in ('UPLOADED_VERIFIED','REUSED_EXISTING') or row['status']=='HELD_REVIEW' and not args.retry_held:continue
+                if row['status'] in ('UPLOADED_VERIFIED','REUSED_EXISTING') or row['status']=='HELD_REVIEW' and (
+                    not args.retry_held or age_restricted(row.get('error',''))):continue
                 try:
                     candidates=variants(row,root)
                     existing=next((known.get(norm(a)+'|'+norm(t)) for a,t in candidates if known.get(norm(a)+'|'+norm(t))),None)
@@ -178,7 +247,8 @@ def collect(args):
                             raise ValueError('Existing incomplete or changed file protected; manual review required')
                     else:
                         row['status']='DOWNLOADING';snapshot(root,rows,True)
-                        audio.download_one(db,(identity,artist,title,row['album'],'',url),root,True,True,audio_format='mp3')
+                        audio.download_one(db,(identity,artist,title,row['album'],'',url),root,True,True,audio_format='mp3',
+                            inspected_metadata=evidence)
                     # Canonical inspected metadata stays in the audio. Display
                     # aliases and original chart ranks stay in the sidecar.
                     row['status']='UPLOADING';snapshot(root,rows,True)
@@ -207,8 +277,9 @@ def main():
     p.add_argument('--snapshots',type=Path);p.add_argument('--catalog',type=Path);p.add_argument('--plan',action='store_true')
     p.add_argument('--retry-held',action='store_true',help='Explicitly retry prior review holds')
     p.add_argument('--reuse-only',action='store_true',help='Only reuse cached owned files; make zero network requests')
+    p.add_argument('--links-only',action='store_true',help='Cache public search candidates; do not inspect/download/approve audio')
     p.add_argument('--config',type=Path);p.add_argument('--folder-id');p.add_argument('--rclone',default='rclone')
     a=p.parse_args()
-    if not a.plan and (not a.config or not re.fullmatch(r'[A-Za-z0-9_-]{10,150}',a.folder_id or '')):p.error('Exact Drive root and private config required')
+    if not (a.plan or a.links_only) and (not a.config or not re.fullmatch(r'[A-Za-z0-9_-]{10,150}',a.folder_id or '')):p.error('Exact Drive root and private config required')
     collect(a)
 if __name__=='__main__':main()

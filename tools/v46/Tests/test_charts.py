@@ -18,19 +18,44 @@ class ChartTests(unittest.TestCase):
             self.assertEqual(1,charts.reuse_cached_owned(rows,{'artist|song':'OwnedDriveID123'},Path(tmp)))
         self.assertEqual(['REUSED_EXISTING','QUEUED','HELD_REVIEW'],[r['status'] for r in rows])
     def test_age_gated_recording_is_held_without_treating_it_as_site_wide_block(self):
-        listing=json.dumps({'entries':[{'id':'abcdefghijk'}]})
         with patch.object(charts,'variants',return_value=[('Artist','Song')]), \
-             patch.object(charts,'execute',side_effect=[listing,RuntimeError('Sign in to confirm your age')]):
+             patch.object(charts,'search_candidates',return_value=[{'id':'abcdefghijk'}]), \
+             patch.object(charts,'inspected_video',side_effect=RuntimeError('Sign in to confirm your age')):
             with self.assertRaisesRegex(ValueError,'Age-restricted recording held') as held:
                 charts.resolve({'id':'123'},Path('.'))
         self.assertFalse(charts.access_blocked(str(held.exception)))
     def test_site_wide_challenge_still_stops_collection(self):
-        listing=json.dumps({'entries':[{'id':'abcdefghijk'}]})
         with patch.object(charts,'variants',return_value=[('Artist','Song')]), \
-             patch.object(charts,'execute',side_effect=[listing,RuntimeError('Sign in to confirm you are not a bot')]):
+             patch.object(charts,'search_candidates',return_value=[{'id':'abcdefghijk'}]), \
+             patch.object(charts,'inspected_video',side_effect=RuntimeError('Sign in to confirm you are not a bot')):
             with self.assertRaises(RuntimeError) as blocked:
                 charts.resolve({'id':'123'},Path('.'))
         self.assertTrue(charts.access_blocked(str(blocked.exception)))
+    def test_official_audio_wrappers_keep_artist_and_version_checks(self):
+        expected={'Track ID':'CHART123','아티스트':'Artist','곡명':'Song'}
+        info={'id':'abcdefghijk','title':'Artist - Song (Official Audio)','duration':180,
+              'channel':'Artist','artist':'Artist','uploader_verified':True}
+        self.assertTrue(charts.chart_candidate_matches(expected,info))
+        for changed in ({'artist':'Other','channel':'Other'}, {'title':'Artist - Song (English ver.) (Official Audio)'},
+                        {'title':'Artist - Song (Live) (Official Audio)'}, {'uploader_verified':False}):
+            self.assertFalse(charts.chart_candidate_matches(expected,{**info,**changed}))
+    def test_resolver_reuses_metadata_without_a_second_inspection(self):
+        info={'id':'abcdefghijk','title':'Song','track':'Song','artist':'Artist','channel':'Artist - Topic','duration':180}
+        with patch.object(charts,'variants',return_value=[('Artist','Song'),('Artist','Alias')]), \
+             patch.object(charts,'search_candidates',return_value=[{'id':'abcdefghijk','duration':180}]) as search, \
+             patch.object(charts,'inspected_video',return_value=info) as inspect, \
+             patch.object(charts.audio,'inspect_audio_video',side_effect=AssertionError('Duplicate inspection')):
+            result=charts.resolve({'id':'123','duration_ms':180000},Path('.'))
+        self.assertEqual(info,result[3]);self.assertEqual(1,search.call_count);self.assertEqual(1,inspect.call_count)
+    def test_fast_link_plan_never_approves_or_downloads_candidates(self):
+        rows=[{'id':'123','artist':'Artist','title':'Song','status':'QUEUED','file_id':'','video_url':''}]
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch.object(charts,'search_candidates',return_value=[{'id':'abcdefghijk','title':'Song'}]), \
+             patch.object(charts,'inspected_video',side_effect=AssertionError('No full extraction')):
+            result=charts.prepare_link_plan(Path(tmp),rows)
+            self.assertEqual('CANDIDATE_ONLY',result['123']['link_status'])
+            self.assertEqual('',result['123']['verified_url'])
+        self.assertEqual('QUEUED',rows[0]['status'])
     def test_only_ready_owned_ids_enter_the_append_only_chart_index(self):
         def row(status,identity):
             return {'status':status,'file_id':identity,'artist':'Artist','title':'Song',
