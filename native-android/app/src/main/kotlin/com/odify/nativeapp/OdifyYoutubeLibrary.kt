@@ -200,11 +200,16 @@ class OdifyYoutubeLibrary(private val context:Context) {
                 val body=conn.errorStream?.bufferedReader()?.use { it.readText().take(4096) }.orEmpty()
                 val reason=runCatching { JSONObject(body).getJSONObject("error").getJSONArray("errors")
                     .getJSONObject(0).getString("reason") }.getOrDefault("unknown")
+                val consumer=Regex("(?:project[s]?[/ ]+)([0-9]{5,})",RegexOption.IGNORE_CASE)
+                    .find(body)?.groupValues?.get(1).orEmpty()
                 context.getSharedPreferences("odify_youtube_account_v1",0).edit()
                     .putString("lastApiError","HTTP $status · $reason").apply()
-                android.util.Log.w("OdifyYouTube","Data API HTTP $status reason=$reason")
+                context.getSharedPreferences("odify_youtube_account_v1",0).edit()
+                    .putString("lastApiConsumerProject",consumer).apply()
+                android.util.Log.w("OdifyYouTube","Data API HTTP $status reason=$reason consumerProject=$consumer")
                 val message=when(reason) {
-                    "accessNotConfigured", "serviceDisabled" -> "Google Cloud 프로젝트에서 YouTube Data API를 활성화해야 합니다."
+                    "accessNotConfigured", "serviceDisabled" -> "YouTube API 설정 연결 오류" +
+                        (if(consumer.isNotBlank()) " · 프로젝트 $consumer" else "") + ". 앱 OAuth와 콘솔의 프로젝트를 확인해 주세요."
                     "quotaExceeded", "dailyLimitExceeded", "rateLimitExceeded" -> "YouTube 검색 한도를 사용했습니다. YouTube 앱에서 검색할 수 있어요."
                     "insufficientPermissions", "authError" -> "YouTube 계정을 다시 연결해 주세요."
                     else -> "YouTube 검색 연결 오류 ($status · $reason)"
