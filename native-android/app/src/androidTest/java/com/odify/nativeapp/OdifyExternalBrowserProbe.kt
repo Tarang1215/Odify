@@ -5,6 +5,7 @@ import android.media.browse.MediaBrowser
 import android.media.session.MediaController
 import android.media.session.PlaybackState
 import android.net.Uri
+import android.os.Bundle
 import androidx.test.core.app.ActivityScenario
 import androidx.test.platform.app.InstrumentationRegistry
 import org.json.JSONObject
@@ -45,10 +46,18 @@ class OdifyExternalBrowserProbe {
             if (result.optBoolean("connected") && uri != null &&
                 ((controller?.playbackState?.actions ?: 0L) and PlaybackState.ACTION_PLAY_FROM_URI) != 0L) {
                 val canonical = OdifyAudioRequestPolicy.youtubeUrl(uri)
-                test.runOnMainSync { controller!!.transportControls.playFromUri(Uri.parse(canonical), null) }
-                Thread.sleep(3000)
+                result.put("stateBefore", controller?.playbackState?.state)
+                    .put("titleBefore", controller?.metadata?.description?.title)
+                // This provider reads extras even when none are needed. A null
+                // Bundle is accepted by Android but not by its implementation.
+                test.runOnMainSync { controller!!.transportControls.playFromUri(Uri.parse(canonical), Bundle()) }
+                val deadline = System.currentTimeMillis() + 8000
+                while (System.currentTimeMillis() < deadline &&
+                    controller?.playbackState?.state != PlaybackState.STATE_PLAYING) Thread.sleep(100)
                 result.put("stateAfter", controller?.playbackState?.state)
                     .put("titleAfter", controller?.metadata?.description?.title)
+                    .put("mediaIdAfter", controller?.metadata?.description?.mediaId)
+                    .put("actionsAfter", controller?.playbackState?.actions)
                     .put("activityResumed", scenario.state == androidx.lifecycle.Lifecycle.State.RESUMED)
             }
         } finally {
