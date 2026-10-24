@@ -1,0 +1,83 @@
+name: Odify Native Source Validation
+
+on:
+  push:
+    branches:
+      - feature/odify-v12-master-db
+    paths:
+      - 'native-android/**'
+      - 'scripts/odify_youtube_ingest.py'
+      - 'scripts/odify_retag_library.py'
+      - 'scripts/odify_link_candidates.py'
+      - 'scripts/odify_link_consensus.py'
+      - 'scripts/odify_catalog_pipeline.py'
+      - 'scripts/odify_country_archives.py'
+      - 'scripts/odify_autolink_sheets.gs'
+      - 'scripts/tests/**'
+      - '.github/workflows/odify-native-source-check.yml'
+  pull_request:
+    branches:
+      - feature/odify-v11-native-titles-artwork
+      - feature/odify-v12-master-db
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: odify-source-validation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  source-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Validate YouTube audio ingestion companion
+        run: |
+          python3 -m py_compile scripts/odify_youtube_ingest.py scripts/odify_retag_library.py scripts/odify_link_candidates.py scripts/odify_link_consensus.py scripts/odify_catalog_pipeline.py scripts/odify_country_archives.py
+          python3 scripts/odify_youtube_ingest.py --help > /dev/null
+          python3 scripts/odify_link_candidates.py --help > /dev/null
+          python3 scripts/odify_link_consensus.py --help > /dev/null
+          python3 scripts/odify_catalog_pipeline.py --help > /dev/null
+          python3 scripts/odify_country_archives.py --help > /dev/null
+          python3 -m unittest discover -s scripts/tests -p 'test_odify_*.py'
+          cp scripts/odify_autolink_sheets.gs /tmp/odify_autolink_sheets.js
+          node --check /tmp/odify_autolink_sheets.js
+          node scripts/tests/test_odify_sheets_autolink.cjs
+      - name: Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Gradle 8.9
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Android SDK
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-35' 'build-tools;35.0.0'
+      - name: Bundle licensed Pretendard fonts
+        run: |
+          mkdir -p native-android/app/src/main/res/font native-android/licenses
+          BASE=https://raw.githubusercontent.com/orioncactus/pretendard/main/packages/pretendard/dist/public/static
+          for WEIGHT in Regular Medium SemiBold Bold; do
+            case "$WEIGHT" in
+              Regular) NAME=regular ;;
+              Medium) NAME=medium ;;
+              SemiBold) NAME=semibold ;;
+              Bold) NAME=bold ;;
+            esac
+            curl --fail --location --retry 3 --connect-timeout 15 --max-time 90 \
+              "$BASE/Pretendard-$WEIGHT.otf" \
+              --output "native-android/app/src/main/res/font/pretendard_$NAME.otf"
+            test "$(wc -c < native-android/app/src/main/res/font/pretendard_$NAME.otf)" -gt 100000
+          done
+          curl --fail --location --retry 3 \
+            https://raw.githubusercontent.com/orioncactus/pretendard/main/LICENSE \
+            --output native-android/licenses/Pretendard-OFL.txt
+      - name: Test and compile without producing an APK
+        run: gradle -p native-android :app:testDebugUnitTest :app:compileDebugKotlin --stacktrace --no-daemon

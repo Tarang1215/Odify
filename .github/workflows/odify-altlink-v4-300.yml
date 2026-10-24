@@ -1,0 +1,85 @@
+name: Odify V4 real 300-track Piped pilot
+on:
+  workflow_dispatch:
+permissions:
+  actions: read
+  contents: read
+jobs:
+  real-300:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: V4 deterministic tests and MASTER write protection
+        run: |
+          python -m py_compile scripts/odify_altlink_v4_300.py
+          python -m unittest discover -s scripts/tests -p 'test_odify_altlink_v4_300.py' -v
+          python -m unittest discover -s scripts/tests -p 'test_odify_altlink_rerank.py' -v
+          python -m unittest discover -s scripts/tests -p 'test_odify_altlink_pilot.py' -v
+      - name: Recover fixed 41416-song catalog
+        uses: actions/download-artifact@v4
+        with:
+          repository: Tarang1215/Odify
+          run-id: 39909115368
+          name: odify-catalog-us-full-4-regions
+          github-token: ${{ github.token }}
+          path: .local
+      - name: Recover original 100 live API checkpoints
+        uses: actions/download-artifact@v4
+        with:
+          repository: Tarang1215/Odify
+          run-id: 39967688421
+          name: odify-altlink-piped-invidious-100-v2
+          github-token: ${{ github.token }}
+          path: .local/odify_altlink_pilot_v2
+      - name: Validate input source and pilot baseline
+        run: |
+          python - <<'PY'
+          import sqlite3,json,pathlib
+          db=sqlite3.connect('.local/odify_catalog.sqlite3')
+          assert db.execute("PRAGMA integrity_check").fetchone()[0]=="ok"
+          assert db.execute("SELECT COUNT(*) FROM recording").fetchone()[0]==41416
+          m=json.loads(pathlib.Path('.local/odify_altlink_pilot_v2/sample_100.json').read_text())
+          assert len(m)==100
+          print("Verified catalog 41416; V2 cached 100")
+          PY
+      - name: Run read-only 300-region Piped experiment
+        run: |
+          python -u scripts/odify_altlink_v4_300.py \
+            --catalog .local/odify_catalog.sqlite3 \
+            --cached-v2 .local/odify_altlink_pilot_v2 \
+            --out .local/odify_v4_300 \
+            --limit 300 --max-queries 2 --timeout 7 --delay 0.8
+      - name: Publish audited metrics without claiming verified accuracy
+        if: always()
+        run: |
+          python - <<'PY'
+          import pathlib,json,os
+          p=pathlib.Path('.local/odify_v4_300/summary_300_v4.json')
+          with open(os.environ["GITHUB_STEP_SUMMARY"],"a") as f:
+              f.write("## Odify V4 300-song actual API experiment\n\n")
+              if not p.exists():
+                  f.write("No finished report; see logs and per-song checkpoints.\n")
+              else:
+                  s=json.loads(p.read_text())
+                  f.write(f"Processed: **{s['processed']}/300**; reused V2: **{s['cached_v2_songs']}**; fresh-song searches: **{s['fresh_search_songs']}**.\n\n")
+                  f.write("| Measure | Value |\n|---|---:|\n")
+                  for a in ("fresh_http_attempts","fresh_http_successes","first_query_v3_eligible_songs","v4_eligible_songs","unique_video_candidates_per_track_sum","latency_success_median_ms","latency_success_p95_ms"):
+                      f.write(f"| {a} | {s[a]} |\n")
+                  f.write("\n| Region | Processed | V4 eligible |\n|---|---:|---:|\n")
+                  for country,v in s["by_country"].items():f.write(f"| {country} | {v['processed']} | {v['v4_eligible']} |\n")
+                  f.write("\nAll candidate URLs are manual review only; no MASTER changes. "
+                          "Initial V3 candidate eligibility and V4 expanded results differ by both ranking and extra queries. "
+                          "Listening-verified precision remains unmeasured.\n")
+          PY
+      - name: Preserve V4 audit + 300 restartable checkpoints
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: odify-v4-300-live-results
+          path: .local/odify_v4_300/**
+          retention-days: 60
+          if-no-files-found: warn

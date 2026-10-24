@@ -1,0 +1,82 @@
+name: Odify US 2000-2026 Full Weekly Backfill
+on:
+  push:
+    branches: [feature/odify-v12-master-db]
+    paths: ['.github/workflows/odify-catalog-us-full.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  full-backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Restore newest complete catalog
+        uses: actions/download-artifact@v4
+        with:
+          repository: Tarang1215/Odify
+          run-id: 39908426644
+          name: odify-catalog-continued-4-regions
+          github-token: ${{ github.token }}
+          path: .local
+      - name: Verify existing 39k-track catalog
+        run: |
+          python - <<'PY'
+          import sqlite3
+          c=sqlite3.connect('.local/odify_catalog.sqlite3')
+          assert c.execute('PRAGMA integrity_check').fetchone()[0]=='ok'
+          n=c.execute('SELECT COUNT(*) FROM recording').fetchone()[0]
+          assert n>=39581,n
+          print('BASE_TRACKS',n,flush=True)
+          PY
+      - name: Fill all remaining US weekly records 2000 to 2026
+        run: |
+          python -u scripts/odify_catalog_pipeline.py backfill-us \
+            --limit 1500 --coverage latest-first \
+            --progress-file .local/odify_catalog_progress.json
+      - name: Add more missing chart-album tracks
+        run: python -u scripts/odify_catalog_pipeline.py expand-albums --limit 45
+      - name: Export final database and ranked JSON
+        if: always()
+        run: |
+          python scripts/odify_catalog_pipeline.py export \
+            --out-dir .local/odify_public
+          python - <<'PY'
+          import json,sqlite3,os
+          from pathlib import Path
+          c=sqlite3.connect('.local/odify_catalog.sqlite3')
+          integrity=c.execute('PRAGMA integrity_check').fetchone()[0]
+          fk=c.execute('PRAGMA foreign_key_check').fetchall()
+          names=('artist','recording','album','album_track','chart_edition','chart_entry','recording_genre')
+          counts={t:c.execute(f'SELECT COUNT(*) FROM {t}').fetchone()[0] for t in names}
+          counts['us_weeks']=c.execute("""SELECT COUNT(*) FROM chart_edition WHERE country='us'
+                AND provider='billboard-hot-100-community-archive' AND category='songs'""").fetchone()[0]
+          counts['albums_with_tracks']=c.execute('SELECT COUNT(DISTINCT album_id) FROM album_track').fetchone()[0]
+          result={'integrity':integrity,'foreign_keys':len(fk),'counts':counts}
+          Path('.local/odify_counts.json').write_text(json.dumps(result,indent=2,ensure_ascii=False),encoding='utf-8')
+          print('ODIFY_FINAL_US_COUNTS '+json.dumps(result,ensure_ascii=False),flush=True)
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as f:
+              f.write('### 2000–2026 full US weekly archive\n\n')
+              f.write('Integrity: '+integrity+'; foreign keys: '+str(len(fk))+'\n\n')
+              for k,v in counts.items():f.write('- '+k+': **'+str(v)+'**\n')
+          assert integrity=='ok' and not fk
+          PY
+      - name: Store full updated US KR JP GL private catalog
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: odify-catalog-us-full-4-regions
+          path: |
+            .local/odify_catalog.sqlite3
+            .local/odify_catalog_progress.json
+            .local/odify_counts.json
+            .local/odify_public/**
+          retention-days: 60
+          if-no-files-found: warn

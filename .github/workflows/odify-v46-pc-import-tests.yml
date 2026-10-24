@@ -1,0 +1,24 @@
+name: Odify V4.6 PC results safe import tests
+on:
+  push:
+    branches: [feature/odify-v12-master-db]
+    paths:
+      - 'scripts/odify_pc_probe_ingest_v46.py'
+      - 'scripts/tests/test_odify_pc_probe_ingest_v46.py'
+      - '.github/workflows/odify-v46-pc-import-tests.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  safe-overlay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run PC observation merge tests
+        run: |
+          python -m py_compile scripts/odify_pc_probe_ingest_v46.py
+          python -m unittest discover -s scripts/tests -p 'test_odify_pc_probe_ingest_v46.py' -v

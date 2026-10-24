@@ -22,6 +22,8 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
+import androidx.media3.common.Player
+import androidx.lifecycle.Lifecycle
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -60,7 +62,12 @@ data class OdifyPlaybackSnapshot(
     val position: Long = 0L,
     val duration: Long = 0L,
     val previousMediaId: String? = null,
-    val nextMediaId: String? = null
+    val nextMediaId: String? = null,
+    val queueIds: List<String> = emptyList(),
+    val currentQueueIndex: Int = -1,
+    val queueKeys: List<String> = emptyList(),
+    val shuffleEnabled: Boolean = false,
+    val repeatOne: Boolean = false
 )
 
 @Composable
@@ -68,7 +75,17 @@ private fun NativeOdify() {
     val context = LocalContext.current
     val activity = context as ComponentActivity
     val library = remember { OdifyLibrary(context.applicationContext) }
+    val phoneFolder = remember { OdifyPhoneFolder(context.applicationContext) }
+    var phoneFolderStatus by remember { mutableStateOf(phoneFolder.folderLabel) }
+    var youtubeConnected by remember { mutableStateOf(OdifyYoutubeAuth.connected) }
+    var youtubeStatus by remember { mutableStateOf("별도 YouTube 계정 선택 가능") }
     val driveCatalog = remember { DriveCatalog(context.applicationContext) }
+    val masterDb = remember { OdifyMasterDatabase(context.applicationContext) }
+    val artworkFallback = remember { OdifyArtworkFallback(context.applicationContext) }
+    val uploader = remember { OdifyDriveUploader(context.applicationContext) }
+    val deviceExport = remember { OdifyDeviceExport(context.applicationContext) }
+    var pendingDeviceSong by remember { mutableStateOf<OdifySong?>(null) }
+    var savingDeviceSong by remember { mutableStateOf(false) }
     val drivePrefs = remember {
         context.getSharedPreferences("odify_drive_consent_state", 0)
     }
@@ -76,18 +93,21 @@ private fun NativeOdify() {
     var driveBusy by remember { mutableStateOf(false) }
     var driveStatus by remember { mutableStateOf("Google Drive 계정을 연결하세요.") }
     var driveFolder by remember { mutableStateOf(driveCatalog.folderId) }
-    var songs by remember { mutableStateOf(library.songs()) }
+    var songs by remember { mutableStateOf<List<OdifySong>>(emptyList()) }
     var controller by remember { mutableStateOf<MediaController?>(null) }
     var playback by remember { mutableStateOf(OdifyPlaybackSnapshot()) }
     var expanded by remember { mutableStateOf(false) }
     var importing by remember { mutableStateOf(false) }
+    var uploadingToDrive by remember { mutableStateOf(false) }
+    var uploadStatus by remember { mutableStateOf("선택한 음악만 Drive에 저장합니다.") }
+    var uploadSelection by remember { mutableStateOf<List<android.net.Uri>>(emptyList()) }
     var importAsOffline by remember { mutableStateOf(false) }
     var pendingCoverTrack by remember { mutableStateOf<OdifySong?>(null) }
     var startup by remember { mutableStateOf(true) }
     val scope = rememberCoroutineScope()
 
     fun refreshCatalog(showProgress: Boolean = true) {
-        if (driveBusy || !DriveAuth.connected) return
+        if (driveBusy || uploadingToDrive || !DriveAuth.connected) return
         scope.launch {
             driveBusy = true
             if (showProgress) driveStatus = "Drive 음악 목록을 업데이트하고 있습니다."
@@ -98,11 +118,34 @@ private fun NativeOdify() {
                     // library. The small free-tier collection is hydrated
                     // before the first visible catalog refresh.
                     driveCatalog.prefetchMetadata(limit = 40)
-                    count to (library.songs() + driveCatalog.tracks())
+                    count to (library.songs() + driveCatalog.tracks() + phoneFolder.tracks())
                 }
                 songs = merged
                 driveConnected = true
                 driveStatus = "음악 ${n}곡 동기화 완료"
+                // MASTER is a Google Sheet; after ordinary Drive indexing,
+                // use its previously verified YouTube Art Track links only
+                // when the audio itself has no cover image.
+                scope.launch {
+                    runCatching {
+                        withContext(Dispatchers.IO) {
+                            val master = runCatching { masterDb.sync() }
+                                .getOrElse { masterDb.loadCached() }
+                            if (master.isNotEmpty()) {
+                                val renamed = driveCatalog.applyMasterCorrections(master)
+                                val syncedSongs = driveCatalog.tracks()
+                                val covered = artworkFallback.warm(driveCatalog,syncedSongs,master,14)
+                                renamed + covered
+                            } else 0
+                        }
+                    }.onSuccess { refreshed ->
+                        if (refreshed > 0) {
+                            songs = withContext(Dispatchers.IO) {
+                                library.songs() + driveCatalog.tracks() + phoneFolder.tracks()
+                            }
+                        }
+                    }
+                }
                 // A few covers become visible in Search/Home before first play.
                 // This runs after sync, off the UI thread, with daily retry caps.
                 scope.launch {
@@ -112,7 +155,7 @@ private fun NativeOdify() {
                         val result = runCatching {
                             withContext(Dispatchers.IO) {
                                 val count = driveCatalog.prefetchMetadata(limit = 4)
-                                count to (library.songs() + driveCatalog.tracks())
+                                count to (library.songs() + driveCatalog.tracks() + phoneFolder.tracks())
                             }
                         }.getOrNull() ?: break
                         val (count, refreshed) = result
@@ -159,9 +202,128 @@ private fun NativeOdify() {
         )
     }
 
+    fun uploadFiles(selected: List<android.net.Uri>) {
+        if (uploadingToDrive || driveBusy || selected.isEmpty()) return
+        scope.launch {
+            uploadingToDrive = true
+            var added = 0
+            var skipped = 0
+            try {
+                // Refresh before checking duplicates: another phone or PC
+                // may have already uploaded these exact files.
+                withContext(Dispatchers.IO) { driveCatalog.sync() }
+                selected.forEachIndexed { index, uri ->
+                    uploadStatus = "Drive 저장 ${index+1}/${selected.size} 준비"
+                    try {
+                        val result = uploader.upload(uri, driveCatalog) {
+                            uploadStatus = it
+                        }
+                        when (result) {
+                            is OdifyUploadResult.Added -> added++
+                            is OdifyUploadResult.Skipped -> {
+                                skipped++
+                                uploadStatus = "${result.name}: ${result.reason}"
+                            }
+                        }
+                        if (result is OdifyUploadResult.Added) {
+                            withContext(Dispatchers.IO) { driveCatalog.sync() }
+                        }
+                    } catch (e: Exception) {
+                        uploadStatus = "업로드 오류: ${e.message ?: "연결 상태를 확인하세요."}"
+                        throw e
+                    }
+                }
+                uploadStatus = "Drive 저장 완료: 신규 ${added}곡 · 중복 제외 ${skipped}곡"
+            } catch (e: Exception) {
+                if (!uploadStatus.startsWith("업로드 오류"))
+                    uploadStatus = "Drive 저장 실패: ${e.message ?: "다시 시도하세요."}"
+            } finally {
+                songs = withContext(Dispatchers.IO) {
+                    library.songs() + driveCatalog.tracks() + phoneFolder.tracks()
+                }
+                uploadingToDrive = false
+                uploadSelection = emptyList()
+            }
+        }
+    }
+
+    val uploadAuthorization = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartIntentSenderForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK &&
+            runCatching { DriveAuth.resolveUpload(activity,result.data) }.getOrDefault(false))
+            uploadFiles(uploadSelection)
+        else uploadStatus = "Drive 쓰기 권한 승인이 취소되었습니다."
+    }
+    val driveUploadPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenMultipleDocuments()
+    ) { files ->
+        if (files.isNotEmpty()) {
+            uploadSelection = files
+            uploadStatus = "업로드 전 Google Drive 저장 권한 확인"
+            DriveAuth.authorizeUpload(activity,
+                onToken = { uploadFiles(files) },
+                onResolution = { pending ->
+                    uploadAuthorization.launch(
+                        IntentSenderRequest.Builder(pending.intentSender).build()
+                    )
+                },
+                onError = { uploadStatus = "업로드 인증 실패: $it" }
+            )
+        }
+    }
+
+    val saveDevicePicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/octet-stream")
+    ) { destination ->
+        val current = pendingDeviceSong
+        pendingDeviceSong = null
+        if (destination != null && current != null && !savingDeviceSong) {
+            scope.launch {
+                savingDeviceSong = true
+                runCatching { deviceExport.save(current, destination) }
+                    .onSuccess { total ->
+                        Toast.makeText(context,
+                            "디바이스에 저장 완료 (${OdifyDiagnostics.humanBytes(total)})",
+                            Toast.LENGTH_LONG).show()
+                    }.onFailure {
+                        Toast.makeText(context,
+                            it.localizedMessage ?: "디바이스 저장 실패", Toast.LENGTH_LONG).show()
+                    }
+                savingDeviceSong = false
+            }
+        }
+    }
+
+    val youtubeAuthorization = rememberLauncherForActivityResult(
+        contract=ActivityResultContracts.StartIntentSenderForResult()
+    ) { result ->
+        if(result.resultCode==Activity.RESULT_OK &&
+            runCatching {OdifyYoutubeAuth.resolve(activity,result.data)}.getOrDefault(false)) {
+            youtubeConnected=true
+            youtubeStatus="YouTube 계정 연결 완료"
+        } else youtubeStatus="YouTube 계정 승인 취소 또는 실패"
+    }
+    fun connectYoutube() {
+        youtubeConnected = false
+        youtubeStatus = "YouTube 계정을 선택 중입니다."
+        OdifyYoutubeAuth.connect(
+            activity=activity,
+            onReady={youtubeConnected=true;youtubeStatus="YouTube 계정 연결 완료"},
+            onResolution={pending ->
+                youtubeAuthorization.launch(IntentSenderRequest.Builder(pending.intentSender).build())
+            },
+            onError={youtubeStatus=it}
+        )
+    }
+
     LaunchedEffect(Unit) {
         songs = withContext(Dispatchers.IO) {
-            library.songs() + driveCatalog.tracks()
+            library.songs() + runCatching { driveCatalog.tracks() }.getOrElse {
+                // Preserve the database for diagnosis; a broken Drive cache
+                // must not take the entire Home/local library down.
+                emptyList()
+            } + phoneFolder.tracks()
         }
         if (drivePrefs.getBoolean("enabled", false)) {
             // Silent renewal only. Never launch OAuth consent without interaction.
@@ -191,7 +353,7 @@ private fun NativeOdify() {
             }.getOrDefault(false)
             if (changed) {
                 songs = withContext(Dispatchers.IO) {
-                    library.songs() + driveCatalog.tracks()
+                    library.songs() + driveCatalog.tracks() + phoneFolder.tracks()
                 }
             }
         }
@@ -207,8 +369,8 @@ private fun NativeOdify() {
         // currently requested Drive track, and keep that expensive read off UI.
         // Streaming range playback must not cause a second unauthenticated
         // full-track decode. Local files get true pre-analyzed waveforms.
-        val candidates = (listOfNotNull(active?.takeUnless { it.isCloud }) +
-            songs.filterNot { it.isCloud || it.id == active?.id }).take(8)
+        val candidates = (listOfNotNull(active?.takeIf { it.sourceUri == null }) +
+            songs.filterNot { it.sourceUri != null || it.id == active?.id }).take(8)
         for (track in candidates) {
             OdifyWaveformRepository.load(context.applicationContext, track)
             kotlinx.coroutines.yield()
@@ -225,10 +387,11 @@ private fun NativeOdify() {
         onDispose { MediaController.releaseFuture(future) }
     }
 
-    LaunchedEffect(controller) {
-        val player = controller ?: return@LaunchedEffect
+    DisposableEffect(controller) {
+        val player = controller
         var lastError: String? = null
-        while (isActive) {
+        fun update() {
+            if (player == null) return
             val failure = player.playerError
             val failureCode = failure?.errorCodeName
             if (failureCode != null && lastError != failureCode) {
@@ -253,9 +416,34 @@ private fun NativeOdify() {
                 previousMediaId = if (previousIndex >= 0)
                     player.getMediaItemAt(previousIndex).mediaId else null,
                 nextMediaId = if (nextIndex >= 0)
-                    player.getMediaItemAt(nextIndex).mediaId else null
+                    player.getMediaItemAt(nextIndex).mediaId else null,
+                currentQueueIndex = player.currentMediaItemIndex,
+                queueIds = (0 until player.mediaItemCount).map { player.getMediaItemAt(it).mediaId },
+                queueKeys = (0 until player.mediaItemCount).map { index ->
+                    player.getMediaItemAt(index).mediaMetadata.extras
+                        ?.getString("odify.queueEntry") ?: "legacy:$index"
+                },
+                shuffleEnabled = player.shuffleModeEnabled,
+                repeatOne = player.repeatMode == Player.REPEAT_MODE_ONE
             )
-            delay(350L)
+        }
+        val listener = object : Player.Listener {
+            override fun onEvents(player: Player, events: Player.Events) = update()
+        }
+        player?.addListener(listener)
+        update()
+        onDispose { player?.removeListener(listener) }
+    }
+    LaunchedEffect(controller) {
+        val player = controller ?: return@LaunchedEffect
+        while (isActive) {
+            // Only position ticks: don't rebuild a 5,000-song queue every 350ms.
+            // Background playback remains in the service while UI polling rests.
+            if (activity.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED) &&
+                player.isPlaying) {
+                playback = playback.copy(position = player.currentPosition.coerceAtLeast(0L))
+            }
+            delay(if (player.isPlaying) 350L else 1000L)
         }
     }
 
@@ -270,13 +458,32 @@ private fun NativeOdify() {
                     driveCatalog.setManualArtwork(track, imageUri)
                 }.onSuccess {
                     songs = withContext(Dispatchers.IO) {
-                        library.songs() + driveCatalog.tracks()
+                        library.songs() + driveCatalog.tracks() + phoneFolder.tracks()
                     }
                     Toast.makeText(context, "앨범커버가 저장됐습니다.", Toast.LENGTH_SHORT).show()
                 }.onFailure {
                     Toast.makeText(context, it.message ?: "이미지를 열 수 없습니다.",
                         Toast.LENGTH_LONG).show()
                 }
+            }
+        }
+    }
+
+    val phoneFolderPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocumentTree()
+    ) { tree ->
+        if (tree != null) {
+            scope.launch {
+                importing = true
+                runCatching {
+                    phoneFolder.select(tree)
+                    val count = phoneFolder.scan()
+                    phoneFolderStatus = "휴대폰 폴더 ${phoneFolder.folderLabel} · ${count}곡 연결"
+                }.onFailure { phoneFolderStatus = it.message ?: "폴더를 열 수 없습니다." }
+                songs = withContext(Dispatchers.IO) {
+                    library.songs() + driveCatalog.tracks() + phoneFolder.tracks()
+                }
+                importing = false
             }
         }
     }
@@ -290,7 +497,7 @@ private fun NativeOdify() {
                 val result = if (importAsOffline) library.importFiles(uris)
                     else library.linkCloudDocuments(uris)
                 songs = withContext(Dispatchers.IO) {
-                    library.songs() + driveCatalog.tracks()
+                    library.songs() + driveCatalog.tracks() + phoneFolder.tracks()
                 }
                 importing = false
                 result.onSuccess {
@@ -319,7 +526,13 @@ private fun NativeOdify() {
 
     fun toggle() {
         val player = controller ?: return
-        if (player.isPlaying) player.pause() else player.play()
+        if (player.isPlaying) player.pause() else {
+            // A failed/ended player needs preparation/rewind before play().
+            if (player.playerError != null || player.playbackState == Player.STATE_IDLE)
+                player.prepare()
+            if (player.playbackState == Player.STATE_ENDED) player.seekToDefaultPosition()
+            player.play()
+        }
     }
 
     LaunchedEffect(Unit) {
@@ -358,9 +571,45 @@ private fun NativeOdify() {
                 runCatching {
                     driveCatalog.setFolder(newId)
                     driveFolder = newId
-                    songs = library.songs()
+                    songs = library.songs() + phoneFolder.tracks()
                     if (driveConnected) refreshCatalog()
                 }.onFailure { driveStatus = it.message ?: "폴더 ID를 확인하세요." }
+            },
+            uploadingToDrive = uploadingToDrive,
+            uploadStatus = uploadStatus,
+            onUploadToDrive = {
+                if (!uploadingToDrive && !driveBusy) driveUploadPicker.launch(arrayOf("audio/*"))
+            },
+            youtubeConnected = youtubeConnected,
+            youtubeStatus = youtubeStatus,
+            onConnectYoutube = { connectYoutube() },
+            phoneFolderStatus = phoneFolderStatus,
+            onChoosePhoneFolder = { phoneFolderPicker.launch(null) },
+            onRefreshPhoneFolder = {
+                scope.launch {
+                    importing = true
+                    runCatching { phoneFolder.scan() }
+                        .onSuccess { phoneFolderStatus = "휴대폰 폴더 새로고침 · ${it}곡" }
+                        .onFailure { phoneFolderStatus = it.message ?: "로컬 폴더 오류" }
+                    songs = withContext(Dispatchers.IO) {
+                        library.songs() + driveCatalog.tracks() + phoneFolder.tracks()
+                    }
+                    importing = false
+                }
+            },
+            onMasterUpdated = { master ->
+                scope.launch {
+                    val count = withContext(Dispatchers.IO) {
+                        val renamed = driveCatalog.applyMasterCorrections(master)
+                        val art = artworkFallback.warm(
+                            driveCatalog, driveCatalog.tracks(), master, 18
+                        )
+                        renamed + art
+                    }
+                    if (count > 0) songs = withContext(Dispatchers.IO) {
+                        library.songs() + driveCatalog.tracks() + phoneFolder.tracks()
+                    }
+                }
             },
             importing = importing,
             expanded = expanded,
@@ -374,6 +623,32 @@ private fun NativeOdify() {
                 picker.launch(arrayOf("audio/*"))
             },
             onPlay = { list, index -> playFrom(list, index) },
+            onMoveQueue = { from, to ->
+                controller?.let { player ->
+                    if (from in 0 until player.mediaItemCount &&
+                        to in 0 until player.mediaItemCount && from != to) {
+                        // A manually sorted Media3 queue must be the actual
+                        // upcoming playback order, even if shuffle was on.
+                        // Otherwise moveMediaItem changes only list position
+                        // while shuffle still picks a different next track.
+                        if (player.shuffleModeEnabled) {
+                            player.shuffleModeEnabled = false
+                            Toast.makeText(context, "수동 순서 변경으로 셔플을 껐습니다.",
+                                Toast.LENGTH_SHORT).show()
+                        }
+                        player.moveMediaItem(from, to)
+                    }
+                }
+            },
+            onPlayYoutubeMatched = { matchedQueue,index -> playFrom(matchedQueue,index) },
+            onSelectQueue = { index ->
+                controller?.let { player ->
+                    if (index in 0 until player.mediaItemCount) {
+                        player.seekToDefaultPosition(index)
+                        player.play()
+                    }
+                }
+            },
             onTogglePlayback = { toggle() },
             onPrevious = { controller?.seekToPreviousMediaItem() },
             onNext = { controller?.seekToNextMediaItem() },
@@ -387,17 +662,33 @@ private fun NativeOdify() {
                         androidx.media3.common.Player.REPEAT_MODE_OFF
                     else androidx.media3.common.Player.REPEAT_MODE_ONE
             },
+            onSaveDevice = { track ->
+                if (savingDeviceSong) {
+                    Toast.makeText(context, "이전 곡을 저장 중입니다.",
+                        Toast.LENGTH_SHORT).show()
+                } else {
+                    pendingDeviceSong = track
+                    val originalName = if (track.id.startsWith("gdrive:"))
+                        driveCatalog.filename(track.id.removePrefix("gdrive:"))
+                    else null
+                    saveDevicePicker.launch(deviceExport.suggestedName(track, originalName))
+                }
+            },
             onEdit = { song, title, artist, album ->
                 scope.launch {
                     runCatching {
-                        if (song.id.startsWith("gdrive:")) {
-                            withContext(Dispatchers.IO) {
+                        when {
+                            song.id.startsWith("gdrive:") -> withContext(Dispatchers.IO) {
                                 driveCatalog.updateMetadata(song, title, artist, album)
                             }
-                        } else library.updateMetadata(song, title, artist, album)
+                            song.isPhoneFolder -> withContext(Dispatchers.IO) {
+                                phoneFolder.updateMetadata(song, title, artist, album)
+                            }
+                            else -> library.updateMetadata(song, title, artist, album)
+                        }
                     }.onSuccess {
                         songs = withContext(Dispatchers.IO) {
-                            library.songs() + driveCatalog.tracks()
+                            library.songs() + driveCatalog.tracks() + phoneFolder.tracks()
                         }
                     }
                         .onFailure {
@@ -412,12 +703,26 @@ private fun NativeOdify() {
             },
             onRemove = { track ->
                 scope.launch {
-                    if (playback.mediaId == track.id) controller?.stop()
-                    if (track.id.startsWith("gdrive:")) {
-                        withContext(Dispatchers.IO) { driveCatalog.hideTrack(track) }
-                    } else library.delete(track)
-                    songs = withContext(Dispatchers.IO) {
-                        library.songs() + driveCatalog.tracks()
+                    // A provider/SQLite failure must never crash the Home
+                    // activity or pretend that the track was removed.
+                    runCatching {
+                        withContext(Dispatchers.IO) {
+                            when {
+                                track.id.startsWith("gdrive:") -> driveCatalog.hideTrack(track)
+                                track.isPhoneFolder -> phoneFolder.hideTrack(track)
+                                else -> library.delete(track)
+                            }
+                            library.songs() + driveCatalog.tracks() + phoneFolder.tracks()
+                        }
+                    }.onSuccess { refreshed ->
+                        songs = refreshed
+                        if (playback.mediaId == track.id) controller?.stop()
+                    }.onFailure { failure ->
+                        Toast.makeText(
+                            context,
+                            "라이브러리 변경 실패: ${failure.localizedMessage ?: "다시 시도하세요."}",
+                            Toast.LENGTH_LONG
+                        ).show()
                     }
                 }
             }

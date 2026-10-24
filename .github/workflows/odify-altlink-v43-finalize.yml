@@ -1,0 +1,96 @@
+name: Odify V4.3 finalize 1000 cached results without network
+on:
+  push:
+    branches: [feature/odify-v12-master-db]
+    paths:
+      - '.github/workflows/odify-altlink-v43-finalize.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  offline-repair:
+    runs-on: ubuntu-latest
+    timeout-minutes: 22
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify app export, deterministic resume and link protection
+        run: |
+          python -m unittest discover -s scripts/tests -p 'test_odify_altlink_v43_batch.py' -v
+          python -m unittest discover -s scripts/tests -p 'test_odify_altlink_v43_enrich_export.py' -v
+          python -m unittest discover -s scripts/tests -p 'test_odify_altlink_v43_master_overlay.py' -v
+      - name: Restore immutable 41416 recording catalog
+        uses: actions/download-artifact@v4
+        with:
+          repository: Tarang1215/Odify
+          run-id: 39909115368
+          name: odify-catalog-us-full-4-regions
+          github-token: ${{ github.token }}
+          path: .local/catalog
+      - name: Restore V4 300 cached live searches
+        uses: actions/download-artifact@v4
+        with:
+          repository: Tarang1215/Odify
+          run-id: 39991741952
+          name: odify-v4-300-live-results
+          github-token: ${{ github.token }}
+          path: .local/v4cache
+      - name: Restore all 1000 completed and immutable V4.3 checkpoints
+        uses: actions/download-artifact@v4
+        with:
+          repository: Tarang1215/Odify
+          run-id: 40008865324
+          name: odify-v43-1000-live-batch
+          github-token: ${{ github.token }}
+          path: .local/v43
+      - name: Reconstruct 1000 results and fix SQLite export offline
+        run: |
+          python -u scripts/odify_altlink_v43_batch.py \
+            --catalog .local/catalog/odify_catalog.sqlite3 \
+            --v4-cache .local/v4cache --out .local/v43 \
+            --limit 1000 --max-queries 1 --timeout 7 --delay 0.8
+      - name: Enrich app catalog with genuine album memberships and Apple IDs
+        run: |
+          python -u scripts/odify_altlink_v43_enrich_export.py \
+            --catalog .local/catalog/odify_catalog.sqlite3 \
+            --links .local/v43/odify_catalog_links_v43.sqlite3 \
+            --out .local/v43_enriched/odify_catalog_links_v43_enriched.sqlite3
+      - name: Audit real data counts, no fresh requests and no autoapproval
+        run: |
+          python - <<'PY'
+          import pathlib,json,csv,sqlite3,os
+          root=pathlib.Path('.local/v43')
+          summary=json.loads((root/'summary_v43.json').read_text())
+          assert summary['processed']==1000 and summary['fresh_searched']==700,summary
+          assert summary['reused_prior_300']==300
+          assert summary['new_http_attempts']==700 and summary['new_http_ok']==700,summary
+          assert not summary['master_modified'] and summary['auto_approved']==0
+          rows=list(csv.DictReader((root/'audit_1000.csv').open(encoding='utf-8-sig')))
+          assert len(rows)==1000 and len({r['recording_id'] for r in rows})==1000
+          assert all(x['verified']=='NO' and x['safe_to_auto_import']=='NO' for x in rows)
+          db=sqlite3.connect('.local/v43_enriched/odify_catalog_links_v43_enriched.sqlite3')
+          for name,num in [('recording',41416),('album',115),('album_track',1586),
+                           ('external_recording_identity',1883),('link_state',41416)]:
+            actual=db.execute('select count(*) from '+name).fetchone()[0]
+            assert actual==num,(name,actual)
+          assert db.execute('SELECT count(*) FROM link_state WHERE verified!=0 OR automatic_applied!=0').fetchone()[0]==0
+          db.close()
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as out:
+            out.write('## Odify V4.3 real 1000-song cached API experiment\n\n')
+            for k in ('catalog_total','sample_target','processed','reused_prior_300','fresh_searched','metadata_eligible','provider_unavailable','new_http_attempts','new_http_ok','http_success_median_ms','http_success_p95_ms'):
+              out.write(f'- {k}: **{summary[k]}**\n')
+            out.write('\n**0 new API requests** during offline finalization. Metadata eligibility is not audible verification. No source or MASTER writes.\n')
+          PY
+      - name: Publish validated 1000 raw checkpoints + finished 41416 app database
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: odify-v43-1000-final-complete
+          path: |
+            .local/v43/**
+            .local/v43_enriched/**
+          retention-days: 60
+          if-no-files-found: warn

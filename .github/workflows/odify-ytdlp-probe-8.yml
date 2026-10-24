@@ -1,0 +1,76 @@
+name: Odify yt-dlp metadata-only 8-link compatibility probe
+on:
+  push:
+    branches: [feature/odify-v12-master-db]
+    paths:
+      - '.github/workflows/odify-ytdlp-probe-8.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  dry-extract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install current yt-dlp for metadata-only capability testing
+        run: python -m pip install -U yt-dlp
+      - name: Read V4.3 archived 1000 search audit
+        uses: actions/download-artifact@v4
+        with:
+          repository: Tarang1215/Odify
+          run-id: 40012064191
+          name: odify-v43-1000-validated-app-ready
+          github-token: ${{ github.token }}
+          path: .local/v43
+      - name: Probe 8 URLs using yt-dlp simulate; download no bytes
+        run: |
+          mkdir -p .local/probe
+          python - <<'PY'
+          import csv,json,time,subprocess,sys,pathlib
+          root=pathlib.Path('.local/probe')
+          rows=list(csv.DictReader(open('.local/v43/v43/audit_1000.csv',encoding='utf-8-sig')))
+          chosen=[]
+          for region in ('kr','jp','us','gl'):
+            sample=[r for r in rows if r['country']==region and r['proposed_url'] and r['state']=='manual_review']
+            chosen.extend(sample[:2])
+          result=[]
+          for r in chosen:
+            command=[sys.executable,'-m','yt_dlp','--simulate','--no-playlist','--no-warnings',
+              '--socket-timeout','9','--retries','0','--extractor-retries','0',
+              '--dump-single-json',r['proposed_url']]
+            try:
+              p=subprocess.run(command,capture_output=True,text=True,timeout=35)
+              parsed=json.loads(p.stdout) if p.returncode==0 and p.stdout.strip().startswith('{') else {}
+              formats=parsed.get('formats') or []
+              audio=sum(x.get('acodec','none')!='none' for x in formats)
+              status=('extractor_audio_formats_present' if audio>0 else
+                      'extractor_no_audio_formats' if p.returncode==0 else
+                      'extractor_error')
+              detail=(p.stderr or '')[-400:]
+            except subprocess.TimeoutExpired:
+              status='timeout';detail='simulate_timeout';audio=0
+            result.append({'region':r['country'],'artist':r['artist'],'title':r['title'],
+              'url':r['proposed_url'],'status':status,'audio_formats':audio,
+              'message':detail})
+            print('YT_DLP_PROBE '+json.dumps({'region':r['country'],'status':status,
+              'audio_formats':audio},ensure_ascii=False),flush=True)
+            time.sleep(2)
+          with (root/'probe_8.json').open('w') as f:json.dump(result,f,ensure_ascii=False,indent=2)
+          summary={'sampled':len(result),'extractor_audio_formats_present':sum(x['status']=='extractor_audio_formats_present' for x in result),
+            'extractor_fail_or_unknown':sum(x['status']!='extractor_audio_formats_present' for x in result),
+            'media_bytes_downloaded':0,'full_media_cdn_200_verified':0,
+            'note':'yt-dlp --simulate success does NOT guarantee media CDN delivery, future download or authorization.'}
+          (root/'summary.json').write_text(json.dumps(summary,ensure_ascii=False,indent=2))
+          print('YT_DLP_PROBE_FINAL '+json.dumps(summary,ensure_ascii=False))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: odify-ytdlp-8-metadata-probe
+          path: .local/probe/**
+          retention-days: 30

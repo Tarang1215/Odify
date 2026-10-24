@@ -1,0 +1,79 @@
+name: Odify V4.3 final 41416 app metadata enrichment
+on:
+  push:
+    branches: [feature/odify-v12-master-db]
+    paths:
+      - '.github/workflows/odify-altlink-v43-enrich-final.yml'
+permissions:
+  actions: read
+  contents: read
+jobs:
+  complete-app-export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Unit tests of source-preserving SQLite graph
+        run: |
+          python -m unittest discover -s scripts/tests -p 'test_odify_altlink_v43_enrich_export.py' -v
+          python -m unittest discover -s scripts/tests -p 'test_odify_altlink_v43_master_overlay.py' -v
+      - name: Recover original catalog for album and Apple ID relations
+        uses: actions/download-artifact@v4
+        with:
+          repository: Tarang1215/Odify
+          run-id: 39909115368
+          name: odify-catalog-us-full-4-regions
+          github-token: ${{ github.token }}
+          path: .local/catalog
+      - name: Recover 1000 completed V4.3 checkpoints and app database
+        uses: actions/download-artifact@v4
+        with:
+          repository: Tarang1215/Odify
+          run-id: 40011801511
+          name: odify-v43-1000-final-complete
+          github-token: ${{ github.token }}
+          path: .local
+      - name: Copy real 115 albums, 1586 album tracks and 1883 Apple song identities
+        run: |
+          python -u scripts/odify_altlink_v43_enrich_export.py \
+            --catalog .local/catalog/odify_catalog.sqlite3 \
+            --links .local/v43/odify_catalog_links_v43.sqlite3 \
+            --out .local/enriched/odify_catalog_links_v43_enriched.sqlite3
+      - name: Verify all 1000 search checkpoints, complete catalog and no approvals
+        run: |
+          python - <<'PY'
+          import json,csv,sqlite3,pathlib,os
+          root=pathlib.Path('.local/v43')
+          summary=json.loads((root/'summary_v43.json').read_text())
+          assert summary['processed']==1000 and summary['fresh_searched']==700,summary
+          assert summary['new_http_attempts']==700 and summary['new_http_ok']==700,summary
+          assert len(list((root/'checkpoints').glob('*.json')))==1000
+          db=sqlite3.connect('.local/enriched/odify_catalog_links_v43_enriched.sqlite3')
+          for table,want in [('recording',41416),('album',115),('album_track',1586),
+             ('external_recording_identity',1883),('link_state',41416)]:
+            actual=db.execute('SELECT COUNT(*) FROM '+table).fetchone()[0]
+            assert actual==want,(table,actual)
+          assert db.execute('PRAGMA integrity_check').fetchone()[0]=='ok'
+          assert db.execute('SELECT COUNT(*) FROM link_state WHERE verified!=0 OR automatic_applied!=0').fetchone()[0]==0
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as out:
+            out.write('## Odify 1000 live Piped searches + 41416-recording app catalog\n\n')
+            for key in ('processed','reused_prior_300','fresh_searched','metadata_eligible','new_http_ok','http_success_median_ms','http_success_p95_ms'):
+              out.write(f'- {key}: **{summary[key]}**\n')
+            out.write('\nAlbum: 115; album-track: 1586; Apple identities: 1883; verified new URLs: 0.\n')
+          PY
+      - name: Publish final enriched portable SQLite and complete 1000 audit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: odify-v43-1000-validated-app-ready
+          path: |
+            .local/v43/sample_1000.csv
+            .local/v43/audit_1000.csv
+            .local/v43/summary_v43.json
+            .local/v43/manifest_identity.json
+            .local/enriched/odify_catalog_links_v43_enriched.sqlite3
+          retention-days: 60
+          if-no-files-found: warn

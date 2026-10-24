@@ -1,0 +1,102 @@
+name: Odify V4.3 1000-song scalable live pipeline
+on:
+  workflow_dispatch:
+    inputs:
+      resume_run_id:
+        description: 'Optional prior V4.3 run to restore its checkpoint artifact'
+        type: string
+        required: false
+        default: ''
+permissions:
+  actions: read
+  contents: read
+jobs:
+  one-thousand:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Unit tests on 1000 sampling, 41k export and no-write resume
+        run: |
+          python -m py_compile scripts/odify_altlink_v43_batch.py
+          python -m unittest discover -s scripts/tests -p 'test_odify_altlink_v43_batch.py' -v
+          python -m unittest discover -s scripts/tests -p 'test_odify_altlink_v4_300.py' -v
+      - name: Recover verified 41416-recording source SQLite
+        uses: actions/download-artifact@v4
+        with:
+          repository: Tarang1215/Odify
+          run-id: 39909115368
+          name: odify-catalog-us-full-4-regions
+          github-token: ${{ github.token }}
+          path: .local/catalog
+      - name: Recover the old 300 real API checkpoint files
+        uses: actions/download-artifact@v4
+        with:
+          repository: Tarang1215/Odify
+          run-id: 39991741952
+          name: odify-v4-300-live-results
+          github-token: ${{ github.token }}
+          path: .local/v4cache
+      - name: Restore saved V4.3 checkpoint bundle if requested
+        if: ${{ inputs.resume_run_id != '' }}
+        uses: actions/download-artifact@v4
+        with:
+          repository: Tarang1215/Odify
+          run-id: ${{ inputs.resume_run_id }}
+          name: odify-v43-1000-live-batch
+          github-token: ${{ github.token }}
+          path: .local/v43
+      - name: Verify source integrity, no in-place modification
+        run: |
+          python - <<'PY'
+          import sqlite3,pathlib
+          p=pathlib.Path('.local/catalog/odify_catalog.sqlite3')
+          assert p.exists()
+          db=sqlite3.connect('file:'+str(p.resolve())+'?mode=ro',uri=True)
+          assert db.execute('PRAGMA integrity_check').fetchone()[0]=='ok'
+          assert db.execute('select count(*) from recording').fetchone()[0]==41416
+          print('Verified 41416 source recordings')
+          PY
+      - name: Run 1000-song batch (300 cached + 700 live; one initial search per new song)
+        run: |
+          python -u scripts/odify_altlink_v43_batch.py \
+            --catalog .local/catalog/odify_catalog.sqlite3 \
+            --v4-cache .local/v4cache \
+            --out .local/v43 \
+            --limit 1000 --max-queries 1 --timeout 7 --delay 0.8
+      - name: Publish actual provider status, no autoapproval and 41k export audit
+        if: always()
+        run: |
+          python - <<'PY'
+          import json,sqlite3,pathlib,os
+          p=pathlib.Path('.local/v43/summary_v43.json')
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as out:
+            out.write('## Odify V4.3 1000-song live batch\n\n')
+            if not p.exists():
+              prog=pathlib.Path('.local/v43/progress.json')
+              if prog.exists():
+                s=json.loads(prog.read_text())
+                out.write('Incomplete batch; resumable checkpoints saved. Processed '+str(s['processed'])+'/1000.\n')
+              else:out.write('No report produced, see test / provider logs.\n')
+            else:
+              s=json.loads(p.read_text())
+              for k in ('catalog_total','sample_target','processed','reused_prior_300','fresh_searched','metadata_eligible','provider_unavailable','new_http_attempts','new_http_ok','http_success_median_ms','http_success_p95_ms','master_protected_in_sample'):
+                out.write(f'- {k}: **{s[k]}**\n')
+              if pathlib.Path('.local/v43/odify_catalog_links_v43.sqlite3').exists():
+                con=sqlite3.connect('.local/v43/odify_catalog_links_v43.sqlite3')
+                assert con.execute('select count(*) from recording').fetchone()[0]==41416
+                assert con.execute('select count(*) from link_state where verified!=0 or automatic_applied!=0').fetchone()[0]==0
+                out.write('- App-ready SQLite export includes all **41416** recordings, with **no verified/autoapplied candidate URLs**.\n')
+              out.write('\nMetadata-eligible is not verified audio and production apps / MASTER are unchanged.\n')
+          PY
+      - name: Upload all checkpoints, audit files, and app-ready 41k SQLite
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: odify-v43-1000-live-batch
+          path: .local/v43/**
+          retention-days: 60
+          if-no-files-found: warn

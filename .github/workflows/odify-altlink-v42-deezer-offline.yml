@@ -1,0 +1,96 @@
+name: Odify V4.2 final audio length & unique ID audit
+on:
+  workflow_dispatch:
+  push:
+    branches: [feature/odify-v12-master-db]
+    paths:
+      - '.github/workflows/odify-altlink-v42-deezer-offline.yml'
+permissions:
+  contents: read
+  actions: read
+jobs:
+  cached-evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate strict catalog and version tests
+        run: |
+          python -m py_compile scripts/odify_altlink_v42_deezer.py
+          python -m unittest discover -s scripts/tests -p 'test_odify_altlink_v42_deezer.py' -v
+          python -m unittest discover -s scripts/tests -p 'test_odify_altlink_v42_catalog.py' -v
+      - name: Original V4 video candidates
+        uses: actions/download-artifact@v4
+        with:
+          repository: Tarang1215/Odify
+          run-id: 39995104535
+          name: odify-v4-300-safe-offline
+          github-token: ${{ github.token }}
+          path: .local/v4
+      - name: V4.1 reviewed tracks
+        uses: actions/download-artifact@v4
+        with:
+          repository: Tarang1215/Odify
+          run-id: 40000817443
+          name: odify-v41-300-gap-ambiguity-review
+          github-token: ${{ github.token }}
+          path: .local/v41
+      - name: V4.1 fifth targeted candidate
+        uses: actions/download-artifact@v4
+        with:
+          repository: Tarang1215/Odify
+          run-id: 40001229423
+          name: odify-v41-targeted-five-live
+          github-token: ${{ github.token }}
+          path: .local/targeted
+      - name: MusicBrainz and Apple original network responses
+        uses: actions/download-artifact@v4
+        with:
+          repository: Tarang1215/Odify
+          run-id: 40004639486
+          name: odify-v42-54-source-quality-final
+          github-token: ${{ github.token }}
+          path: .local/prior
+      - name: Original real Deezer responses, zero new network calls
+        uses: actions/download-artifact@v4
+        with:
+          repository: Tarang1215/Odify
+          run-id: 40005013599
+          name: odify-v42-deezer-apple-54
+          github-token: ${{ github.token }}
+          path: .local/v42_deezer
+      - name: Apply minimum length and deduplicate same catalog IDs
+        run: |
+          python -u scripts/odify_altlink_v42_deezer.py \
+            --v4 .local/v4 --v41 .local/v41 \
+            --targeted .local/targeted --prior .local/prior \
+            --out .local/v42_deezer --offline
+      - name: Enforce 54 tracks and no write or automatic approvals
+        run: |
+          python - <<'PY'
+          import csv,json,os,pathlib
+          path=pathlib.Path('.local/v42_deezer')
+          s=json.loads((path/'summary_v42_deezer.json').read_text())
+          rows=list(csv.DictReader((path/'v42_apple_deezer_catalog_54.csv').open(encoding='utf-8-sig')))
+          assert len(rows)==54 and s['processed']==54
+          assert all(x['master_write']=='NO' and x['automatic_approval']=='NO' for x in rows)
+          assert s['deezer_http_200']==54 and s['master_modified']==False
+          assert s['excluded_short_catalog_recordings']>=1
+          assert s['unique_apple_deezer_recording_pairs']<=s['two_catalog_same_title_artist_duration']
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as f:
+            f.write('## Odify V4.2 final three-provider evidence report\n\n')
+            for k,v in s.items():
+              if isinstance(v,(int,bool)):f.write(f'- {k}: **{v}**\n')
+            f.write('\nAll 54 sources are review-only. Archived API responses were replayed without calling catalog providers.\n')
+          PY
+      - name: Publish corrected 54-track comparison and original cached JSON
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: odify-v42-54-final-dedup-and-length
+          path: .local/v42_deezer/**
+          retention-days: 60
+          if-no-files-found: warn

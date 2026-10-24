@@ -1,0 +1,62 @@
+name: Odify V4.1 five unresolved songs targeted search
+on:
+  workflow_dispatch:
+  push:
+    branches: [feature/odify-v12-master-db]
+    paths:
+      - 'scripts/odify_altlink_v41_targeted.py'
+      - 'scripts/tests/test_odify_altlink_v41_targeted.py'
+      - '.github/workflows/odify-altlink-v41-targeted.yml'
+permissions:
+  actions: read
+  contents: read
+jobs:
+  targeted-five:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify script and no-write tests
+        run: |
+          python -m py_compile scripts/odify_altlink_v41_targeted.py
+          python -m unittest discover -s scripts/tests -p 'test_odify_altlink_v41_targeted.py' -v
+          python -m unittest discover -s scripts/tests -p 'test_odify_altlink_v41_review.py' -v
+      - name: Restore 300-song V4.1 diagnostics
+        uses: actions/download-artifact@v4
+        with:
+          repository: Tarang1215/Odify
+          run-id: 40000817443
+          name: odify-v41-300-gap-ambiguity-review
+          github-token: ${{ github.token }}
+          path: .local/odify_v41_review
+      - name: Search five remaining unresolved songs (10 bounded requests)
+        run: |
+          python -u scripts/odify_altlink_v41_targeted.py \
+            --input .local/odify_v41_review \
+            --out .local/odify_v41_targeted \
+            --timeout 7 --delay 0.8
+      - name: Report source status and no-write protection
+        if: always()
+        run: |
+          python - <<'PY'
+          import json,pathlib,os
+          p=pathlib.Path('.local/odify_v41_targeted/summary_targeted_v41.json')
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as f:
+            f.write('## Odify V4.1 targeted 5-track follow-up\n\n')
+            if p.exists():
+              d=json.loads(p.read_text())
+              for k,v in d.items():
+                if isinstance(v,(int,bool)):f.write(f'- {k}: **{v}**\n')
+              f.write('\nAll candidates remain REVIEW_ONLY; no MASTER edits.\n')
+            else:f.write('Did not complete; see job logs.\n')
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: odify-v41-targeted-five-live
+          path: .local/odify_v41_targeted/**
+          if-no-files-found: warn
+          retention-days: 60

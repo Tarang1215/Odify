@@ -1,0 +1,52 @@
+name: Odify v12 Compile Without Signing
+on:
+  push:
+    branches:
+      - feature/odify-v12-master-db
+    paths:
+      - 'native-android/**'
+      - '.github/workflows/odify-v12-compile-check.yml'
+  pull_request:
+    branches:
+      - feature/odify-v11-native-titles-artwork
+      - feature/odify-v12-master-db
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: odify-v12-compile-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  compile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Gradle 8.9
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Install Android SDK
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-35' 'build-tools;35.0.0'
+      - name: Fetch Pretendard compile inputs
+        run: |
+          mkdir -p native-android/app/src/main/res/font native-android/licenses
+          BASE=https://raw.githubusercontent.com/orioncactus/pretendard/main/packages/pretendard/dist/public/static
+          for WEIGHT in Regular Medium SemiBold Bold; do
+            case "$WEIGHT" in Regular) NAME=regular ;; Medium) NAME=medium ;; SemiBold) NAME=semibold ;; Bold) NAME=bold ;; esac
+            curl -fL --retry 3 --connect-timeout 15 --max-time 90 "$BASE/Pretendard-$WEIGHT.otf" \
+              -o "native-android/app/src/main/res/font/pretendard_$NAME.otf"
+          done
+          curl -fL https://raw.githubusercontent.com/orioncactus/pretendard/main/LICENSE -o native-android/licenses/Pretendard-OFL.txt
+      - name: Compile Kotlin only, do not issue APK
+        run: gradle -p native-android :app:compileDebugKotlin --stacktrace --no-daemon
+      - name: Run JVM tests
+        run: gradle -p native-android :app:testDebugUnitTest --stacktrace --no-daemon

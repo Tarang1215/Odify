@@ -1,0 +1,87 @@
+name: Odify 100 Song Healthy Piped Retest
+on:
+  push:
+    branches: [feature/odify-v12-master-db]
+    paths: ['.github/workflows/odify-link-piped-100-retest.yml']
+  workflow_dispatch:
+permissions:
+  actions: read
+  contents: read
+jobs:
+  retest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test parser and read-only resume safety
+        run: |
+          python -m unittest discover -s scripts/tests -p 'test_odify_link_multi_backend.py' -v
+      - name: Restore exact original 100-song API audit checkpoint
+        uses: actions/download-artifact@v4
+        with:
+          repository: Tarang1215/Odify
+          name: odify-piped-invidious-100-song-audit
+          run-id: 39954957874
+          github-token: ${{ github.token }}
+          path: .local
+      - name: Restore catalog dataset used for original stratified sample
+        uses: actions/download-artifact@v4
+        with:
+          repository: Tarang1215/Odify
+          name: odify-catalog-us-full-4-regions
+          run-id: 39909115368
+          github-token: ${{ github.token }}
+          path: .local
+      - name: Verify we preserved the 200 former failed requests
+        run: |
+          python - <<'PY'
+          import sqlite3,os
+          p='.local/odify_link_provider_state.sqlite3'
+          assert os.path.getsize(p)>0
+          c=sqlite3.connect(p)
+          assert c.execute('select count(*) from lookups').fetchone()[0]==200
+          print('ODIFY_RESUMED_FROM_200_PRIOR_ATTEMPTS')
+          PY
+      - name: Search all 100 songs using working Piped public instances
+        timeout-minutes: 25
+        run: |
+          python -u scripts/odify_link_multi_backend.py \
+            --db .local/odify_catalog.sqlite3 \
+            --state .local/odify_link_provider_state.sqlite3 \
+            --output-dir .local/link_pilot \
+            --limit-per-country 25 --providers piped --retry-errors \
+            --piped-instances https://pipedapi.ducks.party,https://api.piped.private.coffee \
+            --timeout 6 --delay 1.4
+      - name: Report actual Piped success rate and version checks
+        if: always()
+        run: |
+          python - <<'PY'
+          import json,os
+          from pathlib import Path
+          p=Path('.local/link_pilot/pilot_summary.json')
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a',encoding='utf-8') as f:
+              f.write('## Odify Piped real 100-song retest\n\n')
+              f.write('100 distinct KR JP US Global songs, MASTER unmodified.\n\n')
+              if p.exists():
+                  d=json.loads(p.read_text(encoding='utf-8'))
+                  f.write('**Progress: '+str(d['completed'])+'/'+str(d['total'])+'**\n\n')
+                  for k,v in d.get('providers',{}).items():f.write('* '+k+': '+str(v)+'\n')
+                  f.write('\nMatch findings: '+str(d.get('matching_quality'))+'\n\n')
+                  f.write('Statuses: '+str(d.get('status_counts'))+'\n\n')
+                  f.write('**Metadata confidence is not human-confirmed accuracy.**\n')
+              else:
+                  f.write('No completed summary; see ODIFY_LINK_PROGRESS logs.\n')
+          PY
+      - name: Preserve actual 100-song results and resumable state
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: odify-piped-100-song-retest-results
+          path: |
+            .local/odify_link_provider_state.sqlite3
+            .local/link_pilot/**
+          retention-days: 60
+          if-no-files-found: warn

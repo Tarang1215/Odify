@@ -1,0 +1,24 @@
+name: Odify Piped Invidious Instance Probe
+on:
+  push:
+    branches: [feature/odify-v12-master-db]
+    paths: ['.github/workflows/odify-link-instance-probe.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Respectfully probe one query on 6 public instances
+        run: python -u scripts/odify_provider_probe.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: odify-piped-invidious-instance-probe
+          path: .local/odify_provider_probe.json
+          retention-days: 30

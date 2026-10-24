@@ -19,12 +19,19 @@ import java.util.ArrayDeque
 import java.util.Locale
 
 private const val DEFAULT_FOLDER_NAME = "Odify_Music_Test"
+// Only these explicit Odify library roots are discovered. Never traverse the
+// rest of the user's Drive. Both top-level and nested Auto_Upload are accepted.
+internal val ODIFY_LIBRARY_ROOT_NAMES = listOf(
+    DEFAULT_FOLDER_NAME, "odify_music_test",
+    "Odify_Auto_Upload", "odify_auto_upload",
+    "Odify_Cloud_Uploads"
+)
 private const val FOLDER_MIME = "application/vnd.google-apps.folder"
 
 /** A SQLite index: deliberately NOT 50k rows of JSON in SharedPreferences. */
 class DriveCatalog(private val context: Context) {
     private val prefs = context.getSharedPreferences("odify_drive_catalog_v1", 0)
-    private val db = object : SQLiteOpenHelper(context, "odify_drive_catalog.db", null, 3) {
+    private val db = object : SQLiteOpenHelper(context, "odify_drive_catalog.db", null, 4) {
         override fun onCreate(db: SQLiteDatabase) {
             db.execSQL("""CREATE TABLE tracks (
                 id TEXT PRIMARY KEY, name TEXT NOT NULL, title TEXT NOT NULL,
@@ -33,7 +40,9 @@ class DriveCatalog(private val context: Context) {
                 modified TEXT NOT NULL DEFAULT '', cover TEXT NOT NULL DEFAULT '',
                 lyrics TEXT NOT NULL DEFAULT '',
                 meta_source TEXT NOT NULL DEFAULT 'filename',
-                meta_checked_modified TEXT NOT NULL DEFAULT ''
+                meta_checked_modified TEXT NOT NULL DEFAULT '',
+                md5 TEXT NOT NULL DEFAULT '',
+                file_bytes INTEGER NOT NULL DEFAULT 0
             )""")
             db.execSQL("CREATE INDEX tracks_search ON tracks(title, artist, genre)")
         }
@@ -47,6 +56,10 @@ class DriveCatalog(private val context: Context) {
                 // had a leading NUL. Rescan only the missing-art tracks once.
                 db.execSQL("UPDATE tracks SET meta_checked_modified='' WHERE cover=''")
             }
+            if (old < 4) {
+                db.execSQL("ALTER TABLE tracks ADD COLUMN md5 TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE tracks ADD COLUMN file_bytes INTEGER NOT NULL DEFAULT 0")
+            }
         }
     }
     val folderId: String get() = prefs.getString("folder", "") ?: ""
@@ -57,7 +70,8 @@ class DriveCatalog(private val context: Context) {
     fun setFolder(id: String) {
         require(Regex("[A-Za-z0-9_-]{10,150}").matches(id)) { "유효한 Drive 폴더 ID가 아닙니다." }
         prefs.edit().putString("folder", id).apply()
-        db.writableDatabase.delete("tracks", null, null)
+        // Keep existing metadata and manual corrections intact until a
+        // successful transactional sync replaces the visible file index.
         lastSync = 0
     }
 
@@ -80,20 +94,132 @@ class DriveCatalog(private val context: Context) {
                     BitmapFactory.Options().apply { inSampleSize = sample })
             } ?: error("사진을 열 수 없습니다.")
             val directory = File(context.filesDir, "manual_art").apply { mkdirs() }
-            val target = File(directory, "$fileId.jpg")
+            val target = File(directory, "$fileId-${System.nanoTime()}.jpg")
             try {
                 target.outputStream().use {
                     check(bitmap.compress(Bitmap.CompressFormat.JPEG, 88, it))
                 }
             } finally { bitmap.recycle() }
+            val previous = prefs.getString("manualArt:$fileId", null)
             prefs.edit().putString("manualArt:$fileId", target.absolutePath).apply()
+            previous?.let { old ->
+                val file = File(old)
+                if (file.parentFile == directory) file.delete()
+            }
         }
+
+    /** Verified master video thumbnail is a display fallback, not original art. */
+    fun setFallbackArtwork(fileId: String, picturePath: String) {
+        if (!File(picturePath).isFile) return
+        db.writableDatabase.execSQL(
+            "UPDATE tracks SET cover=? WHERE id=? AND cover=''",
+            arrayOf(picturePath, fileId)
+        )
+    }
+
+    /** Exact-byte duplicate detection. Compare Drive's MD5 and file size. */
+    fun hasExactBytes(md5Hex: String, size: Long): Boolean {
+        require(Regex("[0-9a-fA-F]{32}").matches(md5Hex))
+        return db.readableDatabase.rawQuery(
+            "SELECT 1 FROM tracks WHERE md5=? AND file_bytes=? LIMIT 1",
+            arrayOf(md5Hex.lowercase(Locale.ROOT), size.toString())
+        ).use { it.moveToFirst() }
+    }
+
+    /** ODF identifiers in filenames are stronger than title-only guesses. */
+    fun hasTrackCode(code: String): Boolean {
+        if (!Regex("ODF[0-9]{6}", RegexOption.IGNORE_CASE).matches(code))
+            return false
+        return db.readableDatabase.rawQuery(
+            "SELECT name FROM tracks WHERE UPPER(name) LIKE ?",
+            arrayOf(code.uppercase(Locale.ROOT) + "%")
+        ).use { cursor ->
+            val prefix = code.uppercase(Locale.ROOT)
+            while(cursor.moveToNext()) {
+                val text = cursor.getString(0).uppercase(Locale.ROOT)
+                if (text.length > prefix.length &&
+                    text.substring(prefix.length, prefix.length + 1) in
+                        listOf(".", " ", "-", "_")) return@use true
+            }
+            false
+        }
+    }
+
+    /** Avoid materializing all artwork/lyrics when checking another upload. */
+    fun hasMatchingSong(title: String, artist: String, album: String): Boolean {
+        if (title.isBlank() || artist.isBlank() || album.isBlank()) return false
+        val wanted = listOf(title, artist, album).map(MasterDuplicateDetector::norm)
+        return db.readableDatabase.rawQuery(
+            "SELECT title,artist,album FROM tracks", null
+        ).use { cursor ->
+            while(cursor.moveToNext()) {
+                if (listOf(cursor.getString(0),cursor.getString(1),
+                        cursor.getString(2)).map(MasterDuplicateDetector::norm) == wanted)
+                    return@use true
+            }
+            false
+        }
+    }
 
     fun hideTrack(song: OdifySong) {
         val hidden = prefs.getStringSet("hidden", emptySet())?.toMutableSet()
             ?: mutableSetOf()
         hidden += song.id.removePrefix("gdrive:")
         prefs.edit().putStringSet("hidden", hidden).apply()
+    }
+
+    /**
+     * MASTER Sheet is the canonical human-verified name source for files bearing
+     * its ODF track code (or an exact Drive ID). Never edits the original audio
+     * and never overwrites an explicit user correction.
+     */
+    fun applyMasterCorrections(master: List<MasterTrack>): Int {
+        val conn=db.writableDatabase
+        var updated=0
+        conn.beginTransaction()
+        try {
+            for (track in master) {
+                if (!Regex("ODF[0-9]{6}",RegexOption.IGNORE_CASE).matches(track.trackId)) continue
+                if (track.title.isBlank() || track.artist.isBlank()) continue
+                val searchId=track.driveId
+                val rows=ArrayList<Pair<String,String>>()
+                val prefix=track.trackId.uppercase(Locale.ROOT)
+                conn.rawQuery(
+                    "SELECT id,name,meta_source FROM tracks WHERE " +
+                        "(UPPER(name) LIKE ? OR id=?)",
+                    arrayOf(prefix + "%", searchId)
+                ).use { c ->
+                    while(c.moveToNext()) {
+                        val id=c.getString(0)
+                        val name=c.getString(1).uppercase(Locale.ROOT)
+                        // ODF000001.mp3 and ODF000001 - artist - title.mp3 are
+                        // both valid. Do not confuse ODF000001 with ODF0000010.
+                        val suffix=name.getOrNull(prefix.length)
+                        val codeMatches=name.startsWith(prefix) &&
+                            suffix != null && suffix in charArrayOf('.', ' ', '-', '_')
+                        if ((searchId.isNotBlank() && id==searchId) || codeMatches)
+                            rows += id to c.getString(2)
+                    }
+                }
+                for((id,origin) in rows) {
+                    if(origin=="user") continue
+                    val cv=ContentValues().apply {
+                        put("title",track.title)
+                        put("artist",track.artist)
+                        put("album",track.album)
+                        // Prefer the canonical MASTER genre over guessed folder
+                        // paths, but never replace a known genre with 미분류.
+                        if (track.genre.isNotBlank() && track.genre != "미분류")
+                            put("genre", track.genre)
+                        put("meta_source","master")
+                    }
+                    updated+=conn.update("tracks",cv,"id=? AND meta_source!=?",
+                        arrayOf(id,"user"))
+                }
+            }
+            conn.setTransactionSuccessful()
+        } finally { conn.endTransaction() }
+        return updated
     }
 
     fun updateMetadata(song: OdifySong, title: String, artist: String, album: String) {
@@ -105,6 +231,11 @@ class DriveCatalog(private val context: Context) {
         }
         db.writableDatabase.update("tracks", cv, "id=?", arrayOf(id))
     }
+
+    /** Original extension for device export; the user's title may omit it. */
+    fun filename(fileId: String): String? = db.readableDatabase.rawQuery(
+        "SELECT name FROM tracks WHERE id=? LIMIT 1", arrayOf(fileId)
+    ).use { c -> if (c.moveToFirst()) c.getString(0) else null }
 
     fun tracks(): List<OdifySong> {
         val result = ArrayList<OdifySong>()
@@ -146,22 +277,37 @@ class DriveCatalog(private val context: Context) {
      */
     suspend fun sync(onProgress: (Int) -> Unit = {}): Int = withContext(Dispatchers.IO) {
         val queue = ArrayDeque<Pair<String,String>>()
-        val initialFolder = folderId.ifBlank {
-            // Never publish the user's private folder ID inside an open-source APK.
-            // Locate the default folder by name in the authenticated account.
-            val q = "mimeType = '$FOLDER_MIME' and name = '$DEFAULT_FOLDER_NAME' and trashed = false"
-            val list = JSONObject(apiJson("files", mapOf(
-                "q" to q, "pageSize" to "100",
-                "fields" to "files(id,name),nextPageToken"
-            ))).getJSONArray("files")
-            if (list.length() == 0) error("Drive에서 $DEFAULT_FOLDER_NAME 폴더를 찾을 수 없습니다.")
-            list.getJSONObject(0).getString("id")
+        // Include the user's explicitly selected root plus both Drive
+        // Auto_Upload roots, even when one is outside Odify_Music_Test.
+        // Resolve by name on every device: IDs remain private and never
+        // hard-coded into an APK, and new remote uploads are picked up.
+        val roots = linkedSetOf<String>()
+        if (folderId.isNotBlank()) roots += folderId
+        val names = ODIFY_LIBRARY_ROOT_NAMES.joinToString(" or ") {
+            "name = '${it.replace("'", "\\'")}'"
         }
-        queue.add(initialFolder to "")
+        val filter = "mimeType = '$FOLDER_MIME' and trashed = false and ($names)"
+        var rootPage: String? = null
+        do {
+            val result = JSONObject(apiJson("files", mapOf(
+                "q" to filter, "pageSize" to "1000",
+                "fields" to "nextPageToken,files(id,name)",
+                "pageToken" to (rootPage ?: "")
+            )))
+            val entries = result.getJSONArray("files")
+            for (i in 0 until entries.length()) {
+                roots += entries.getJSONObject(i).getString("id")
+            }
+            rootPage = result.optString("nextPageToken").takeIf { it.isNotBlank() }
+        } while (rootPage != null)
+        if (roots.isEmpty()) error("Drive에서 Odify_Music_Test 또는 Odify_Auto_Upload 폴더를 찾지 못했습니다.")
+        roots.forEach { queue.add(it to "") }
+        val scannedFolders = mutableSetOf<String>()
         val collected = LinkedHashMap<String, JSONObject>()
         var visitedFolders = 0
         while (queue.isNotEmpty()) {
             val (parent, genrePath) = queue.removeFirst()
+            if (!scannedFolders.add(parent)) continue
             if (++visitedFolders > 4_000) error("폴더 수 제한(4,000)을 초과했습니다.")
             var nextPage: String? = null
             do {
@@ -169,7 +315,7 @@ class DriveCatalog(private val context: Context) {
                 val params = linkedMapOf(
                     "q" to query,
                     "pageSize" to "1000",
-                    "fields" to "nextPageToken,files(id,name,mimeType,modifiedTime,capabilities/canDownload)",
+                    "fields" to "nextPageToken,files(id,name,mimeType,modifiedTime,md5Checksum,size,capabilities/canDownload)",
                     "pageToken" to (nextPage ?: "")
                 )
                 val json = JSONObject(apiJson("files", params))
@@ -211,7 +357,7 @@ class DriveCatalog(private val context: Context) {
                     if (c.moveToFirst()) (0..8).map { c.getString(it) } else null
                 }
                 val modified = file.optString("modifiedTime")
-                val hasTags = existing?.get(5) in setOf("tag", "user")
+                val hasTags = existing?.get(5) in setOf("tag", "user", "master")
                 val cv = ContentValues().apply {
                     put("id", id)
                     put("name", file.getString("name"))
@@ -221,6 +367,8 @@ class DriveCatalog(private val context: Context) {
                     put("genre", if (hasTags && !existing!![8].isNullOrBlank()) existing[8] else genre)
                     put("mime", file.optString("mimeType"))
                     put("modified", modified)
+                    put("md5", file.optString("md5Checksum"))
+                    put("file_bytes", file.optLong("size", 0L))
                     put("cover", if (existing?.get(4) == modified) existing[3] else "")
                     put("meta_source", existing?.get(5) ?: "filename")
                     put("meta_checked_modified", if (existing?.get(4) == modified)
@@ -312,7 +460,7 @@ class DriveCatalog(private val context: Context) {
         val hasText = listOf(tag.title, tag.artist, tag.album, tag.genre)
             .any { !it.isNullOrBlank() }
         val cv = ContentValues().apply {
-            if (origin != "user") {
+            if (origin != "user" && origin != "master") {
                 tag.title?.takeIf { it.isNotBlank() }?.let { put("title", it) }
                 tag.artist?.takeIf { it.isNotBlank() }?.let { put("artist", it) }
                 tag.album?.takeIf { it.isNotBlank() }?.let { put("album", it) }
@@ -343,7 +491,7 @@ class DriveCatalog(private val context: Context) {
             }
         ) ?: return null
         val target = File(File(context.filesDir, "drive_art").apply { mkdirs() },
-            "$driveId.jpg")
+            "$driveId-${java.util.Arrays.hashCode(bytes)}.jpg")
         return try {
             target.outputStream().use {
                 if (!bitmap.compress(Bitmap.CompressFormat.JPEG, 86, it))

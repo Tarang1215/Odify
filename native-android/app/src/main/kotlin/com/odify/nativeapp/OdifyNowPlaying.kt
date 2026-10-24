@@ -10,6 +10,8 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
@@ -63,6 +65,8 @@ fun OdifyNowPlaying(
     position: Long,
     duration: Long,
     liked: Boolean,
+    shuffleEnabled: Boolean,
+    repeatOne: Boolean,
     onDismiss: () -> Unit,
     onToggle: () -> Unit,
     onPrevious: () -> Unit,
@@ -70,13 +74,18 @@ fun OdifyNowPlaying(
     onSeek: (Long) -> Unit,
     onLike: () -> Unit,
     onShuffle: () -> Unit,
-    onRepeat: () -> Unit
+    onRepeat: () -> Unit,
+    onShowQueue: () -> Unit,
+    onAddToPlaylist: () -> Unit,
+    onSaveDevice: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     var dragOffset by remember { mutableFloatStateOf(0f) }
     val threshold = with(LocalDensity.current) { 125.dp.toPx() }
     var showInfo by remember { mutableStateOf(false) }
+    var actionsOpen by remember { mutableStateOf(false) }
+    var showLyrics by remember { mutableStateOf(false) }
     var albumSlide by remember(song.id) { mutableFloatStateOf(0f) }
     var albumSettling by remember(song.id) { mutableStateOf(false) }
     val swipeThreshold = with(LocalDensity.current) { 68.dp.toPx() }
@@ -129,10 +138,20 @@ fun OdifyNowPlaying(
         BoxWithConstraints(
             Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()
         ) {
-            val artSize = minOf(maxWidth - 62.dp, maxHeight * 0.39f)
+            val compact = maxHeight < 620.dp
+            val artSize = minOf(maxWidth - 62.dp, maxHeight * 0.39f).coerceAtLeast(80.dp)
             Column(
-                Modifier.fillMaxSize().padding(horizontal = 25.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
+                Modifier.fillMaxWidth()
+                    // The scroll container owns the viewport while its child
+                    // respects the viewport minimum height; reversed modifier
+                    // order created empty bottom space on tall Galaxy screens.
+                    .verticalScroll(rememberScrollState())
+                    .heightIn(min = maxHeight)
+                    .padding(horizontal = 25.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                // Consume tall-device spare height between controls rather
+                // than leaving one large empty slab below the final button.
+                verticalArrangement = Arrangement.SpaceBetween
             ) {
                 Row(
                     Modifier.fillMaxWidth().height(58.dp),
@@ -146,24 +165,51 @@ fun OdifyNowPlaying(
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("PLAYING FROM", color = playerSecondary, fontSize = 9.sp,
                             letterSpacing = 1.5.sp, fontWeight = FontWeight.Medium)
-                        Text(if (song.isCloud) "Google Drive" else "Offline Library",
-                            color = playerWhite, fontSize = 12.sp,
+                        Text(when {
+                            song.id.startsWith("gdrive:") -> "Google Drive"
+                            song.isPhoneFolder -> "휴대폰 음악 폴더"
+                            else -> "내 음악"
+                        }, color = playerWhite, fontSize = 12.sp,
                             fontWeight = FontWeight.SemiBold)
                     }
                     Spacer(Modifier.weight(1f))
-                    IconButton(onClick = { showInfo = !showInfo },
-                        modifier = Modifier.size(40.dp)) {
-                        Icon(Icons.Default.MoreHoriz, "음원 정보",
-                            tint = playerWhite)
+                    Box {
+                        IconButton(onClick = { actionsOpen = true },
+                            modifier = Modifier.size(44.dp)) {
+                            Icon(Icons.Default.MoreVert, "곡 옵션 열기",
+                                tint = playerWhite)
+                        }
+                        DropdownMenu(
+                            expanded = actionsOpen,
+                            onDismissRequest = { actionsOpen = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("플레이리스트에 추가") },
+                                leadingIcon = { Icon(Icons.Default.PlaylistAdd, null) },
+                                onClick = { actionsOpen = false; onAddToPlaylist() }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("디바이스에 저장") },
+                                leadingIcon = { Icon(Icons.Default.FileDownload, null) },
+                                onClick = { actionsOpen = false; onSaveDevice() }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("곡 정보") },
+                                leadingIcon = { Icon(Icons.Default.Info, null) },
+                                onClick = { actionsOpen = false; showInfo = true }
+                            )
+                        }
                     }
                 }
 
-                Spacer(Modifier.weight(0.8f))
+                Spacer(Modifier.height(if (compact) 8.dp else 24.dp))
                 val artWidthPx = with(LocalDensity.current) { artSize.toPx() }
                 val artGapPx = with(LocalDensity.current) { 12.dp.toPx() }
                 // Three covers share one clipped viewport. As the user swipes,
                 // the next cover enters continuously instead of popping in.
-                Box(
+                if (showLyrics) {
+                    OdifyLyricsPanel(song, position, onSeek, Modifier.size(artSize))
+                } else Box(
                     Modifier.size(artSize)
                         .clip(RoundedCornerShape(22.dp))
                         .pointerInput(song.id, previousSong?.id, nextSong?.id) {
@@ -291,7 +337,8 @@ fun OdifyNowPlaying(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     IconButton(onClick = onShuffle) {
-                        Icon(Icons.Default.Shuffle, "셔플", tint = playerSecondary,
+                        Icon(Icons.Default.Shuffle, if (shuffleEnabled) "셔플 끄기" else "셔플 켜기",
+                            tint = if (shuffleEnabled) Color(0xFF9BEFC4) else playerSecondary,
                             modifier = Modifier.size(22.dp))
                     }
                     IconButton(onClick = onPrevious) {
@@ -317,17 +364,13 @@ fun OdifyNowPlaying(
                             tint = playerWhite, modifier = Modifier.size(28.dp))
                     }
                     IconButton(onClick = onRepeat) {
-                        Icon(Icons.Default.Repeat, "반복 재생", tint = playerSecondary,
+                        Icon(if (repeatOne) Icons.Default.RepeatOne else Icons.Default.Repeat,
+                            if (repeatOne) "한 곡 반복 끄기" else "한 곡 반복 켜기",
+                            tint = if (repeatOne) Color(0xFF9BEFC4) else playerSecondary,
                             modifier = Modifier.size(22.dp))
                     }
                 }
-                Spacer(Modifier.weight(1f))
-                if (showInfo) {
-                    Text(song.album.ifEmpty { "Local audio · no album metadata" },
-                        color = playerSecondary, fontSize = 11.sp,
-                        maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Spacer(Modifier.height(10.dp))
-                }
+                Spacer(Modifier.height(if (compact) 12.dp else 28.dp))
                 // Precisely center the AUDIO pill on the same x-axis as Play.
                 Box(
                     Modifier.fillMaxWidth().height(53.dp)
@@ -339,34 +382,54 @@ fun OdifyNowPlaying(
                             RoundedCornerShape(24.dp))
                 ) {
                     IconButton(
-                        onClick = { showInfo = !showInfo },
+                        onClick = { showLyrics = !showLyrics },
                         modifier = Modifier.align(Alignment.CenterStart)
                             .padding(start = 9.dp).size(44.dp)
                     ) {
-                        Icon(Icons.Default.Headphones, "출력 기기",
-                            tint = playerWhite, modifier = Modifier.size(19.dp))
+                        Icon(Icons.Default.Subtitles,
+                            if (showLyrics) "앨범커버 보기" else "가사 보기",
+                            tint = if (showLyrics) Color.White else playerSecondary,
+                            modifier = Modifier.size(22.dp))
                     }
-                    Box(
-                        Modifier.align(Alignment.Center)
-                            .clip(RoundedCornerShape(22.dp))
-                            .background(Color.White.copy(alpha = 0.10f))
-                            .padding(horizontal = 22.dp, vertical = 9.dp)
-                    ) {
-                        Text("AUDIO", color = playerWhite, fontSize = 10.sp,
-                            letterSpacing = .8.sp, fontWeight = FontWeight.SemiBold)
-                    }
+                    Text(
+                        text = if (showLyrics) "가사 보기" else "다음 재생목록",
+                        color = playerWhite,
+                        fontSize = 11.sp,
+                        letterSpacing = 0.4.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.align(Alignment.Center)
+                            .clickable(onClick = onShowQueue)
+                    )
                     IconButton(
-                        onClick = { showInfo = !showInfo },
+                        onClick = onShowQueue,
                         modifier = Modifier.align(Alignment.CenterEnd)
                             .padding(end = 9.dp).size(44.dp)
                     ) {
-                        Icon(Icons.Default.QueueMusic, "재생 정보",
+                        Icon(Icons.Default.QueueMusic, "다음 재생목록",
                             tint = playerWhite, modifier = Modifier.size(20.dp))
                     }
                 }
                 Spacer(Modifier.height(15.dp))
             }
         }
+    }
+    if (showInfo) {
+        AlertDialog(
+            onDismissRequest = { showInfo = false },
+            title = { Text("곡 정보") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("제목: ${song.title}")
+                    Text("아티스트: ${song.artist.ifBlank { "정보 없음" }}")
+                    Text("앨범: ${song.album.ifBlank { "정보 없음" }}")
+                    Text("재생 위치: " + if (song.isCloud) "Google Drive"
+                        else if (song.isPhoneFolder) "휴대폰 폴더" else "오프라인 보관함")
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showInfo = false }) { Text("닫기") }
+            }
+        )
     }
 }
 

@@ -1,0 +1,95 @@
+name: Odify Piped Invidious 100-track pilot
+on:
+  workflow_dispatch:
+    inputs:
+      resume_run_id:
+        description: 'Optional previous API pilot run id; download existing checkpoints and skip already tested songs'
+        type: string
+        required: false
+        default: ''
+permissions:
+  actions: read
+  contents: read
+jobs:
+  live-api-pilot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify Piped/Invidious parsers and immutable MASTER contract
+        run: |
+          python -m py_compile scripts/odify_altlink_pilot.py
+          python -m unittest discover -s scripts/tests -p 'test_odify_altlink_pilot.py' -v
+          python -m unittest discover -s scripts/tests -p 'test_odify_link_consensus.py' -v
+      - name: Retrieve verified 41,416-song SQLite catalog
+        uses: actions/download-artifact@v4
+        with:
+          repository: Tarang1215/Odify
+          run-id: 39909115368
+          name: odify-catalog-us-full-4-regions
+          github-token: ${{ github.token }}
+          path: .local
+      - name: Verify read-only source and sample size
+        run: |
+          python - <<'PY'
+          import sqlite3
+          c=sqlite3.connect('.local/odify_catalog.sqlite3')
+          assert c.execute('PRAGMA integrity_check').fetchone()[0]=='ok'
+          count=c.execute('select count(*) from recording').fetchone()[0]
+          assert count==41416, count
+          print('SOURCE_TRACKS', count)
+          PY
+      - name: Restore previous per-song checkpoints (optional)
+        if: ${{ inputs.resume_run_id != '' }}
+        uses: actions/download-artifact@v4
+        with:
+          repository: Tarang1215/Odify
+          run-id: ${{ inputs.resume_run_id }}
+          name: odify-altlink-piped-invidious-100-v2
+          github-token: ${{ github.token }}
+          path: .local/odify_altlink_pilot_v2
+      - name: Live 100 song benchmark - KR 25 JP 25 US 25 Global 25
+        run: |
+          python -u scripts/odify_altlink_pilot.py \
+            --catalog .local/odify_catalog.sqlite3 \
+            --out .local/odify_altlink_pilot_v2 --workers 3 --timeout 6 --limit 100
+      - name: Publish actual accuracy proxies, latency, failure rates
+        if: always()
+        run: |
+          python - <<'PY'
+          import json,os,pathlib
+          p=pathlib.Path('.local/odify_altlink_pilot_v2/summary.json')
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as out:
+              out.write('## Odify live Piped/Invidious API pilot\n\n')
+              if not p.exists():
+                  out.write('**Live benchmark did not complete.** See logs.\n')
+              else:
+                  d=json.loads(p.read_text())
+                  out.write(f"Processed: **{d['processed']}/{d['target']}** ({d['percent']}%)\n\n")
+                  out.write('| Region | Processed | Eligible | High confidence |\n|---|---:|---:|---:|\n')
+                  for k,v in d['countries'].items():
+                      out.write(f"| {k} | {v['processed']} | {v['metadata_eligible']} | {v['high_confidence']} |\n")
+                  out.write('\n| Provider | Searched | API success | HTTP/network failure | Blocked | Median ms | P95 ms |\n|---|---:|---:|---:|---:|---:|---:|\n')
+                  for k,v in d['providers'].items():
+                      out.write(f"| {k} | {v['attempted_songs']} | {v['search_success']} | {v['failed']} | {v['blocked']} | {v['latency_all']['median_ms']} | {v['latency_all']['p95_ms']} |\n")
+                  out.write(f"\nEligible at least one: **{d['metadata_eligible_songs']}**; High confidence: **{d['high_confidence']}**\n\n")
+                  out.write('### Provider failures\n\n')
+                  for k,v in d['providers'].items():
+                      out.write(f'**{k}**: actual HTTP requests {v["request_attempts"]}, skipped due to outages {v["skipped_unavailable"]}\n')
+                      for reason,count in v['error_breakdown'].items():
+                          out.write(f'  - {count} × {reason}\n')
+                  out.write('### Correctness note\n')
+                  out.write('Automated metadata match is **not** proof of the exact song. No Google MASTER links were modified.\n')
+          PY
+      - name: Preserve all 100 checkpoints and audit artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: odify-altlink-piped-invidious-100-v2
+          path: |
+            .local/odify_altlink_pilot_v2/**
+          retention-days: 60
+          if-no-files-found: warn

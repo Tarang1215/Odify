@@ -1,0 +1,64 @@
+name: Odify V4 cached 300-song safety audit
+on:
+  push:
+    branches: [feature/odify-v12-master-db]
+    paths:
+      - 'scripts/odify_altlink_v4_300.py'
+      - 'scripts/odify_altlink_v4_offline_review.py'
+      - 'scripts/tests/test_odify_altlink_v4_300.py'
+      - '.github/workflows/odify-altlink-v4-offline-safety.yml'
+  workflow_dispatch:
+permissions:
+  actions: read
+  contents: read
+jobs:
+  safety-300:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run safety and legacy tests
+        run: |
+          python -m py_compile scripts/odify_altlink_v4_300.py scripts/odify_altlink_v4_offline_review.py
+          python -m unittest discover -s scripts/tests -p 'test_odify_altlink_v4_300.py' -v
+          python -m unittest discover -s scripts/tests -p 'test_odify_altlink_rerank.py' -v
+      - name: Restore completed V4 300 live candidate checkpoint artifact
+        uses: actions/download-artifact@v4
+        with:
+          repository: Tarang1215/Odify
+          run-id: 39991741952
+          name: odify-v4-300-live-results
+          github-token: ${{ github.token }}
+          path: .local/odify_v4_300
+      - name: Re-evaluate saved 300 songs without API requests
+        run: |
+          python -u scripts/odify_altlink_v4_offline_review.py \
+            --input .local/odify_v4_300 \
+            --out .local/odify_v4_300_safe
+      - name: Validate review-only safety outputs
+        run: |
+          python - <<'PY'
+          import csv,json,pathlib,os
+          base=pathlib.Path('.local/odify_v4_300_safe')
+          s=json.loads((base/'summary_v4_safety_review.json').read_text())
+          assert s['processed']==300
+          proposals=list(csv.DictReader((base/'proposals_review_only_300.csv').open(encoding='utf-8-sig')))
+          assert len(proposals)==300
+          assert all(row['verified']=='NO' and row['action']=='MANUAL_REVIEW_ONLY' for row in proposals)
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as f:
+              f.write('## Odify V4 safety rerank; 300 cached tracks, 0 API requests\n\n')
+              for key in ('original_v4_eligible_songs','fixed_v4_eligible_songs','video_id_changed_count'):
+                  f.write(f'- {key}: **{s[key]}**\n')
+              f.write('\nNo MASTER modifications and no stream or audio downloads.\n')
+          PY
+      - name: Publish offline 300-track safety report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: odify-v4-300-safe-offline
+          path: .local/odify_v4_300_safe/**
+          retention-days: 60
+          if-no-files-found: warn

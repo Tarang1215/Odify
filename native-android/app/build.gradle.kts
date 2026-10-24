@@ -1,3 +1,6 @@
+import java.security.KeyStore
+import java.security.MessageDigest
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -14,12 +17,28 @@ android {
         applicationId = "com.odify.music.nativepreview.v11"
         minSdk = 26
         targetSdk = 35
-        versionCode = 11
-        versionName = "1.0.0-preview11"
+        versionCode = 14
+        versionName = "1.0.0-preview12.2"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+    // Always use the one permanent signing certificate restored by CI.
+    // Gradle's implicit debug signer may otherwise generate a different key
+    // even when the fixed keystore exists in the runner's home directory.
+    signingConfigs {
+        create("odifyFixedDebug") {
+            val userHome = System.getenv("HOME") ?: System.getProperty("user.home")
+            storeFile = file("$userHome/.android/debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
     }
     buildTypes {
         release { isMinifyEnabled = false }
-        debug { applicationIdSuffix = ".debug" }
+        debug {
+            applicationIdSuffix = ".debug"
+            signingConfig = signingConfigs.getByName("odifyFixedDebug")
+        }
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -47,5 +66,23 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
     implementation("com.google.android.gms:play-services-auth:21.5.0")
     testImplementation("junit:junit:4.13.2")
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
     debugImplementation("androidx.compose.ui:ui-tooling")
+}
+
+// Enforce identity for local builds too. Never issue an incompatible APK just
+// because a developer already has Android Studio's unrelated debug keystore.
+tasks.matching { it.name == "validateSigningDebug" }.configureEach {
+    doLast {
+        val config = android.signingConfigs.getByName("odifyFixedDebug")
+        val keystore = KeyStore.getInstance(KeyStore.getDefaultType())
+        config.storeFile!!.inputStream().use { keystore.load(it, "android".toCharArray()) }
+        val sha1 = MessageDigest.getInstance("SHA-1")
+            .digest(keystore.getCertificate("androiddebugkey").encoded)
+            .joinToString("") { "%02x".format(it) }
+        check(sha1 == "656d465e5c729bdf21a4026c764dfb636f1899e5") {
+            "Fixed Odify signing certificate required; refusing an update-incompatible APK."
+        }
+    }
 }
