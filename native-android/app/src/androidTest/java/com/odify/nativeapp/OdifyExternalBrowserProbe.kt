@@ -52,8 +52,9 @@ class OdifyExternalBrowserProbe {
                 // Bundle is accepted by Android but not by its implementation.
                 test.runOnMainSync { controller!!.transportControls.playFromUri(Uri.parse(canonical), Bundle()) }
                 val deadline = System.currentTimeMillis() + 8000
-                while (System.currentTimeMillis() < deadline &&
-                    controller?.playbackState?.state != PlaybackState.STATE_PLAYING) Thread.sleep(100)
+                // An already-playing old video must not count as success. Allow
+                // the asynchronous URL resolver and any Activity launch to finish.
+                while (System.currentTimeMillis() < deadline) Thread.sleep(100)
                 result.put("stateAfter", controller?.playbackState?.state)
                     .put("titleAfter", controller?.metadata?.description?.title)
                     .put("mediaIdAfter", controller?.metadata?.description?.mediaId)

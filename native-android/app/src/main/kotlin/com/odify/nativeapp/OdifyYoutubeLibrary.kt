@@ -216,7 +216,10 @@ class OdifyYoutubeLibrary(private val context:Context) {
                 }
                 error(message)
             }
-            return JSONObject(conn.inputStream.bufferedReader().use { it.readText() })
+            val response=JSONObject(conn.inputStream.bufferedReader().use { it.readText() })
+            context.getSharedPreferences("odify_youtube_account_v1",0).edit()
+                .remove("lastApiError").remove("lastApiConsumerProject").apply()
+            return response
         } finally {conn.disconnect()}
     }
 }

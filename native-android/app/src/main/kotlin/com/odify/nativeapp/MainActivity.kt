@@ -114,6 +114,8 @@ private fun NativeOdify() {
     var controller by remember { mutableStateOf<MediaController?>(null) }
     var playback by remember { mutableStateOf(OdifyPlaybackSnapshot()) }
     var expanded by remember { mutableStateOf(false) }
+    var youtubeQueue by remember { mutableStateOf<List<YoutubeVideo>>(emptyList()) }
+    var youtubeQueueIndex by remember { mutableIntStateOf(0) }
     var importing by remember { mutableStateOf(false) }
     var uploadingToDrive by remember { mutableStateOf(false) }
     var uploadStatus by remember { mutableStateOf("선택한 음악만 Drive에 저장합니다.") }
@@ -563,6 +565,13 @@ private fun NativeOdify() {
     }
 
     var externalLookupJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    fun playYoutubeVideo(queue: List<YoutubeVideo>, index: Int) {
+        if(index !in queue.indices) return
+        controller?.pause()
+        expanded=false
+        youtubeQueueIndex=index
+        youtubeQueue=queue
+    }
     fun playExternalTrack(artist: String, title: String) {
         externalLookupJob?.cancel()
         externalLookupJob = scope.launch {
@@ -571,8 +580,8 @@ private fun NativeOdify() {
                 OdifyYoutubeQuickPlay.first(OdifyYoutubeLibrary(context.applicationContext).search(query))
             }.getOrNull() else null
             if (!kotlinx.coroutines.currentCoroutineContext().isActive) return@launch
-            val opened = if (selected != null) OdifyExternalYoutube.openVideo(context, selected.videoId)
-                else OdifyExternalYoutube.openSearch(context, query)
+            if(selected!=null) {playYoutubeVideo(listOf(selected),0);return@launch}
+            val opened = OdifyExternalYoutube.openSearch(context, query)
             if (opened) {
                 controller?.pause()
                 Toast.makeText(context, selected?.title ?: "YouTube에서 가사 영상 검색", Toast.LENGTH_SHORT).show()
@@ -652,6 +661,7 @@ private fun NativeOdify() {
             youtubeStatus = youtubeStatus,
             onConnectYoutube = { connectYoutube() },
             onExternalYoutubeStarted = { controller?.pause() },
+            onPlayYoutubeVideo = { queue,index -> playYoutubeVideo(queue,index) },
             onExternalTrack = { artist, title -> playExternalTrack(artist, title) },
             phoneFolderStatus = phoneFolderStatus,
             onChoosePhoneFolder = { phoneFolderPicker.launch(null) },
@@ -811,5 +821,7 @@ private fun NativeOdify() {
                 }
             }
         )
+        if(youtubeQueue.isNotEmpty()) OdifyYoutubeWebPlayer(youtubeQueue,youtubeQueueIndex,
+            onDismiss={youtubeQueue=emptyList()},onPlaybackStarted={controller?.pause()})
     }
 }

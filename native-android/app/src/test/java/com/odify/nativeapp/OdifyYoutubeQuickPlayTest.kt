@@ -12,4 +12,9 @@ class OdifyYoutubeQuickPlayTest {
         assertEquals(lyric, OdifyYoutubeQuickPlay.first(listOf(live,cover,lyric)))
         assertNull(OdifyYoutubeQuickPlay.first(listOf(live,cover)))
     }
+    @Test fun skipsGuitarTutorialEvenWhenItContainsLyrics() {
+        val lesson=YoutubeVideo("abcdefghijk", "Don't Look Back In Anger | EASY Guitar Tutorial with Chords / Lyrics", "Guitar Intensive", "")
+        val lyric=lesson.copy(videoId="lmnopqrstuv", title="Oasis - Don't Look Back In Anger (Lyrics)", channel="Cassiopeia")
+        assertEquals(lyric, OdifyYoutubeQuickPlay.first(listOf(lesson,lyric)))
+    }
 }

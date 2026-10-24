@@ -31,7 +31,7 @@ import java.net.URL
 
 @Composable
 internal fun OdifyYoutubeSearch(query: String, connected: Boolean, onConnect: () -> Unit,
-    onExternalStarted: () -> Unit) {
+    onExternalStarted: () -> Unit, onPlayVideo: (List<YoutubeVideo>,Int) -> Unit) {
     val context = LocalContext.current
     val repo = remember { OdifyYoutubeLibrary(context.applicationContext) }
     var videos by remember { mutableStateOf<List<YoutubeVideo>>(emptyList()) }
@@ -39,10 +39,11 @@ internal fun OdifyYoutubeSearch(query: String, connected: Boolean, onConnect: ()
     var error by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
     var quickJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    var retry by remember { mutableIntStateOf(0) }
     fun opened(success: Boolean) {
         if (success) onExternalStarted() else error = "YouTube 링크를 열 수 있는 앱이 없습니다."
     }
-    LaunchedEffect(query.trim(), connected) {
+    LaunchedEffect(query.trim(), connected, retry) {
         quickJob?.cancel()
         videos = emptyList(); error = ""; loading = false
         if (!connected || query.trim().length < 2) return@LaunchedEffect
@@ -54,7 +55,7 @@ internal fun OdifyYoutubeSearch(query: String, connected: Boolean, onConnect: ()
         finally { loading = false }
     }
     Column(Modifier.fillMaxSize()) {
-        Text("설치된 YouTube 앱에서 재생", style = MaterialTheme.typography.bodySmall,
+        Text("Odify 안에서 YouTube 재생", style = MaterialTheme.typography.bodySmall,
             color = OdifyPalette.muted)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             if (!connected) TextButton(onClick = onConnect) { Text("YouTube 연결") }
@@ -65,7 +66,7 @@ internal fun OdifyYoutubeSearch(query: String, connected: Boolean, onConnect: ()
                         val results = repo.search(OdifyYoutubeQuickPlay.query("", query.trim()))
                         videos = results
                         val chosen = OdifyYoutubeQuickPlay.first(results)
-                        if (chosen != null) opened(OdifyExternalYoutube.openVideo(context, chosen.videoId))
+                        if (chosen != null) onPlayVideo(listOf(chosen),0)
                         else error = "재생할 후보가 없어요. 검색 결과에서 직접 선택해 주세요."
                     } catch (cancel: CancellationException) { throw cancel }
                     catch (failure: Exception) { error = failure.message ?: "빠른 재생 검색을 불러오지 못했어요." }
@@ -77,13 +78,16 @@ internal fun OdifyYoutubeSearch(query: String, connected: Boolean, onConnect: ()
             }) { Text("YouTube 앱에서 검색") }
         }
         if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
-        if (error.isNotBlank()) Text(error, style = MaterialTheme.typography.bodySmall, color = OdifyPalette.muted)
+        if (error.isNotBlank()) {
+            Text(error, style = MaterialTheme.typography.bodySmall, color = OdifyPalette.muted)
+            TextButton(onClick={retry++}) {Text("다시 검색")}
+        }
         if (query.trim().length < 2) Text("노래나 아티스트를 입력해 주세요.", color = OdifyPalette.muted)
         else if (!loading && connected && videos.isEmpty() && error.isBlank()) Text("검색 결과가 없습니다.", color = OdifyPalette.muted)
         LazyColumn(contentPadding = PaddingValues(bottom = 155.dp)) {
             items(videos, key = { it.videoId }) { video ->
                 Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable {
-                    opened(OdifyExternalYoutube.openVideo(context, video.videoId))
+                    onPlayVideo(listOf(video),0)
                 }.padding(vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
                     YoutubeSearchCover(video.videoId, Modifier.size(64.dp))
                     Spacer(Modifier.width(12.dp))
@@ -92,8 +96,9 @@ internal fun OdifyYoutubeSearch(query: String, connected: Boolean, onConnect: ()
                         Text(video.channel, maxLines = 1, overflow = TextOverflow.Ellipsis,
                             style = MaterialTheme.typography.bodySmall, color = OdifyPalette.muted)
                     }
-                    Icon(Icons.Default.OpenInNew, "YouTube 앱에서 재생", tint = OdifyPalette.muted,
-                        modifier = Modifier.padding(8.dp).size(18.dp))
+                    IconButton(onClick={opened(OdifyExternalYoutube.openVideo(context,video.videoId))}) {
+                        Icon(Icons.Default.OpenInNew, "YouTube 앱에서 열기", tint = OdifyPalette.muted,modifier=Modifier.size(18.dp))
+                    }
                 }
             }
         }

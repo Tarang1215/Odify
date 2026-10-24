@@ -221,6 +221,7 @@ fun OdifyRoot(
     youtubeStatus: String,
     onConnectYoutube: () -> Unit,
     onExternalYoutubeStarted: () -> Unit,
+    onPlayYoutubeVideo: (List<YoutubeVideo>, Int) -> Unit,
     onExternalTrack: (String, String) -> Unit,
     phoneFolderStatus: String,
     onChoosePhoneFolder: () -> Unit,
@@ -483,7 +484,8 @@ fun OdifyRoot(
                     genre = searchGenre, onGenreChange = { searchGenre = it },
                     searchScope = searchScope, onScopeChange = { searchScope = it },
                     youtubeConnected = youtubeConnected, onConnectYoutube = onConnectYoutube,
-                    onExternalYoutubeStarted = onExternalYoutubeStarted)
+                    onExternalYoutubeStarted = onExternalYoutubeStarted,
+                    onPlayYoutubeVideo = onPlayYoutubeVideo)
                 OdifyTab.Library -> OdifyLibraryScreen(
                     songs = songs, liked = liked, onPlay = ::playList,
                     onImport = onImport, onRemove = onRemove, onEdit = onEdit,
@@ -886,7 +888,8 @@ private fun OdifySearch(
     onGenreChange: (String) -> Unit,
     searchScope: OdifySearchScope,
     onScopeChange: (OdifySearchScope) -> Unit,
-    youtubeConnected: Boolean, onConnectYoutube: () -> Unit, onExternalYoutubeStarted: () -> Unit
+    youtubeConnected: Boolean, onConnectYoutube: () -> Unit, onExternalYoutubeStarted: () -> Unit,
+    onPlayYoutubeVideo: (List<YoutubeVideo>, Int) -> Unit
 ) {
     var youtubeMode by rememberSaveable { mutableStateOf(false) }
     var showDuplicates by rememberSaveable { mutableStateOf(false) }
@@ -936,7 +939,7 @@ private fun OdifySearch(
         }
         Spacer(Modifier.height(12.dp))
         if (youtubeMode) {
-            OdifyYoutubeSearch(query, youtubeConnected, onConnectYoutube, onExternalYoutubeStarted)
+            OdifyYoutubeSearch(query, youtubeConnected, onConnectYoutube, onExternalYoutubeStarted,onPlayYoutubeVideo)
             return@Column
         }
         LazyRow(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
