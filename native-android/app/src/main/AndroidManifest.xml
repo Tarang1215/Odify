@@ -5,6 +5,17 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <queries>
+        <package android:name="app.morphe.android.youtube" />
+        <package android:name="app.revanced.android.youtube" />
+        <package android:name="app.revanced.android.apps.youtube.music" />
+        <package android:name="com.google.android.youtube" />
+        <package android:name="com.google.android.apps.youtube.music" />
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="https" android:host="www.youtube.com" />
+        </intent>
+    </queries>
     <application
         android:allowBackup="false"
         android:label="Odify"

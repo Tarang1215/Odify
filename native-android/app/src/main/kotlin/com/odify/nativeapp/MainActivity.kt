@@ -561,6 +561,24 @@ private fun NativeOdify() {
         }
     }
 
+    var externalLookupJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    fun playExternalTrack(artist: String, title: String) {
+        externalLookupJob?.cancel()
+        externalLookupJob = scope.launch {
+            val query = OdifyYoutubeQuickPlay.query(artist, title)
+            val selected = if (youtubeConnected) runCatching {
+                OdifyYoutubeQuickPlay.first(OdifyYoutubeLibrary(context.applicationContext).search(query))
+            }.getOrNull() else null
+            if (!kotlinx.coroutines.currentCoroutineContext().isActive) return@launch
+            val opened = if (selected != null) OdifyExternalYoutube.openVideo(context, selected.videoId)
+                else OdifyExternalYoutube.openSearch(context, query)
+            if (opened) {
+                controller?.pause()
+                Toast.makeText(context, selected?.title ?: "YouTube에서 가사 영상 검색", Toast.LENGTH_SHORT).show()
+            } else Toast.makeText(context, "YouTube 앱을 열지 못했습니다.", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     fun playFrom(items: List<OdifySong>, index: Int) {
         val player = controller
         if (player == null) {
@@ -632,6 +650,8 @@ private fun NativeOdify() {
             youtubeConnected = youtubeConnected,
             youtubeStatus = youtubeStatus,
             onConnectYoutube = { connectYoutube() },
+            onExternalYoutubeStarted = { controller?.pause() },
+            onExternalTrack = { artist, title -> playExternalTrack(artist, title) },
             phoneFolderStatus = phoneFolderStatus,
             onChoosePhoneFolder = { phoneFolderPicker.launch(null) },
             onRefreshPhoneFolder = {

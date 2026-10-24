@@ -220,6 +220,8 @@ fun OdifyRoot(
     youtubeConnected: Boolean,
     youtubeStatus: String,
     onConnectYoutube: () -> Unit,
+    onExternalYoutubeStarted: () -> Unit,
+    onExternalTrack: (String, String) -> Unit,
     phoneFolderStatus: String,
     onChoosePhoneFolder: () -> Unit,
     onRefreshPhoneFolder: () -> Unit,
@@ -467,6 +469,7 @@ fun OdifyRoot(
                     onAddTrack={track,owned -> playlistDialogTrack=owned ?:
                         OdifySong("chart:${track.id}",track.title,track.artist,"","")},
                     onProfile = { navigateTo(OdifyTab.Profile) },
+                    onMissingTrack = { track -> onExternalTrack(track.artist, track.title) },
                     onSaveChart = { name,ids ->
                         runCatching {playlistStore.saveMix(name,ids)}.onSuccess {
                             playlistVersion++
@@ -478,7 +481,9 @@ fun OdifyRoot(
                     onProfile = { navigateTo(OdifyTab.Profile) },
                     query = searchQuery, onQueryChange = { searchQuery = it },
                     genre = searchGenre, onGenreChange = { searchGenre = it },
-                    searchScope = searchScope, onScopeChange = { searchScope = it })
+                    searchScope = searchScope, onScopeChange = { searchScope = it },
+                    youtubeConnected = youtubeConnected, onConnectYoutube = onConnectYoutube,
+                    onExternalYoutubeStarted = onExternalYoutubeStarted)
                 OdifyTab.Library -> OdifyLibraryScreen(
                     songs = songs, liked = liked, onPlay = ::playList,
                     onImport = onImport, onRemove = onRemove, onEdit = onEdit,
@@ -880,8 +885,10 @@ private fun OdifySearch(
     genre: String,
     onGenreChange: (String) -> Unit,
     searchScope: OdifySearchScope,
-    onScopeChange: (OdifySearchScope) -> Unit
+    onScopeChange: (OdifySearchScope) -> Unit,
+    youtubeConnected: Boolean, onConnectYoutube: () -> Unit, onExternalYoutubeStarted: () -> Unit
 ) {
+    var youtubeMode by rememberSaveable { mutableStateOf(false) }
     var showDuplicates by rememberSaveable { mutableStateOf(false) }
     val genres = remember(songs) {
         listOf("All") + songs.map { it.genre.substringBefore(" / ").trim() }
@@ -922,11 +929,16 @@ private fun OdifySearch(
         Spacer(Modifier.height(14.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf(OdifySearchScope.Music to "곡·아티스트", OdifySearchScope.Lyrics to "가사").forEach { (scope, label) ->
-                val selected = searchScope == scope
-                OdifyPill(label,selected) {onScopeChange(scope)}
+                val selected = !youtubeMode && searchScope == scope
+                OdifyPill(label,selected) {youtubeMode=false;onScopeChange(scope)}
             }
+            OdifyPill("YouTube", youtubeMode) { youtubeMode=true }
         }
         Spacer(Modifier.height(12.dp))
+        if (youtubeMode) {
+            OdifyYoutubeSearch(query, youtubeConnected, onConnectYoutube, onExternalYoutubeStarted)
+            return@Column
+        }
         LazyRow(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
             items(genres) { option ->
                 val selected = genre == option

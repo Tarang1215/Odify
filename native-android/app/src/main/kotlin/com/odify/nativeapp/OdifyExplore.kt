@@ -170,7 +170,7 @@ private object ExploreArtworkMemory {
 
 @Composable
 fun OdifyExplore(index:OdifyChartMatching.Index,repository:OdifyExploreRepository,onProfile:()->Unit,onPlay:(List<OdifySong>,Int)->Unit,
-    onSaveChart:(String,List<String>)->Unit,onSync:()->Unit,onAddTrack:(ExploreTrack,OdifySong?)->Unit) {
+    onMissingTrack:(ExploreTrack)->Unit,onSaveChart:(String,List<String>)->Unit,onSync:()->Unit,onAddTrack:(ExploreTrack,OdifySong?)->Unit) {
     val context=LocalContext.current
     var country by rememberSaveable {mutableStateOf("kr")}
     var genre by rememberSaveable {mutableStateOf("")}
@@ -264,7 +264,7 @@ fun OdifyExplore(index:OdifyChartMatching.Index,repository:OdifyExploreRepositor
             val song=matched[track.id]
             Row(Modifier.fillMaxWidth().clickable {
                 if(song!=null) onPlay(ready,ready.indexOfFirst {it.id==song.id}.coerceAtLeast(0))
-                else android.widget.Toast.makeText(context,"음원을 준비 중이에요. 음악 동기화 후 바로 재생할 수 있어요.",android.widget.Toast.LENGTH_SHORT).show()
+                else onMissingTrack(track)
             }.padding(vertical=9.dp),verticalAlignment=Alignment.CenterVertically) {
                 Text(track.rank.toString().padStart(2,'0'),fontSize=12.sp,color=OdifyPalette.muted,modifier=Modifier.width(30.dp))
                 ExploreCover(track,Modifier.size(52.dp))
