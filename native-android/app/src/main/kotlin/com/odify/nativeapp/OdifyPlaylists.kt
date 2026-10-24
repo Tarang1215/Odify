@@ -91,7 +91,6 @@ class OdifyPlaylists(context: Context) {
     }
 
     fun resolved(playlist: OdifyPlaylist, songs: List<OdifySong>): List<OdifySong> {
-        val index = songs.associateBy(OdifySong::id)
-        return playlist.songIds.mapNotNull(index::get)
+        return OdifySongPresentation.visible(playlist.songIds.mapNotNull {OdifyChartMatching.storedReference(it,songs)})
     }
 }

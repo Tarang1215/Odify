@@ -4,6 +4,12 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class V12PresentationTest {
+    @Test fun byteIdenticalUnknownArtistMirrorsCollapseButDifferentRecordingsRemain() {
+        val first=OdifySong("gdrive:a","Hype Boy","","","",contentMd5="a".repeat(32))
+        val local=first.copy(id="localfolder:b",sourceUri="content://com.android.externalstorage.documents/file/b")
+        assertEquals(listOf(local),OdifySongPresentation.visible(listOf(first,local)))
+        assertEquals(2,OdifySongPresentation.visible(listOf(first,local.copy(contentMd5="b".repeat(32)))).size)
+    }
     private val song = OdifySong("gdrive:one", "밤편지", "아이유", "앨범", "",
         sourceUri = "https://www.googleapis.com/drive/v3/files/one?alt=media")
 

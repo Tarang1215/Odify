@@ -11,6 +11,7 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.updateTransition
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -238,6 +239,7 @@ fun OdifyRoot(
     onChooseArtwork: (OdifySong) -> Unit
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
+    val pageBackdrop = rememberOdifyBackdrop()
     val prefs = remember { context.getSharedPreferences("odify_native_ui", 0) }
     val playlistStore = remember { OdifyPlaylists(context.applicationContext) }
     val listeningStore = remember { OdifyListeningStore(context.applicationContext) }
@@ -297,6 +299,7 @@ fun OdifyRoot(
         mutableStateOf(prefs.getString("history", "")!!.split("|").filter { it.isNotBlank() })
     }
     var navVisible by remember { mutableStateOf(true) }
+    var compactPlayer by rememberSaveable { mutableStateOf(false) }
     var expansionOrigin by remember { mutableStateOf<Rect?>(null) }
     var playerDragFraction by remember { mutableFloatStateOf(0f) }
     LaunchedEffect(expanded) {
@@ -354,7 +357,7 @@ fun OdifyRoot(
         label = "odify-nav-and-mini-linked"
     )
     // Four primary destinations stay reachable; the full player covers them.
-    LaunchedEffect(selectedTab) { navVisible = true }
+    LaunchedEffect(selectedTab) { navVisible = true; compactPlayer = false }
 
     // Extend rounded nav background behind the Android gesture indicator.
     val gestureInset = WindowInsets.navigationBars.asPaddingValues()
@@ -372,6 +375,7 @@ fun OdifyRoot(
         Box(Modifier.fillMaxSize().statusBarsPadding().clipToBounds()) {
         Box(
             Modifier.fillMaxSize()
+                .recordOdifyBackdrop(pageBackdrop)
                 // Scroll content fills the screen: no fixed opaque 135dp bottom slab.
                 // Each scrollable page owns its last-item clearance instead.
                 .pointerInput(active?.id, selectedTab) {
@@ -403,6 +407,7 @@ fun OdifyRoot(
                             previousY = pointer.position.y
                             if (abs(net) >= 20.dp.toPx() && abs(vertical) > abs(horizontal)*1.3f) {
                                 navVisible = net > 0f
+                                compactPlayer = net < 0f
                                 net = 0f
                             }
                         }
@@ -438,12 +443,13 @@ fun OdifyRoot(
                     }
                 )
                 OdifyTab.Explore -> OdifyExplore(
+                    songs=songs,onPlay=::playList,onSync=onDriveSync,
                     onProfile = { navigateTo(OdifyTab.Profile) },
-                    onSearch = { title ->
-                        searchQuery = title
-                        searchGenre = "All"
-                        searchScope = OdifySearchScope.Music
-                        navigateTo(OdifyTab.Search)
+                    onSaveChart = { name,ids ->
+                        runCatching {playlistStore.saveMix(name,ids)}.onSuccess {
+                            playlistVersion++
+                            android.widget.Toast.makeText(context,"${it.songIds.size}곡 목록을 보관함에 저장했어요",android.widget.Toast.LENGTH_SHORT).show()
+                        }
                     }
                 )
                 OdifyTab.Search -> OdifySearch(songs, onImport, ::playList,
@@ -489,7 +495,7 @@ fun OdifyRoot(
                     alpha = navFraction
                 }
         ) {
-            OdifyBottomBar(selectedTab, gestureInset) {
+            OdifyBottomBar(selectedTab, gestureInset, pageBackdrop) {
                 navigateTo(it)
                 navVisible = true
             }
@@ -502,7 +508,8 @@ fun OdifyRoot(
                             navFraction * (barHeightPx - gestureInsetPx)
                     }
             ) {
-                OdifyMiniPlayer(active, playback.isPlaying, active.id in liked,
+                OdifyMiniPlayer(active, playback.isPlaying, active.id in liked, pageBackdrop,
+                    compact=compactPlayer,onReveal={compactPlayer=false},
                     onExpand = { bounds ->
                         expansionOrigin = bounds
                         playerDragFraction = 0f
@@ -646,6 +653,7 @@ private fun EmptyMusicPrompt(onImport: () -> Unit, importing: Boolean) {
 private fun OdifyBottomBar(
     selected: OdifyTab,
     bottomInset: androidx.compose.ui.unit.Dp,
+    backdrop: OdifyBackdrop,
     onSelected: (OdifyTab) -> Unit
 ) {
     Box(
@@ -655,9 +663,7 @@ private fun OdifyBottomBar(
     ) {
         Row(
             Modifier.widthIn(max = 480.dp).fillMaxWidth().height(58.dp)
-                .clip(RoundedCornerShape(21.dp))
-                .background(Brush.verticalGradient(listOf(Color(0xE8383B40),Color(0xEA202328))))
-                .border(.65.dp, Brush.verticalGradient(listOf(Color.White.copy(alpha=.25f),Color.White.copy(alpha=.06f))),RoundedCornerShape(21.dp))
+                .odifyGlass(backdrop,RoundedCornerShape(21.dp))
                 .selectableGroup().padding(horizontal = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -737,38 +743,48 @@ private fun OdifyMiniPlayer(
     song: OdifySong,
     playing: Boolean,
     liked: Boolean,
+    backdrop: OdifyBackdrop,
+    compact: Boolean,
+    onReveal: () -> Unit,
     onExpand: (Rect?) -> Unit,
     onToggle: () -> Unit,
     onLike: () -> Unit
 ) {
     var coordinates by remember { mutableStateOf<androidx.compose.ui.layout.LayoutCoordinates?>(null) }
+    BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal=11.dp,vertical=5.dp),contentAlignment=Alignment.Center) {
+    val width by animateDpAsState(if(compact) 148.dp else maxWidth,spring(dampingRatio=.88f,stiffness=420f),label="island-width")
+    val height by animateDpAsState(if(compact) 43.dp else 56.dp,spring(dampingRatio=.88f,stiffness=420f),label="island-height")
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = 11.dp, vertical = 5.dp)
-            .height(56.dp)
+        Modifier.width(width).height(height)
             .onGloballyPositioned { coordinates = it }
             .shadow(8.dp, RoundedCornerShape(22.dp))
-            .clip(RoundedCornerShape(22.dp))
-            .background(glass)
-            .border(0.8.dp, Color.White.copy(alpha = .17f), RoundedCornerShape(22.dp))
+            .odifyGlass(backdrop,RoundedCornerShape(22.dp))
             .clickable {
                 // Read at the tap: the nav spring can move the parent render
                 // layer without issuing a fresh layout-position callback.
-                onExpand(coordinates?.takeIf { it.isAttached }?.boundsInRoot())
+                if(compact) onReveal() else onExpand(coordinates?.takeIf { it.isAttached }?.boundsInRoot())
             }
+            .pointerInput(compact) {if(compact) detectVerticalDragGestures {change,delta ->
+                if(delta<0f) {change.consume();onReveal()}
+            }}
             .padding(horizontal = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        AlbumArt(song, Modifier.size(41.dp), radius = RoundedCornerShape(11.dp),
+        AlbumArt(song, Modifier.size(if(compact) 29.dp else 41.dp), radius = RoundedCornerShape(10.dp),
             fallbackKey = song.id.hashCode())
         Spacer(Modifier.width(10.dp))
-        Column(Modifier.weight(1f)) {
+        if(compact) {
+            Spacer(Modifier.weight(1f))
+            Icon(Icons.Outlined.GraphicEq,"재생 중인 곡 펼치기",tint=ink,modifier=Modifier.size(22.dp))
+            Spacer(Modifier.weight(1f))
+        } else Column(Modifier.weight(1f)) {
             Text(song.title, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 fontSize = 12.sp, color = ink, fontWeight = FontWeight.SemiBold)
             if (song.artist.isNotBlank()) Text(song.artist, fontSize = 10.sp,
                 maxLines = 1, overflow = TextOverflow.Ellipsis,
                 color = ink.copy(alpha = .69f))
         }
-        IconButton(onClick = onLike, modifier = Modifier.size(37.dp)) {
+        if(!compact) IconButton(onClick = onLike, modifier = Modifier.size(37.dp)) {
             Icon(if (liked) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
                 "좋아요", tint = ink, modifier = Modifier.size(19.dp))
         }
@@ -778,6 +794,7 @@ private fun OdifyMiniPlayer(
             Icon(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow,
                 "재생·일시정지", tint = white, modifier = Modifier.size(23.dp))
         }
+    }
     }
 }
 
@@ -835,25 +852,14 @@ private fun OdifySearch(
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf(OdifySearchScope.Music to "곡·아티스트", OdifySearchScope.Lyrics to "가사").forEach { (scope, label) ->
                 val selected = searchScope == scope
-                Text(label, color = if (selected) white else grey, fontSize = 11.sp,
-                    modifier = Modifier.clip(RoundedCornerShape(20.dp))
-                        .background(if (selected) ink else pale)
-                        .clickable { onScopeChange(scope) }.padding(horizontal = 15.dp, vertical = 9.dp))
+                OdifyPill(label,selected) {onScopeChange(scope)}
             }
         }
         Spacer(Modifier.height(12.dp))
         LazyRow(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
             items(genres) { option ->
                 val selected = genre == option
-                Box(
-                    Modifier.clip(RoundedCornerShape(30.dp))
-                        .background(if (selected) ink else pale)
-                        .clickable { onGenreChange(option) }
-                        .padding(horizontal = 13.dp, vertical = 8.dp)
-                ) {
-                    Text(option, fontSize = 11.sp,
-                        color = if (selected) white else grey)
-                }
+                OdifyPill(option,selected) {onGenreChange(option)}
             }
         }
         Spacer(Modifier.height(16.dp))

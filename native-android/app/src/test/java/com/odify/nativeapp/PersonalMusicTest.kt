@@ -4,6 +4,19 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class PersonalMusicTest {
+    @Test fun chartsUseIdentifiedAudioAndPendingPlaylistReferencesResolveAfterSync() {
+        val track=ExploreTrack("123","NEON","A2O","",emptyList(),1)
+        val unrelated=song("gdrive:a").copy(title="Drowning",artist="WOODZ",lyrics="NEON")
+        assertNull(OdifyChartMatching.resolve(track,listOf(unrelated)))
+        val wrongArtist=unrelated.copy(title="NEON")
+        assertNull(OdifyChartMatching.resolve(track,listOf(wrongArtist)))
+        val exact=unrelated.copy(title="NEON",artist="A2O")
+        assertEquals(exact,OdifyChartMatching.resolve(track,listOf(exact)))
+        val collected=unrelated.copy(id="gdrive:collected",chartId="123")
+        assertEquals(collected,OdifyChartMatching.resolve(track,listOf(collected)))
+        assertNull(OdifyChartMatching.storedReference("chart:123",emptyList()))
+        assertEquals(collected,OdifyChartMatching.storedReference("chart:123",listOf(collected)))
+    }
     @Test fun playerClosesWithoutAnOpaqueFinalFlashAndTabSwipesRespectEdges() {
         assertEquals(0f, OdifyMotion.playerOpacity(0f))
         assertEquals(1f, OdifyMotion.playerOpacity(1f))

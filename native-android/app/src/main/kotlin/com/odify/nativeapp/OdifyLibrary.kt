@@ -28,7 +28,9 @@ data class OdifySong(
     val durationMs: Long = 0L,
     val sourceUri: String? = null,
     val genre: String = "",
-    val lyrics: String = ""
+    val lyrics: String = "",
+    val contentMd5: String = "",
+    val chartId: String = ""
 ) {
     val isCloud: Boolean get() = id.startsWith("gdrive:") || sourceUri?.startsWith("https://") == true && !id.startsWith("localfolder:")
     val isPhoneFolder: Boolean get() = id.startsWith("localfolder:")
@@ -83,7 +85,7 @@ class OdifyLibrary(private val context: Context) {
                     durationMs = value.optLong("durationMs"),
                     sourceUri = cloudUri,
                     genre = value.optString("genre"),
-                    lyrics = value.optString("lyrics")
+                    lyrics = value.optString("lyrics"), contentMd5 = value.optString("contentMd5")
                 )
             }
         } catch (_: Exception) { emptyList() }
@@ -103,6 +105,7 @@ class OdifyLibrary(private val context: Context) {
                 put("sourceUri", song.sourceUri ?: "")
                 put("genre", song.genre)
                 put("lyrics", song.lyrics)
+                put("contentMd5", song.contentMd5)
             })
         }
         prefs.edit().putString("songs", json.toString()).apply()

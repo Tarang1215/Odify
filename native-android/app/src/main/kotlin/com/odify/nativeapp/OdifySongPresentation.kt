@@ -10,8 +10,16 @@ import java.util.Locale
 object OdifySongPresentation {
     fun visible(items: List<OdifySong>, showDuplicates: Boolean = false): List<OdifySong> {
         if (showDuplicates) return items
+        fun rank(song:OdifySong)=(if(!song.isCloud) 10 else 0)+(if(song.artworkPath!=null) 4 else 0)
+        val bytes=LinkedHashMap<String,OdifySong>()
+        for(song in items) {
+            val hash=song.contentMd5.lowercase(Locale.ROOT)
+            val id=if(Regex("[a-f0-9]{32}").matches(hash)) "md5:$hash" else "id:${song.id}"
+            val old=bytes[id]
+            if(old==null || rank(song)>rank(old)) bytes[id]=song
+        }
         val buckets = LinkedHashMap<String, OdifySong>()
-        for (song in items) {
+        for (song in bytes.values) {
             val title = song.title.trim().lowercase(Locale.ROOT)
                 .replace(Regex("\\s+"), " ")
             val artist = song.artist.trim().lowercase(Locale.ROOT)

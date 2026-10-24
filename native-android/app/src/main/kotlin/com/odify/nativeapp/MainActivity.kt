@@ -363,6 +363,14 @@ private fun NativeOdify() {
             refreshCatalog(showProgress = false)
         }
     }
+    LaunchedEffect(driveBusy,phoneFolderStatus) {
+        if(!driveBusy && phoneFolder.hasFolder) {
+            val base=withContext(Dispatchers.IO) {library.songs()+driveCatalog.tracks()}
+            phoneFolder.fingerprintMirrors(base) { local ->
+                withContext(Dispatchers.Main) {songs=base+local}
+            }
+        }
+    }
     LaunchedEffect(playback.mediaId) {
         val track = songs.firstOrNull { it.id == playback.mediaId }
         if (track != null && track.id.startsWith("gdrive:") && driveConnected) {

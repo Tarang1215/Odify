@@ -29,12 +29,12 @@ import java.net.URL
 data class ExploreTrack(val id:String,val title:String,val artist:String,val artwork:String,val genres:List<String>,val rank:Int)
 data class ExploreChart(val country:String,val updated:String,val fetchedAt:Long,val tracks:List<ExploreTrack>,val cached:Boolean=false)
 
-/** Public chart metadata only; never substitutes a chart result for an owned audio file. */
+/** Public chart metadata. Playback always resolves to an owned, identified file. */
 class OdifyExploreRepository(private val context:Context) {
     private fun parse(raw:String,country:String,fetchedAt:Long,cached:Boolean):ExploreChart {
         val feed=JSONObject(raw).getJSONObject("feed")
         val array=feed.getJSONArray("results")
-        val tracks=(0 until minOf(array.length(),50)).mapNotNull {i ->
+        val tracks=(0 until minOf(array.length(),100)).mapNotNull {i ->
             val item=array.getJSONObject(i)
             val id=item.optString("id");val title=item.optString("name");val artist=item.optString("artistName")
             if(id.isBlank() || title.isBlank() || artist.isBlank()) return@mapNotNull null
@@ -43,29 +43,59 @@ class OdifyExploreRepository(private val context:Context) {
                 .filter {it.optString("genreId")!="34"}.map {it.optString("name")}.filter(String::isNotBlank)
             ExploreTrack(id,title,artist,item.optString("artworkUrl100"),labels,i+1)
         }.distinctBy {it.id}
-        require(tracks.isNotEmpty()) {"차트가 비어 있습니다."}
+        require(tracks.size==100) {"차트 100곡을 확인하지 못했습니다."}
         return ExploreChart(country,feed.optString("updated"),fetchedAt,tracks,cached)
     }
-
+    private fun request(url:String,limit:Int):String {
+        val conn=URL(url).openConnection() as HttpURLConnection
+        return try {
+            conn.connectTimeout=8_000;conn.readTimeout=12_000
+            conn.setRequestProperty("User-Agent","Mozilla/5.0 Odify/1.0")
+            check(conn.responseCode==200) {"Chart HTTP ${conn.responseCode}"}
+            conn.inputStream.use {String(it.readBytesBounded(limit),Charsets.UTF_8)}
+        } finally {conn.disconnect()}
+    }
+    private fun publicPlaylist(country:String,seed:ExploreChart?):String {
+        val id=when(country) {"kr"->"pl.d3d10c32fbc540b38e266367dc8cb00c";"jp"->"pl.043a2c9876114d95a4659988497567be";else->"pl.606afcbb70264d2eb2b51d8dbcfa6a12"}
+        val html=request("https://music.apple.com/$country/playlist/top-100/$id",3_000_000)
+        val match=Regex("<script[^>]*id=\"serialized-server-data\"[^>]*>(.*?)</script>",RegexOption.DOT_MATCHES_ALL).find(html)
+            ?: error("Public chart metadata missing")
+        val root=JSONObject(match.groupValues[1]);val ranked=ArrayList<JSONObject>()
+        fun visit(node:Any?) {
+            when(node) {
+                is JSONObject -> {
+                    if(node.optJSONObject("contentDescriptor")?.optString("kind")=="song" &&
+                        node.optString("rankingText").toIntOrNull()!=null && node.optString("artistName").isNotBlank()) ranked.add(node)
+                    else node.keys().forEach {visit(node.opt(it))}
+                }
+                is org.json.JSONArray -> (0 until node.length()).forEach {visit(node.opt(it))}
+            }
+        }
+        visit(root)
+        val results=org.json.JSONArray()
+        ranked.sortedBy {it.optString("rankingText").toInt()}.forEach {item ->
+            val identity=item.getJSONObject("contentDescriptor").getJSONObject("identifiers").getString("storeAdamID")
+            val artwork=item.optJSONObject("artwork")?.optJSONObject("dictionary")?.optString("url").orEmpty()
+                .replace("{w}","200").replace("{h}","200").replace("{f}","jpg")
+            results.put(JSONObject().put("id",identity).put("name",item.getString("title"))
+                .put("artistName",item.getString("artistName")).put("artworkUrl100",artwork)
+                .put("genres",org.json.JSONArray().apply {seed?.tracks?.firstOrNull {it.id==identity}?.genres?.forEach {put(JSONObject().put("name",it))}}))
+        }
+        return JSONObject().put("feed",JSONObject().put("updated",java.time.Instant.now().toString()).put("results",results)).toString()
+    }
     suspend fun load(country:String,force:Boolean=false):ExploreChart = withContext(Dispatchers.IO) {
         require(country in setOf("kr","jp","us"))
-        val file=File(context.cacheDir,"explore_$country.json")
-        val existing=runCatching {parse(file.readText(),country,file.lastModified(),true)}.getOrNull()
+        val file=File(context.cacheDir,"explore100_$country.json")
+        val seed=runCatching {parse(context.assets.open("charts/$country.json").bufferedReader().use {it.readText()},country,0,true)}.getOrNull()
+        val existing=runCatching {parse(file.readText(),country,file.lastModified(),true)}.getOrNull() ?: seed
         if(!force && existing!=null && System.currentTimeMillis()-existing.fetchedAt < 6L*60*60*1000) return@withContext existing
         try {
-            val connection=URL("https://rss.applemarketingtools.com/api/v2/$country/music/most-played/50/songs.json").openConnection() as HttpURLConnection
-            val raw=try {
-                connection.connectTimeout=12_000;connection.readTimeout=20_000
-                connection.setRequestProperty("User-Agent","Odify/1.0 (public music chart metadata)")
-                check(connection.responseCode==200) {"차트 연결 실패 (${connection.responseCode})"}
-                connection.inputStream.use { input ->
-                    val bytes=input.readBytesBounded(2_000_000)
-                    String(bytes,Charsets.UTF_8)
-                }
-            } finally {connection.disconnect()}
+            val raw=if(country=="kr") publicPlaylist(country,existing) else try {
+                request("https://rss.applemarketingtools.com/api/v2/$country/music/most-played/100/songs.json",2_000_000)
+            } catch(cancel:CancellationException) {throw cancel}
+            catch(_:Exception) {publicPlaylist(country,existing)}
             val result=parse(raw,country,System.currentTimeMillis(),false)
-            val atomic=AtomicFile(file)
-            val output=atomic.startWrite()
+            val atomic=AtomicFile(file);val output=atomic.startWrite()
             try {output.write(raw.toByteArray(Charsets.UTF_8));atomic.finishWrite(output)}
             catch(failure:Exception) {atomic.failWrite(output);throw failure}
             result
@@ -111,7 +141,8 @@ private fun ExploreCover(track:ExploreTrack,modifier:Modifier) {
 }
 
 @Composable
-fun OdifyExplore(onProfile:()->Unit,onSearch:(String)->Unit) {
+fun OdifyExplore(songs:List<OdifySong>,onProfile:()->Unit,onPlay:(List<OdifySong>,Int)->Unit,
+    onSaveChart:(String,List<String>)->Unit,onSync:()->Unit) {
     val context=LocalContext.current
     val repository=remember {OdifyExploreRepository(context.applicationContext)}
     var country by rememberSaveable {mutableStateOf("kr")}
@@ -128,6 +159,10 @@ fun OdifyExplore(onProfile:()->Unit,onSearch:(String)->Unit) {
         finally {busy=false}
     }
     val visible=chart?.tracks.orEmpty().filter {genre.isEmpty() || genre in it.genres}
+    val matched=remember(chart,songs) {chart?.tracks.orEmpty().associate {it.id to OdifyChartMatching.resolve(it,songs)}}
+    val ready=visible.mapNotNull {matched[it.id]}.distinctBy {it.contentMd5.ifBlank {it.id}}
+    val countryName=when(country) {"kr"->"한국";"jp"->"일본";else->"미국"}
+    fun play(shuffle:Boolean=false) {if(ready.isNotEmpty()) onPlay(if(shuffle) ready.shuffled() else ready,0)}
     LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(22.dp,14.dp,22.dp,160.dp)) {
         item {
             Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
@@ -137,50 +172,60 @@ fun OdifyExplore(onProfile:()->Unit,onSearch:(String)->Unit) {
                 }
                 IconButton(onClick=onProfile) {Icon(Icons.Outlined.PersonOutline,"프로필 및 설정")}
             }
-            Spacer(Modifier.height(26.dp))
-            Row(horizontalArrangement=Arrangement.spacedBy(9.dp)) {
+            Spacer(Modifier.height(20.dp))
+            Row(horizontalArrangement=Arrangement.spacedBy(7.dp),verticalAlignment=Alignment.CenterVertically) {
                 listOf("kr" to "한국","jp" to "일본","us" to "미국").forEach {(code,label) ->
-                    FilterChip(selected=country==code,onClick={country=code},label={Text(label)},
-                        leadingIcon={if(country==code) Icon(Icons.Outlined.Check,null,Modifier.size(15.dp))})
+                    OdifyPill(label,country==code) {country=code}
                 }
                 Spacer(Modifier.weight(1f))
-                IconButton(onClick={refresh++},enabled=!busy) {Icon(Icons.Outlined.Refresh,"차트 새로고침")}
+                IconButton(onClick={refresh++;onSync()},enabled=!busy) {Icon(Icons.Outlined.Refresh,"차트와 음악 새로고침")}
             }
-            Spacer(Modifier.height(15.dp))
-            Text("Hot right now",fontSize=26.sp,fontWeight=FontWeight.Bold,color=OdifyPalette.text)
-            Text("Apple Music · ${country.uppercase()} 인기곡 Top 50",fontSize=12.sp,color=OdifyPalette.muted,modifier=Modifier.padding(top=5.dp))
+            Spacer(Modifier.height(14.dp))
+            Text("$countryName Top 100",fontSize=26.sp,fontWeight=FontWeight.Bold,color=OdifyPalette.text)
             chart?.let {data ->
-                val updated=runCatching {java.time.ZonedDateTime.parse(data.updated,java.time.format.DateTimeFormatter.RFC_1123_DATE_TIME)
-                    .withZoneSameInstant(java.time.ZoneId.systemDefault()).format(java.time.format.DateTimeFormatter.ofPattern("MM.dd HH:mm"))}.getOrDefault("")
-                Text("$updated 갱신"+(if(data.cached) " · 저장된 차트" else ""),fontSize=10.sp,color=Color(0xFF999CA2),modifier=Modifier.padding(top=3.dp))
-                Spacer(Modifier.height(15.dp))
-                LazyRow(horizontalArrangement=Arrangement.spacedBy(7.dp)) {
-                    items(listOf("")+data.tracks.flatMap {it.genres}.distinct().take(16)) {tag ->
-                        FilterChip(selected=genre==tag,onClick={genre=tag},label={Text(tag.ifBlank {"전체"},fontSize=11.sp)})
+                val timestamp=runCatching {java.time.Instant.parse(data.updated)}.getOrElse {
+                    runCatching {java.time.ZonedDateTime.parse(data.updated,java.time.format.DateTimeFormatter.RFC_1123_DATE_TIME).toInstant()}
+                        .getOrDefault(java.time.Instant.ofEpochMilli(data.fetchedAt))}
+                val updated=timestamp.atZone(java.time.ZoneId.systemDefault()).format(java.time.format.DateTimeFormatter.ofPattern("MM.dd HH:mm"))
+                Text("$updated 갱신"+(if(data.cached) " · 저장된 차트" else ""),fontSize=10.sp,color=OdifyPalette.muted,modifier=Modifier.padding(top=4.dp))
+                Text("${ready.size}/${visible.size}곡 재생 준비 · 동기화하면 나머지도 이어집니다",fontSize=11.sp,color=OdifyPalette.muted,
+                    modifier=Modifier.padding(top=9.dp,bottom=10.dp))
+                Row(horizontalArrangement=Arrangement.spacedBy(8.dp),verticalAlignment=Alignment.CenterVertically) {
+                    FilledIconButton(onClick={play()},enabled=ready.isNotEmpty(),colors=IconButtonDefaults.filledIconButtonColors(
+                        containerColor=OdifyPalette.text,contentColor=OdifyPalette.background)) {Icon(Icons.Outlined.PlayArrow,"Top 100 재생")}
+                    IconButton(onClick={play(true)},enabled=ready.isNotEmpty()) {Icon(Icons.Outlined.Shuffle,"Top 100 랜덤 재생")}
+                    TextButton(onClick={onSaveChart("$countryName Top 100",data.tracks.map {track -> matched[track.id]?.id ?: "chart:${track.id}"})}) {
+                        Icon(Icons.Outlined.PlaylistAdd,null,Modifier.size(18.dp));Spacer(Modifier.width(5.dp));Text("플레이리스트 저장",fontSize=11.sp)
                     }
                 }
-                if(genre.isNotEmpty()) Text("국가 Top 50 안에서 장르별로 모았어요",fontSize=10.sp,color=OdifyPalette.muted)
+                Spacer(Modifier.height(9.dp))
+                LazyRow(horizontalArrangement=Arrangement.spacedBy(7.dp)) {
+                    items(listOf("")+data.tracks.flatMap {it.genres}.distinct().take(16)) {tag ->
+                        OdifyPill(tag.ifBlank {"전체"},genre==tag) {genre=tag}
+                    }
+                }
+                if(genre.isNotEmpty()) Text("국가 Top 100 안에서 장르별로 모았어요",fontSize=10.sp,color=OdifyPalette.muted)
                 Spacer(Modifier.height(13.dp))
             }
         }
         if(busy) item {LinearProgressIndicator(Modifier.fillMaxWidth().padding(vertical=24.dp))}
-        error?.let {message -> item {Text(message,fontSize=13.sp,color=OdifyPalette.muted,modifier=Modifier.padding(vertical=20.dp));
-            TextButton(onClick={refresh++}) {Text("다시 불러오기")}}}
+        error?.let {message -> item {Text(message,fontSize=13.sp,color=OdifyPalette.muted,modifier=Modifier.padding(vertical=20.dp))}}
         items(visible,key={it.id}) {track ->
-            Row(Modifier.fillMaxWidth().clickable {onSearch(track.title)}.padding(vertical=10.dp),verticalAlignment=Alignment.CenterVertically) {
-                Text(track.rank.toString().padStart(2,'0'),fontSize=13.sp,color=Color(0xFF999CA2),modifier=Modifier.width(30.dp))
-                ExploreCover(track,Modifier.size(55.dp))
-                Column(Modifier.weight(1f).padding(start=13.dp,end=6.dp)) {
-                    Text(track.title,fontSize=14.sp,fontWeight=FontWeight.SemiBold,maxLines=1,overflow=TextOverflow.Ellipsis)
-                    Text(track.artist,fontSize=11.sp,color=OdifyPalette.muted,maxLines=1,overflow=TextOverflow.Ellipsis)
-                    Text(track.genres.firstOrNull().orEmpty(),fontSize=9.sp,color=Color(0xFFA0A2A8),maxLines=1)
+            val song=matched[track.id]
+            Row(Modifier.fillMaxWidth().clickable {
+                if(song!=null) onPlay(ready,ready.indexOfFirst {it.id==song.id}.coerceAtLeast(0))
+                else android.widget.Toast.makeText(context,"음원을 준비 중이에요. 음악 동기화 후 바로 재생할 수 있어요.",android.widget.Toast.LENGTH_SHORT).show()
+            }.padding(vertical=9.dp),verticalAlignment=Alignment.CenterVertically) {
+                Text(track.rank.toString().padStart(2,'0'),fontSize=12.sp,color=OdifyPalette.muted,modifier=Modifier.width(30.dp))
+                ExploreCover(track,Modifier.size(52.dp))
+                Column(Modifier.weight(1f).padding(start=12.dp,end=6.dp)) {
+                    Text(track.title,fontSize=13.sp,fontWeight=FontWeight.SemiBold,maxLines=1,overflow=TextOverflow.Ellipsis,color=OdifyPalette.text)
+                    Text(track.artist,fontSize=10.sp,color=OdifyPalette.muted,maxLines=1,overflow=TextOverflow.Ellipsis)
                 }
-                Icon(Icons.Outlined.Search,"내 음악에서 ${track.title} 찾기",tint=Color(0xFF8B8E96),modifier=Modifier.size(20.dp))
+                Icon(if(song!=null) Icons.Outlined.PlayArrow else Icons.Outlined.CloudDownload,
+                    if(song!=null) "${track.title} 바로 재생" else "${track.title} 음원 준비 중",
+                    tint=if(song!=null) OdifyPalette.text else OdifyPalette.muted,modifier=Modifier.size(20.dp))
             }
-        }
-        if(visible.isNotEmpty()) item {
-            Text("차트는 새로운 음악을 발견하는 곳이에요. 곡을 누르면 내 음악에서 검색합니다.",
-                fontSize=11.sp,color=OdifyPalette.muted,modifier=Modifier.padding(top=20.dp))
         }
     }
 }

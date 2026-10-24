@@ -44,9 +44,7 @@ fun OdifyPersonalHome(
             Spacer(Modifier.height(18.dp))
             Row(horizontalArrangement=Arrangement.spacedBy(7.dp)) {
                 listOf("For you" to { hero?.let {selectedMix=it}; Unit },"Explore" to onExplore,"Search" to onSearch).forEachIndexed {index,(label,action) ->
-                    AssistChip(onClick=action,label={Text(label,fontSize=11.sp)},
-                        colors=AssistChipDefaults.assistChipColors(containerColor=if(index==0) OdifyPalette.text else OdifyPalette.surface,
-                            labelColor=if(index==0) OdifyPalette.background else OdifyPalette.muted),border=null)
+                    OdifyPill(label,index==0,action)
                 }
             }
             Spacer(Modifier.height(12.dp))
@@ -84,7 +82,6 @@ fun OdifyPersonalHome(
                         AlbumArt(song,Modifier.size(106.dp),radius=RoundedCornerShape(15.dp))
                         Text(song.title,fontSize=12.sp,color=homeInk,maxLines=1,overflow=TextOverflow.Ellipsis,
                             modifier=Modifier.padding(top=8.dp),fontWeight=FontWeight.SemiBold)
-                        Text(song.artist,fontSize=10.sp,color=homeGrey,maxLines=1,overflow=TextOverflow.Ellipsis)
                     }
                 }
             }

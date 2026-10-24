@@ -108,7 +108,7 @@ fun OdifyPlaylistLibrary(
     var songMenu by remember { mutableStateOf<String?>(null) }
     val selected = playlists.firstOrNull { it.id == selectedId }
     val songIndex = remember(songs) { songs.associateBy(OdifySong::id) }
-    val tracks = selected?.songIds?.mapNotNull(songIndex::get).orEmpty()
+    val tracks = selected?.songIds?.mapNotNull {OdifyChartMatching.storedReference(it,songs)}.orEmpty()
 
     Column(Modifier.fillMaxSize()) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -139,7 +139,7 @@ fun OdifyPlaylistLibrary(
                 horizontalArrangement=Arrangement.spacedBy(14.dp),verticalArrangement=Arrangement.spacedBy(18.dp)) {
                 items(playlists, key = { it.id }) { playlist ->
                     Column(Modifier.clip(RoundedCornerShape(17.dp)).clickable { selectedId=playlist.id }) {
-                        AlbumArt(playlist.songIds.firstNotNullOfOrNull(songIndex::get),Modifier.fillMaxWidth().aspectRatio(1f),
+                        AlbumArt(playlist.songIds.firstNotNullOfOrNull {OdifyChartMatching.storedReference(it,songs)},Modifier.fillMaxWidth().aspectRatio(1f),
                             radius=RoundedCornerShape(17.dp),fallbackKey=playlist.name.hashCode())
                         Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
                             Column(Modifier.weight(1f).padding(top=9.dp)) {
@@ -155,6 +155,8 @@ fun OdifyPlaylistLibrary(
                 }
             }
         } else {
+            if(tracks.size<selected.songIds.size) Text("${selected.songIds.size}곡 중 ${tracks.size}곡 준비됨 · 동기화 후 나머지도 이어집니다",
+                style=MaterialTheme.typography.labelSmall,color=OdifyPalette.muted,modifier=Modifier.padding(vertical=8.dp))
             if (tracks.isEmpty()) {
                 Text("재생 가능한 곡이 없습니다. 재생 화면에서 음악을 추가하세요.",
                     modifier = Modifier.padding(vertical = 20.dp))
