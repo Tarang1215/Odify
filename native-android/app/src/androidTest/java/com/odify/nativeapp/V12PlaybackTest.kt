@@ -26,6 +26,23 @@ import java.util.concurrent.TimeUnit
 /** Runs against real Media3 on Android, with generated audio and no user accounts. */
 @RunWith(AndroidJUnit4::class)
 class V12PlaybackTest {
+    @Test fun audioReportOutboxPersistsAndDriveCacheKeyChangesWithBytes() {
+        val repository = OdifyAudioRequests(context)
+        val song = OdifySong("localfolder:request-regression", "Request regression", "Artist", "", "")
+        val id = repository.enqueue(song, "report", "", "Wrong audio")
+        try {
+            val restored = OdifyAudioRequests(context).latest(song.id)!!
+            assertEquals(id, restored.getString("request_id"))
+            assertEquals("LOCAL_PENDING", restored.getString("status"))
+            val cloud = song.copy(id="gdrive:abcdefghijklmno",contentMd5="old")
+            assertNotEquals(cloud.mediaItem().localConfiguration!!.customCacheKey,
+                cloud.copy(contentMd5="new").mediaItem().localConfiguration!!.customCacheKey)
+        } finally {
+            context.openOrCreateDatabase("odify_audio_requests.db", 0, null).use {
+                it.delete("requests", "id=?", arrayOf(id))
+            }
+        }
+    }
     @Test fun bundledCountryChartsHaveExactlyOneHundredRealEntries() {
         for(country in listOf("kr","jp","us")) {
             val raw=context.assets.open("charts/$country.json").bufferedReader().use {it.readText()}

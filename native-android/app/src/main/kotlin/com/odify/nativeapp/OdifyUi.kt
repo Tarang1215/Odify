@@ -243,6 +243,7 @@ fun OdifyRoot(
     onShuffle: () -> Unit,
     onRepeat: () -> Unit,
     onSaveDevice: (OdifySong) -> Unit,
+    onAudioRequest: (OdifySong, String, String, String) -> Unit,
     onRemove: (OdifySong) -> Unit,
     onEdit: (OdifySong, String, String, String) -> Unit,
     onChooseArtwork: (OdifySong) -> Unit
@@ -619,6 +620,7 @@ fun OdifyRoot(
                     onShowQueue = { queueOpen = true },
                     onAddToPlaylist = { playlistDialogTrack = active },
                     onSaveDevice = { onSaveDevice(active) },
+                    onAudioRequest = { kind, link, reason -> onAudioRequest(active, kind, link, reason) },
                     onDragProgress = { playerDragFraction = it }
                 )
             }

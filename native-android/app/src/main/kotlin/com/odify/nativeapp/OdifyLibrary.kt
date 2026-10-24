@@ -42,6 +42,8 @@ data class OdifySong(
         )
     fun mediaItem(): MediaItem = MediaItem.Builder()
         .setMediaId(id)
+        // A same-ID Drive content replacement must not reuse old stream bytes.
+        .setCustomCacheKey(if (id.startsWith("gdrive:") && contentMd5.isNotBlank()) "$id:$contentMd5" else null)
         .setUri(if (!sourceUri.isNullOrBlank()) Uri.parse(sourceUri) else Uri.fromFile(File(filePath)))
         .setMediaMetadata(
             MediaMetadata.Builder()

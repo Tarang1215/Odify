@@ -94,6 +94,7 @@ fun OdifyNowPlaying(
     onShowQueue: () -> Unit,
     onAddToPlaylist: () -> Unit,
     onSaveDevice: () -> Unit,
+    onAudioRequest: (String, String, String) -> Unit,
     onDragProgress: (Float) -> Unit = {}
 ) {
     val scope = rememberCoroutineScope()
@@ -144,6 +145,8 @@ fun OdifyNowPlaying(
     } }
     var showInfo by remember { mutableStateOf(false) }
     var actionsOpen by remember { mutableStateOf(false) }
+    var audioRequestOpen by remember(song.id) { mutableStateOf(false) }
+    if (audioRequestOpen) OdifyAudioRequestDialog(song, { audioRequestOpen = false }, onAudioRequest)
     val lyricsRepository=remember {OdifyLyricsRepository(context.applicationContext)}
     var availableLyrics by remember(song.id) {mutableStateOf(song.lyrics)}
     LaunchedEffect(song.id,song.lyrics) {availableLyrics=lyricsRepository.read(song)}
@@ -253,6 +256,11 @@ fun OdifyNowPlaying(
                                 text = { Text("디바이스에 저장") },
                                 leadingIcon = { Icon(Icons.Default.FileDownload, null) },
                                 onClick = { actionsOpen = false; onSaveDevice() }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("오디오 변경 요청") },
+                                leadingIcon = { Icon(Icons.Default.ReportProblem, null) },
+                                onClick = { actionsOpen = false; audioRequestOpen = true }
                             )
                             DropdownMenuItem(
                                 text = { Text("곡 정보") },

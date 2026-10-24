@@ -99,6 +99,7 @@ private fun NativeOdify() {
     val masterDb = remember { OdifyMasterDatabase(context.applicationContext) }
     val artworkFallback = remember { OdifyArtworkFallback(context.applicationContext) }
     val uploader = remember { OdifyDriveUploader(context.applicationContext) }
+    val audioRequests = remember { OdifyAudioRequests(context.applicationContext) }
     val deviceExport = remember { OdifyDeviceExport(context.applicationContext) }
     var pendingDeviceSong by remember { mutableStateOf<OdifySong?>(null) }
     var savingDeviceSong by remember { mutableStateOf(false) }
@@ -270,6 +271,25 @@ private fun NativeOdify() {
             runCatching { DriveAuth.resolveUpload(activity,result.data) }.getOrDefault(false))
             uploadFiles(uploadSelection)
         else uploadStatus = "Drive 쓰기 권한 승인이 취소되었습니다."
+    }
+    fun syncAudioRequests() {
+        scope.launch {
+            runCatching { audioRequests.sync() }.onFailure {
+                Toast.makeText(context, "요청은 저장되었습니다. Drive 권한·연결 확인 후 다시 전송됩니다.", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+    val audioRequestAuthorization = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartIntentSenderForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK &&
+            runCatching { DriveAuth.resolveUpload(activity, result.data) }.getOrDefault(false)) syncAudioRequests()
+    }
+    LaunchedEffect(driveConnected) {
+        while (driveConnected && isActive) {
+            runCatching { audioRequests.sync() }
+            delay(60_000)
+        }
     }
     val driveUploadPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenMultipleDocuments()
@@ -690,6 +710,20 @@ private fun NativeOdify() {
                     if (controller?.repeatMode == androidx.media3.common.Player.REPEAT_MODE_ONE)
                         androidx.media3.common.Player.REPEAT_MODE_OFF
                     else androidx.media3.common.Player.REPEAT_MODE_ONE
+            },
+            onAudioRequest = { track, kind, link, reason ->
+                scope.launch {
+                    runCatching { withContext(Dispatchers.IO) {
+                        audioRequests.enqueue(track, kind, link, reason)
+                    } }.onSuccess {
+                        Toast.makeText(context, "오디오 변경 요청을 저장했습니다.", Toast.LENGTH_SHORT).show()
+                        DriveAuth.authorizeUpload(activity,
+                            onToken = { syncAudioRequests() },
+                            onResolution = { pending -> audioRequestAuthorization.launch(
+                                IntentSenderRequest.Builder(pending.intentSender).build()) },
+                            onError = { Toast.makeText(context, "요청 보관 중 · Drive 전송 권한을 확인하세요.", Toast.LENGTH_LONG).show() })
+                    }.onFailure { Toast.makeText(context, it.message ?: "요청 저장 실패", Toast.LENGTH_LONG).show() }
+                }
             },
             onSaveDevice = { track ->
                 if (savingDeviceSong) {
