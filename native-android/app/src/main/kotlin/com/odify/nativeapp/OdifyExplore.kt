@@ -207,8 +207,8 @@ fun OdifyExplore(index:OdifyChartMatching.Index,repository:OdifyExploreRepositor
                 if(pointer.isConsumed) childOwns=true
                 if(!childOwns && abs(dx)>56.dp.toPx() && abs(dx)>abs(dy)*1.6f) {
                     val countries=listOf("kr","jp","us")
-                    target=countries.getOrNull(countries.indexOf(country)+if(dx<0)1 else -1)
-                    if(target!=null) pointer.consume()
+                    target=countries.getOrNull(countries.indexOf(country)+if(dx<0)1 else -1) ?: country
+                    pointer.consume()
                 }
                 if(!pointer.pressed) {target?.takeIf {!childOwns}?.let {country=it};break}
             }

@@ -5,6 +5,7 @@
     [switch]$Upload
 )
 $ErrorActionPreference='Stop'
+$env:PYTHONUTF8='1'
 Set-StrictMode -Version Latest
 $pythonPath=Join-Path $env:LOCALAPPDATA 'Python\pythoncore-3.14-64\python.exe'
 $configPath=Join-Path $env:LOCALAPPDATA 'Odify\Collector\rclone.conf'

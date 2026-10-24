@@ -101,20 +101,18 @@ def search_candidates(artist,title,root):
         for x in listing.get('entries') or [] if re.fullmatch(r'[A-Za-z0-9_-]{11}',x.get('id') or '')]
     write_cache(cache,candidates);return candidates
 def inspected_video(video,root):
-    cache=root/'Metadata'/f'video_{video}.json';known=fresh_cache(cache)
+    cache=root/'Metadata'/f'video_v2_{video}.json';known=fresh_cache(cache)
     if known is not None:return known
     info=json.loads(execute([sys.executable,'-m','yt_dlp','--no-playlist','--skip-download',
         '--dump-single-json','--socket-timeout','15','--retries','0','https://www.youtube.com/watch?v='+video],60))
     known={k:info.get(k) for k in ('id','track','title','artist','creator','channel','uploader','duration',
-        'uploader_verified','description','album','is_live','live_status','release_date','upload_date')}
+        'uploader_verified','channel_is_verified','description','album','is_live','live_status','release_date','upload_date')}
     write_cache(cache,known);return known
 def chart_candidate_matches(expected,info):
     if candidate_matches(expected,info):return True
     # Explicit official-audio wrappers may be removed for the full-title
     # equality check; artist, version, studio and duration checks still apply.
-    cleaned=re.sub(r'(?i)\s*[\[(](?:official audio|audio only|audio)[\])]','',str(info.get('title') or '')).strip()
-    prefix=expected['아티스트']+' - '
-    if cleaned.casefold().startswith(prefix.casefold()):cleaned=cleaned[len(prefix):].strip()
+    cleaned=audio.clean_audio_title(str(info.get('title') or ''),expected['아티스트'])
     if norm(cleaned)!=norm(audio.recording_title(expected['곡명'])):return False
     return candidate_matches(expected,{**info,'track':cleaned})
 def resolve(row,root):

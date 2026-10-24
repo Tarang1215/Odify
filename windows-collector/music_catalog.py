@@ -293,6 +293,13 @@ def inspect_audio_video(url: str, title: str,
     return validate_audio_metadata(url,title,info,accept_lyric_or_mv,artist=artist)
 
 
+def clean_audio_title(video_title: str, artist: str | None = None) -> str:
+    clean=re.sub(r'(?i)\s*[\[(](?:official audio|audio|lyrics?|official music video|official mv)[\])]','',video_title)
+    clean=re.sub(r'(?i)\s+(?:[-|]\s*)?(?:official audio|audio only)\s*$','',clean).strip()
+    if artist and clean.casefold().startswith(artist.casefold()+' - '):clean=clean[len(artist)+3:]
+    return clean.strip().strip('\"\'“”‘’')
+
+
 def validate_audio_metadata(url: str, title: str, info: dict,
                             accept_lyric_or_mv: bool = False, *, artist: str | None = None) -> dict:
     """Apply the same identity checks to freshly inspected or cached metadata."""
@@ -332,9 +339,7 @@ def validate_audio_metadata(url: str, title: str, info: dict,
         raise ValueError("Music video or performance instead of studio audio")
     known_song = normalize(recording_title(title))
     metadata_track = normalize(str(info.get("track") or ""))
-    clean_title = re.sub(r'(?i)\s*[\[(](?:official audio|audio|lyrics?|official music video|official mv)[\])]', '', video_title)
-    if artist and clean_title.casefold().startswith(artist.casefold() + ' - '):
-        clean_title = clean_title[len(artist) + 3:]
+    clean_title = clean_audio_title(video_title,artist)
     title_match = known_song == normalize(clean_title) or (
         bool(metadata_track) and known_song == metadata_track)
     if not known_song or not title_match and not approved_alias(title, info, artist):

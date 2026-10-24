@@ -1,4 +1,4 @@
-# Dark personal music experience — preview12.11
+# Dark personal music experience — preview12.12
 
 Requested navigation: **Home → Explore → Search → Library**, with icon-only tabs,
 a 48dp touch target and accessible names. Profile and account/source management
@@ -30,9 +30,12 @@ lyrics-edit menu using the existing private LRC/import/search editor; audio byte
 are never retagged. Country swipes switch Korea/Japan/US without stealing horizontal
 genre chips. Each chart row plays from its cover/title; its trailing action chooses
 an existing playlist or creates a new one, including unresolved chart references.
-Tapping or holding the mini-player triggers a restrained render-only elastic
+Touch-down on the mini-player immediately triggers a restrained render-only elastic
 surface response (1.2% horizontal/1.8% vertical stretch, 0.12° tilt), decaying on
-a damped spring. It does not trigger extra artwork decoding or page recomposition.
+a fast damped release spring. It observes the initial pointer pass, so it does not
+wait for release, long-press recognition or scroll-container press delay. It does
+not trigger extra artwork decoding or page recomposition. Country swipes clamp at
+Korea/US edges instead of accidentally switching to a primary tab.
 The catalog is deduplicated/indexed once per library update on Dispatchers.Default,
 then all chart matches use indexed lookup. Cached chart snapshots prewarm from
 Home, remain visible during refresh, and 48 bounded decoded covers are reused.

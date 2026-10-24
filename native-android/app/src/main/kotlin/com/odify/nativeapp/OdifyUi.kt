@@ -785,10 +785,6 @@ private fun OdifyMiniPlayer(
     val expandAction by rememberUpdatedState(onExpand)
     val wobble=remember {Animatable(0f)}
     val wobbleScope=rememberCoroutineScope()
-    fun touchGlass() {wobbleScope.launch {
-        wobble.snapTo(1f)
-        wobble.animateTo(0f,spring(dampingRatio=.48f,stiffness=480f))
-    }}
     val titleStyle=TextStyle(fontSize=12.sp,fontWeight=FontWeight.SemiBold)
     val titleMeasurer=rememberTextMeasurer()
     val measuredTitle=titleMeasurer.measure(song.title,style=titleStyle,maxLines=1,softWrap=false)
@@ -809,7 +805,19 @@ private fun OdifyMiniPlayer(
             }
             .shadow(10.dp, RoundedCornerShape(22.dp),ambientColor=glow.copy(alpha=.28f),spotColor=glow.copy(alpha=.24f))
             .odifyGlass(backdrop,RoundedCornerShape(22.dp),glow)
-            .combinedClickable(onClick={touchGlass();onCompactChange(!compact)},onLongClick={touchGlass()})
+            // Initial-pass down is immediate, unlike delayed clickable press
+            // interactions inside a scroll container or release-time onClick.
+            .pointerInput(Unit) {
+                awaitEachGesture {
+                    awaitFirstDown(requireUnconsumed=false,pass=PointerEventPass.Initial)
+                    wobbleScope.launch {wobble.snapTo(1f)}
+                    do {
+                        val event=awaitPointerEvent(PointerEventPass.Initial)
+                    } while(event.changes.any {it.pressed})
+                    wobbleScope.launch {wobble.animateTo(0f,spring(dampingRatio=.8f,stiffness=1100f))}
+                }
+            }
+            .combinedClickable(onClick={onCompactChange(!compact)},onLongClick={})
             .pointerInput(Unit) {
                 var drag=0f
                 detectVerticalDragGestures(onDragStart={drag=0f},onDragCancel={drag=0f},

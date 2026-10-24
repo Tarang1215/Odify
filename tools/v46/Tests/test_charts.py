@@ -57,6 +57,8 @@ class ChartTests(unittest.TestCase):
         info={'id':'abcdefghijk','title':'Artist - Song (Official Audio)','duration':180,
               'channel':'Artist','artist':'Artist','uploader_verified':True}
         self.assertTrue(charts.chart_candidate_matches(expected,info))
+        self.assertTrue(charts.chart_candidate_matches(expected,{**info,'title':'Artist - "Song" Official Audio',
+            'uploader_verified':None,'channel_is_verified':True}))
         for changed in ({'artist':'Other','channel':'Other'}, {'title':'Artist - Song (English ver.) (Official Audio)'},
                         {'title':'Artist - Song (Live) (Official Audio)'}, {'uploader_verified':False}):
             self.assertFalse(charts.chart_candidate_matches(expected,{**info,**changed}))
