@@ -1,4 +1,4 @@
-# Native Android player reference, preview 12.15
+# Native Android player reference, preview 12.16
 
 The supplied Apple Music reference uses the album's spatial colors across the
 whole screen, with diffuse image shapes behind the controls. A single dark tint
@@ -26,6 +26,9 @@ hue and recorded backdrop blur. Tapping either mini-player cover opens the full
 player; tapping its remaining body toggles width. The drag-to-mini transition and direct
 touch response remain in place. No music files or embedded tags are rewritten.
 
-Local validation: 31 JVM tests and Android instrumentation source compilation
-passed. Device screenshots and installed-package checks are recorded separately
-in V46_PROGRESS.md after installing the signed build.
+Incomplete LRC with a timestamped title and untimed body is displayed as complete
+plain lyrics; the parser no longer discards the actual text. Local validation:
+32 JVM tests and Android instrumentation source compilation passed. Device
+checks pass for both lyrics scroll directions and both mini cover tap sizes.
+Version 28 installation and three selective device tests are recorded in
+V46_PROGRESS.md, along with the screenshots and APK digest.
