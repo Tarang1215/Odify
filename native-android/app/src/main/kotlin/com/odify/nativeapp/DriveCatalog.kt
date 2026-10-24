@@ -356,17 +356,20 @@ class DriveCatalog(private val context: Context) {
             } while (nextPage != null)
         }
         val aliases=runCatching {JSONObject(prefs.getString("chartAliases","{}").orEmpty())}.getOrDefault(JSONObject())
+        var indexRead=0
+        var indexError=""
         chartIndexes.values.take(32).forEach {index ->
             runCatching {
                 val payload=JSONObject(apiJson("files/${index.getString("id")}",mapOf("alt" to "media")))
                 check(payload.optInt("schemaVersion")==1)
                 val entries=payload.getJSONObject("mappings")
                 check(entries.length()<=1000)
+                indexRead++
                 entries.keys().forEach {chartId ->
                     val driveId=entries.getJSONObject(chartId).optString("driveId")
                     if(Regex("[0-9]+").matches(chartId) && collected.containsKey(driveId)) aliases.put(chartId,driveId)
                 }
-            }
+            }.onFailure {indexError=it.javaClass.simpleName+": "+(it.message ?: "").take(160)}
         }
         val dbConn = db.writableDatabase
         dbConn.beginTransaction()
@@ -410,6 +413,8 @@ class DriveCatalog(private val context: Context) {
             dbConn.setTransactionSuccessful()
         } finally { dbConn.endTransaction() }
         prefs.edit().putString("chartAliases",aliases.toString()).apply()
+        prefs.edit().putString("chartIndexDiagnostics",JSONObject().put("found",chartIndexes.size)
+            .put("read",indexRead).put("linked",aliases.length()).put("error",indexError).toString()).apply()
         lastSync = System.currentTimeMillis()
         collected.size
     }

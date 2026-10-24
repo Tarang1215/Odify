@@ -1,12 +1,20 @@
-# Dark personal music experience — preview12.7
+# Dark personal music experience — preview12.9
 
 Requested navigation: **Home → Explore → Search → Library**, with icon-only tabs,
 a 48dp touch target and accessible names. Profile and account/source management
 are utilities reached from the page headers. The latest direction uses a shallow,
-rounded charcoal glass bar without an opaque rectangular backing. Finger movement
+rounded glass bar without an opaque rectangular backing. Finger movement
 up hides it; movement down brings it back on the same spring as the mini-player.
 Horizontal gestures in unclaimed page areas change neighboring primary tabs.
 Album carousels and sliders retain their own gestures; account pages are excluded.
+Navigation and mini-player sample the actual page through a bounded GPU blur,
+including artwork and text. The sample is opaque before blurring so original sharp
+glyphs cannot show through. Live coordinate conversion and draw-only frame updates
+follow scrolling and ancestor translations without per-frame recomposition or bitmap
+readback. A 24dp blur with sampling bleed prevents a thin transparent edge.
+The centered compact player is 196dp wide, contains the cover, title and pause
+control, and reveals the full mini-player on tap or upward swipe. Long titles wait
+2.2 seconds before scrolling; the full mini-player also scrolls overflowing titles.
 
 All main pages, search, settings, sheets, splash and system bars use the same dark
 palette. Artwork supplies color; the UI uses restrained charcoal surfaces and thin
@@ -24,13 +32,20 @@ Likes, listened artists and genres produce explainable mixes with an artist-dive
 limit. A new listener sees an honestly labeled own-music starting mix. Saving a mix
 persists that exact list atomically in the existing playlist store; later ranking
 changes never rewrite saved playlists.
+Recent cards show artwork and title only. Home, Search and Explore share the same
+pill typography, visual height, touch target and corner radius.
 
-Explore reads public Apple Music Top 50 feeds for Korea, Japan and the US. Charts
-show source and provider update time. Genre filters operate **within the country's
-Top 50**, not an independent full genre chart or all-services popularity metric.
+Explore reads public Top 100 charts for Korea, Japan and the US. Korean public
+playlist HTML supplies all 100 ranked entries when the marketing feed fails; Japan
+and the US use 100-entry feeds with public-playlist fallback. Provider metadata is
+retained without a prominent provider banner. Genre filters operate **within the
+country's Top 100**, not an independent full genre chart or all-services popularity metric.
 Six-hour metadata caching and saved-chart fallback avoid blocking the screen when
-offline. Selecting a chart song searches the user's owned catalog; no unowned audio
-or unreviewed YouTube stream is silently substituted.
+offline. Selecting an owned chart song plays directly; unavailable songs show a
+preparation message. Sequential play, shuffle and saving all 100 references are
+supported. Verified append-only Drive mapping manifests resolve reused files and
+new CHART files to chart IDs; later sync can resolve previously pending references.
+No unreviewed match is substituted. Matching prefers byte-identical offline copies.
 
 Search covers the connected music server by title, artist, album and genre, with
 an explicit separate lyrics scope. Chart selections always use music metadata,
@@ -49,7 +64,7 @@ measurement. Tapping/dragging and accessibility progress actions still seek actu
 audio position. Embedded lyrics, queue editing, source audio, playlists, OAuth
 scopes and the permanent package/signing identity are retained.
 
-Local validation: 26 JVM tests and Android-test Kotlin compilation passed. The
+Local validation: 28 JVM tests and Android-test Kotlin compilation passed. The
 fixed-signature GitHub build, private app-data backup and real Galaxy acceptance
 results are tracked in `docs/V46_PROGRESS.md`. Never uninstall the user's existing
 app to bypass a signature mismatch.

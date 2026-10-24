@@ -752,7 +752,7 @@ private fun OdifyMiniPlayer(
 ) {
     var coordinates by remember { mutableStateOf<androidx.compose.ui.layout.LayoutCoordinates?>(null) }
     BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal=11.dp,vertical=5.dp),contentAlignment=Alignment.Center) {
-    val width by animateDpAsState(if(compact) 148.dp else maxWidth,spring(dampingRatio=.88f,stiffness=420f),label="island-width")
+    val width by animateDpAsState(if(compact) 196.dp.coerceAtMost(maxWidth) else maxWidth,spring(dampingRatio=.88f,stiffness=420f),label="island-width")
     val height by animateDpAsState(if(compact) 43.dp else 56.dp,spring(dampingRatio=.88f,stiffness=420f),label="island-height")
     Row(
         Modifier.width(width).height(height)
@@ -774,11 +774,14 @@ private fun OdifyMiniPlayer(
             fallbackKey = song.id.hashCode())
         Spacer(Modifier.width(10.dp))
         if(compact) {
-            Spacer(Modifier.weight(1f))
-            Icon(Icons.Outlined.GraphicEq,"재생 중인 곡 펼치기",tint=ink,modifier=Modifier.size(22.dp))
-            Spacer(Modifier.weight(1f))
+            Text(song.title,modifier=Modifier.weight(1f).basicMarquee(
+                iterations=Int.MAX_VALUE,initialDelayMillis=2200,repeatDelayMillis=1800,
+                spacing=MarqueeSpacing(24.dp),velocity=24.dp),
+                maxLines=1,fontSize=12.sp,color=ink,fontWeight=FontWeight.SemiBold)
+            Spacer(Modifier.width(8.dp))
         } else Column(Modifier.weight(1f)) {
-            Text(song.title, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            Text(song.title, modifier=Modifier.basicMarquee(iterations=Int.MAX_VALUE,
+                initialDelayMillis=2200,repeatDelayMillis=1800,velocity=24.dp),maxLines = 1,
                 fontSize = 12.sp, color = ink, fontWeight = FontWeight.SemiBold)
             if (song.artist.isNotBlank()) Text(song.artist, fontSize = 10.sp,
                 maxLines = 1, overflow = TextOverflow.Ellipsis,
