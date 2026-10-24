@@ -24,6 +24,12 @@ over 700ms. Text and playback controls remain untinted and sharp.
 The navigation shares that exact animated glow color with the mini-player.
 The full player's queue/lyrics bar uses the same glass treatment and glow, sampling
 only the player's background so controls are never captured back into themselves.
+Lyrics use centered text over a blurred copy of the square cover. With no saved or
+embedded text, tapping Lyrics leaves artwork untouched. Long press opens an anchored
+lyrics-edit menu using the existing private LRC/import/search editor; audio bytes
+are never retagged. Country swipes switch Korea/Japan/US without stealing horizontal
+genre chips. Each chart row plays from its cover/title; its trailing action chooses
+an existing playlist or creates a new one, including unresolved chart references.
 The catalog is deduplicated/indexed once per library update on Dispatchers.Default,
 then all chart matches use indexed lookup. Cached chart snapshots prewarm from
 Home, remain visible during refresh, and 48 bounded decoded covers are reused.

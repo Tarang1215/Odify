@@ -458,6 +458,8 @@ fun OdifyRoot(
                 )
                 OdifyTab.Explore -> OdifyExplore(
                     index=chartIndex,repository=exploreRepository,onPlay=::playList,onSync=onDriveSync,
+                    onAddTrack={track,owned -> playlistDialogTrack=owned ?:
+                        OdifySong("chart:${track.id}",track.title,track.artist,"","")},
                     onProfile = { navigateTo(OdifyTab.Profile) },
                     onSaveChart = { name,ids ->
                         runCatching {playlistStore.saveMix(name,ids)}.onSuccess {

@@ -4,6 +4,8 @@ import android.content.Context
 import android.graphics.BitmapFactory
 import android.util.AtomicFile
 import androidx.compose.foundation.*
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -16,6 +18,8 @@ import androidx.compose.ui.*
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.*
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -25,6 +29,7 @@ import org.json.JSONObject
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
+import kotlin.math.abs
 
 data class ExploreTrack(val id:String,val title:String,val artist:String,val artwork:String,val genres:List<String>,val rank:Int)
 data class ExploreChart(val country:String,val updated:String,val fetchedAt:Long,val tracks:List<ExploreTrack>,val cached:Boolean=false)
@@ -165,28 +170,50 @@ private object ExploreArtworkMemory {
 
 @Composable
 fun OdifyExplore(index:OdifyChartMatching.Index,repository:OdifyExploreRepository,onProfile:()->Unit,onPlay:(List<OdifySong>,Int)->Unit,
-    onSaveChart:(String,List<String>)->Unit,onSync:()->Unit) {
+    onSaveChart:(String,List<String>)->Unit,onSync:()->Unit,onAddTrack:(ExploreTrack,OdifySong?)->Unit) {
     val context=LocalContext.current
     var country by rememberSaveable {mutableStateOf("kr")}
     var genre by rememberSaveable {mutableStateOf("")}
     var refresh by remember {mutableIntStateOf(0)}
+    var handledRefresh by remember {mutableIntStateOf(0)}
+    val listState=rememberLazyListState()
     var chart by remember {mutableStateOf(repository.peek(country))}
     var busy by remember {mutableStateOf(false)}
     var error by remember {mutableStateOf<String?>(null)}
     LaunchedEffect(country,refresh) {
+        val force=refresh>handledRefresh;handledRefresh=refresh
         busy=true;error=null;chart=repository.peek(country);genre=""
         if(chart==null) chart=repository.cached(country)
-        try {chart=repository.load(country,refresh>0)}
+        try {chart=repository.load(country,force)}
         catch(cancel:CancellationException) {throw cancel}
         catch(_:Exception) {error="차트를 불러오지 못했어요. 연결을 확인하고 다시 시도해 주세요."}
         finally {busy=false}
     }
+    LaunchedEffect(country) {listState.scrollToItem(0)}
     val visible=chart?.tracks.orEmpty().filter {genre.isEmpty() || genre in it.genres}
     val matched=remember(chart,index) {chart?.tracks.orEmpty().associate {it.id to index.resolve(it)}}
     val ready=visible.mapNotNull {matched[it.id]}.distinctBy {it.contentMd5.ifBlank {it.id}}
     val countryName=when(country) {"kr"->"한국";"jp"->"일본";else->"미국"}
     fun play(shuffle:Boolean=false) {if(ready.isNotEmpty()) onPlay(if(shuffle) ready.shuffled() else ready,0)}
-    LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(22.dp,14.dp,22.dp,160.dp)) {
+    LazyColumn(Modifier.fillMaxSize().pointerInput(country) {
+        awaitEachGesture {
+            val down=awaitFirstDown(requireUnconsumed=false)
+            var childOwns=false;var target:String?=null
+            while(true) {
+                // Children handle horizontal genre chips before this pass;
+                // consume country swipes before the outer primary-tab observer.
+                val pointer=awaitPointerEvent(PointerEventPass.Main).changes.firstOrNull {it.id==down.id} ?: break
+                val dx=pointer.position.x-down.position.x;val dy=pointer.position.y-down.position.y
+                if(pointer.isConsumed) childOwns=true
+                if(!childOwns && abs(dx)>56.dp.toPx() && abs(dx)>abs(dy)*1.6f) {
+                    val countries=listOf("kr","jp","us")
+                    target=countries.getOrNull(countries.indexOf(country)+if(dx<0)1 else -1)
+                    if(target!=null) pointer.consume()
+                }
+                if(!pointer.pressed) {target?.takeIf {!childOwns}?.let {country=it};break}
+            }
+        }
+    },state=listState,contentPadding=PaddingValues(22.dp,14.dp,22.dp,160.dp)) {
         item {
             Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
@@ -245,9 +272,10 @@ fun OdifyExplore(index:OdifyChartMatching.Index,repository:OdifyExploreRepositor
                     Text(track.title,fontSize=13.sp,fontWeight=FontWeight.SemiBold,maxLines=1,overflow=TextOverflow.Ellipsis,color=OdifyPalette.text)
                     Text(track.artist,fontSize=10.sp,color=OdifyPalette.muted,maxLines=1,overflow=TextOverflow.Ellipsis)
                 }
-                Icon(if(song!=null) Icons.Outlined.PlayArrow else Icons.Outlined.CloudDownload,
-                    if(song!=null) "${track.title} 바로 재생" else "${track.title} 음원 준비 중",
-                    tint=if(song!=null) OdifyPalette.text else OdifyPalette.muted,modifier=Modifier.size(20.dp))
+                IconButton(onClick={onAddTrack(track,song)},modifier=Modifier.size(40.dp)) {
+                    Icon(Icons.Outlined.PlaylistAdd,"${track.title} 플레이리스트에 추가",
+                        tint=OdifyPalette.text,modifier=Modifier.size(21.dp))
+                }
             }
         }
     }

@@ -13,6 +13,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
@@ -67,6 +68,7 @@ private val playerWhite = Color(0xFFF5F6F7)
  * Fullscreen, dark album-first player. Swipe DOWN anywhere outside the seek
  * gesture to collapse. The cached cover supplies one frosted backdrop layer.
  */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun OdifyNowPlaying(
     song: OdifySong,
@@ -140,7 +142,12 @@ fun OdifyNowPlaying(
     } }
     var showInfo by remember { mutableStateOf(false) }
     var actionsOpen by remember { mutableStateOf(false) }
-    var showLyrics by remember { mutableStateOf(false) }
+    val lyricsRepository=remember {OdifyLyricsRepository(context.applicationContext)}
+    var availableLyrics by remember(song.id) {mutableStateOf(song.lyrics)}
+    LaunchedEffect(song.id,song.lyrics) {availableLyrics=lyricsRepository.read(song)}
+    var showLyrics by remember(song.id) { mutableStateOf(false) }
+    var lyricsMenu by remember(song.id) {mutableStateOf(false)}
+    var lyricsEditor by remember(song.id) {mutableStateOf(false)}
     var albumSlide by remember(song.id) { mutableFloatStateOf(0f) }
     var albumSettling by remember(song.id) { mutableStateOf(false) }
     val swipeThreshold = with(LocalDensity.current) { 68.dp.toPx() }
@@ -255,7 +262,16 @@ fun OdifyNowPlaying(
                 // Three covers share one clipped viewport. As the user swipes,
                 // the next cover enters continuously instead of popping in.
                 if (showLyrics) {
-                    OdifyLyricsPanel(song, position, onSeek, Modifier.size(artSize))
+                    val lyricsBackdrop=rememberOdifyBackdrop()
+                    Box(Modifier.size(artSize)) {
+                        Box(Modifier.fillMaxSize().recordOdifyBackdrop(lyricsBackdrop)) {
+                            AlbumArt(song,Modifier.fillMaxSize(),RoundedCornerShape(22.dp))
+                        }
+                        OdifyLyricsPanel(song.copy(lyrics=availableLyrics), position, onSeek,
+                            Modifier.fillMaxSize().odifyGlass(lyricsBackdrop,RoundedCornerShape(22.dp),glow),
+                            editRequested=lyricsEditor,onEditorClosed={lyricsEditor=false},
+                            onLyricsChanged={availableLyrics=it})
+                    }
                 } else Box(
                     Modifier.size(artSize)
                         .clip(RoundedCornerShape(22.dp))
@@ -422,15 +438,20 @@ fun OdifyNowPlaying(
                     Modifier.fillMaxWidth().height(53.dp)
                         .odifyGlass(playerBackdrop,RoundedCornerShape(24.dp),glow)
                 ) {
-                    IconButton(
-                        onClick = { showLyrics = !showLyrics },
-                        modifier = Modifier.align(Alignment.CenterStart)
-                            .padding(start = 9.dp).size(44.dp)
-                    ) {
+                    Box(Modifier.align(Alignment.CenterStart).padding(start=9.dp)) {
+                    Box(Modifier.size(44.dp).clip(CircleShape).combinedClickable(
+                        onClick={if(availableLyrics.isNotBlank()) showLyrics=!showLyrics},
+                        onLongClick={lyricsMenu=true}),contentAlignment=Alignment.Center) {
                         Icon(Icons.Default.Subtitles,
                             if (showLyrics) "앨범커버 보기" else "가사 보기",
                             tint = if (showLyrics) Color.White else playerSecondary,
                             modifier = Modifier.size(22.dp))
+                    }
+                    DropdownMenu(expanded=lyricsMenu,onDismissRequest={lyricsMenu=false},
+                        shape=RoundedCornerShape(18.dp),containerColor=Color(0xF022252C)) {
+                        DropdownMenuItem(text={Text("가사 수정")},leadingIcon={Icon(Icons.Default.Edit,null)},
+                            onClick={lyricsMenu=false;lyricsEditor=true})
+                    }
                     }
                     Text(
                         text = if (showLyrics) "가사 보기" else "다음 재생목록",
@@ -454,6 +475,8 @@ fun OdifyNowPlaying(
             }
         }
     }
+    if(lyricsEditor && !showLyrics) OdifyLyricsPanel(song.copy(lyrics=availableLyrics),position,onSeek,
+        editRequested=true,visible=false,onEditorClosed={lyricsEditor=false},onLyricsChanged={availableLyrics=it})
     if (showInfo) {
         AlertDialog(
             onDismissRequest = { showInfo = false },
