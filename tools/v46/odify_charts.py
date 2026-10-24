@@ -115,7 +115,16 @@ def chart_candidate_matches(expected,info):
     cleaned=audio.clean_audio_title(str(info.get('title') or ''),expected['아티스트'])
     if norm(cleaned)!=norm(audio.recording_title(expected['곡명'])):return False
     return candidate_matches(expected,{**info,'track':cleaned})
-def resolve(row,root):
+def official_visual_matches(expected,info,target):
+    if not target or not (info.get('channel_is_verified') or info.get('uploader_verified')):return False
+    channel=re.sub(r'\s+-\s+Topic$','',str(info.get('channel') or ''),flags=re.I)
+    if norm(channel)!=norm(expected['아티스트']):return False
+    if abs((info.get('duration') or 0)-target)>2:return False
+    if norm(audio.clean_audio_title(str(info.get('title') or ''),expected['아티스트']))!=norm(audio.recording_title(expected['곡명'])):return False
+    try:audio.validate_audio_metadata('https://www.youtube.com/watch?v='+info['id'],expected['곡명'],info,True,artist=expected['아티스트'])
+    except (ValueError,KeyError):return False
+    return True
+def resolve(row,root,official_visuals=False):
     pairs=variants(row,root);seen=set();target=row.get('duration_ms',0)/1000
     for query_artist,query_title in pairs[:2]:
         for candidate in search_candidates(query_artist,query_title,root):
@@ -137,6 +146,8 @@ def resolve(row,root):
                 if chart_candidate_matches(expected,info):
                     audio.validate_audio_metadata(url,title,info,artist=artist)
                     return url,artist,title,info
+                if official_visuals and official_visual_matches(expected,info,target):
+                    return url,artist,title,{**info,'_odifyOfficialVisual':True}
     raise ValueError('No unambiguous original studio recording; held for review')
 
 def prepare_link_plan(root,rows):
@@ -234,7 +245,7 @@ def collect(args):
                         failures=0
                         row.update(status='REUSED_EXISTING',file_id=existing,error='');snapshot(root,rows,True);continue
                     row.update(status='LINK_REVIEW',error='');snapshot(root,rows,True)
-                    url,artist,title,evidence=resolve(row,root)
+                    url,artist,title,evidence=resolve(row,root,getattr(args,'official_visuals',False))
                     identity='CHART'+row['id'];row['video_url']=url
                     (root/'Metadata'/f'{identity}_identity.json').write_text(json.dumps(evidence,ensure_ascii=False,indent=2),encoding='utf-8')
                     db.execute('INSERT OR IGNORE INTO tracks(id,country,artist,title,album,genre,video_url,verified) VALUES(?,?,?,?,?,?,?,?)',
@@ -247,7 +258,7 @@ def collect(args):
                     else:
                         row['status']='DOWNLOADING';snapshot(root,rows,True)
                         audio.download_one(db,(identity,artist,title,row['album'],'',url),root,True,True,audio_format='mp3',
-                            inspected_metadata=evidence)
+                            inspected_metadata=evidence,accept_lyric_or_mv=bool(evidence.get('_odifyOfficialVisual')))
                     if args.download_only:
                         row.update(status='DOWNLOADED_VERIFIED',sha256=hashlib.sha256(path.read_bytes()).hexdigest(),error='')
                         snapshot(root,rows,True)
@@ -273,7 +284,8 @@ def collect(args):
                     if access_blocked(str(error)) or failures>=5 or 'headroom' in str(error):
                         snapshot(root,rows,False,'Paused: source access, storage or five consecutive failures. Resume is safe.');return
                 snapshot(root,rows,True)
-                print(row['id'],row['status'],flush=True)
+                print(row['id'],row['status'],'|',row['artist'],'-',row['title'],flush=True)
+                if row['status']=='HELD_REVIEW':print('  Reason:',row.get('error','')[:220],flush=True)
             snapshot(root,rows,False,'Finished; held recordings remain separate from verified transfers')
         finally:db.close()
 def main():
@@ -283,6 +295,7 @@ def main():
     p.add_argument('--reuse-only',action='store_true',help='Only reuse cached owned files; make zero network requests')
     p.add_argument('--links-only',action='store_true',help='Cache public search candidates; do not inspect/download/approve audio')
     p.add_argument('--download-only',action='store_true',help='Download verified audio locally; no Drive credentials or uploads')
+    p.add_argument('--official-visuals',action='store_true',help='Accept artist-verified official visual audio only within 2s of the recording runtime')
     p.add_argument('--config',type=Path);p.add_argument('--folder-id');p.add_argument('--rclone',default='rclone')
     a=p.parse_args()
     if not (a.plan or a.links_only or a.download_only) and (not a.config or not re.fullmatch(r'[A-Za-z0-9_-]{10,150}',a.folder_id or '')):p.error('Exact Drive root and private config required')

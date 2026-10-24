@@ -28,7 +28,7 @@ Write-Host 'Odify: resume chart collection; originals and MASTER remain protecte
 if(!$Upload) {Write-Host 'Download-only mode: no Drive credentials or rclone required.'}
 $state.counts | Format-List
 if($CheckOnly) {Write-Host 'Preflight passed. No downloads, uploads or source requests were made.';return}
-$arguments=@($workerPath,'--root',$Root,'--retry-held')
+$arguments=@($workerPath,'--root',$Root,'--retry-held','--official-visuals')
 if(Test-Path -LiteralPath $catalogPath -PathType Leaf) {$arguments+=@('--catalog',$catalogPath)}
 if($Upload) {$arguments+=@('--config',$configPath,'--folder-id','1JMjClvv990es3mZns6RZHC-Qul3PiH03','--rclone',$rclonePath)}
 else {$arguments+='--download-only'}

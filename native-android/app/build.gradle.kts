@@ -17,8 +17,8 @@ android {
         applicationId = "com.odify.music.nativepreview.v11"
         minSdk = 26
         targetSdk = 35
-        versionCode = 24
-        versionName = "1.0.0-preview12.12"
+        versionCode = 25
+        versionName = "1.0.0-preview12.13"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     // Always use the one permanent signing certificate restored by CI.

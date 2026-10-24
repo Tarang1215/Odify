@@ -12,6 +12,14 @@ publisher_spec=importlib.util.spec_from_file_location('publish_chart_index',Path
 publisher=importlib.util.module_from_spec(publisher_spec);publisher_spec.loader.exec_module(publisher)
 
 class ChartTests(unittest.TestCase):
+    def test_official_visuals_require_owner_identity_exact_title_and_tighter_runtime(self):
+        expected={'Track ID':'CHART123','아티스트':'Artist','곡명':'Song'}
+        info={'id':'abcdefghijk','title':'Artist - Song (Lyric Video)','duration':181,
+              'channel':'Artist','channel_is_verified':True}
+        self.assertTrue(charts.official_visual_matches(expected,info,180))
+        for changed in ({'channel':'Lyrics Channel'},{'channel_is_verified':False}, {'duration':184},
+                        {'title':'Artist - Song (Live)'},{'title':'Artist - Song (English ver.)'}):
+            self.assertFalse(charts.official_visual_matches(expected,{**info,**changed},180))
     def test_download_only_never_requires_drive_config_or_runs_rclone(self):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp)

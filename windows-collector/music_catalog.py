@@ -294,7 +294,7 @@ def inspect_audio_video(url: str, title: str,
 
 
 def clean_audio_title(video_title: str, artist: str | None = None) -> str:
-    clean=re.sub(r'(?i)\s*[\[(](?:official audio|audio|lyrics?|official music video|official mv)[\])]','',video_title)
+    clean=re.sub(r'(?i)\s*[\[(](?:official audio|audio|lyrics?(?: video)?|official music video|official video|official mv)[\])]','',video_title)
     clean=re.sub(r'(?i)\s+(?:[-|]\s*)?(?:official audio|audio only)\s*$','',clean).strip()
     if artist and clean.casefold().startswith(artist.casefold()+' - '):clean=clean[len(artist)+3:]
     return clean.strip().strip('\"\'“”‘’')
@@ -350,7 +350,7 @@ def validate_audio_metadata(url: str, title: str, info: dict,
         if any(term in lower and term not in title.casefold() for term in banned):
             raise ValueError("Likely altered or non-original version")
         visual_markers = ("lyrics", "lyric video", "가사", "歌詞",
-                          "music video", "official mv", "뮤직비디오")
+                          "music video", "official video", "official mv", "뮤직비디오")
         if any(term in lower for term in visual_markers):
             return info
     studio_audio_marker = (

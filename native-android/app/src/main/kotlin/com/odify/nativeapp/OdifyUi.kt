@@ -325,7 +325,8 @@ fun OdifyRoot(
 
     val songIndex = remember(songs) { songs.associateBy(OdifySong::id) }
     val active = songIndex[playback.mediaId]
-    val artworkGlow=rememberArtworkGlow(active?.artworkPath)
+    val artworkPalette=rememberArtworkPalette(active?.artworkPath)
+    val artworkGlow=artworkPalette.first()
     val sharedGlow by animateColorAsState(artworkGlow,tween(700),label="shared-artwork-glow")
     val recent = remember(history, songIndex) { history.mapNotNull(songIndex::get) }
     val displayed = remember(recent, songs) {
@@ -597,6 +598,7 @@ fun OdifyRoot(
                 OdifyNowPlaying(
                     song = active,
                     glow=sharedGlow,
+                    palette=artworkPalette,
                     previousSong = songIndex[playback.previousMediaId],
                     nextSong = songIndex[playback.nextMediaId],
                     playing = playback.isPlaying,

@@ -3,30 +3,32 @@ package com.odify.nativeapp
 import android.graphics.BitmapFactory
 import androidx.compose.runtime.*
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 private val neutralGlow=Color(0xFF8C96A3)
+private val neutralPalette=listOf(neutralGlow,Color(0xFF697681),Color(0xFF4F5662))
 private object CoverGlowCache {
-    val colors=object:LinkedHashMap<String,Color>(32,.75f,true) {
-        override fun removeEldestEntry(eldest:MutableMap.MutableEntry<String,Color>?)=size>64
+    val colors=object:LinkedHashMap<String,List<Color>>(32,.75f,true) {
+        override fun removeEldestEntry(eldest:MutableMap.MutableEntry<String,List<Color>>?)=size>64
     }
 }
 
 /** Bounded local-artwork sampling, once per cover; never decodes source audio. */
-@Composable fun rememberArtworkGlow(path:String?):Color {
-    val value by produceState(neutralGlow,path) {
+@Composable fun rememberArtworkPalette(path:String?):List<Color> {
+    val value by produceState(neutralPalette,path) {
         value=withContext(Dispatchers.IO) {
-            if(path.isNullOrBlank()) return@withContext neutralGlow
+            if(path.isNullOrBlank()) return@withContext neutralPalette
             synchronized(CoverGlowCache) {CoverGlowCache.colors[path]}?.let {return@withContext it}
             val color=runCatching {
                 val bounds=BitmapFactory.Options().apply {inJustDecodeBounds=true}
                 BitmapFactory.decodeFile(path,bounds)
-                if(bounds.outWidth !in 1..16000 || bounds.outHeight !in 1..16000) return@runCatching neutralGlow
+                if(bounds.outWidth !in 1..16000 || bounds.outHeight !in 1..16000) return@runCatching neutralPalette
                 var sample=1
                 while(bounds.outWidth/sample>64 || bounds.outHeight/sample>64) sample*=2
                 val bitmap=BitmapFactory.decodeFile(path,BitmapFactory.Options().apply {inSampleSize=sample})
-                    ?: return@runCatching neutralGlow
+                    ?: return@runCatching neutralPalette
                 try {
                     val weights=FloatArray(24);val red=FloatArray(24);val green=FloatArray(24);val blue=FloatArray(24)
                     val hsv=FloatArray(3)
@@ -44,14 +46,22 @@ private object CoverGlowCache {
                         green[bucket]+=android.graphics.Color.green(pixel)*weight
                         blue[bucket]+=android.graphics.Color.blue(pixel)*weight
                     }
-                    val best=weights.indices.maxByOrNull {weights[it]} ?: 0
-                    val weight=weights[best]
-                    if(weight<bitmap.width*bitmap.height*.015f) neutralGlow
-                    else Color((red[best]/weight/255f).coerceIn(0f,1f),
-                        (green[best]/weight/255f).coerceIn(0f,1f),
-                        (blue[best]/weight/255f).coerceIn(0f,1f))
+                    val selected=ArrayList<Int>()
+                    for(bucket in weights.indices.sortedByDescending {weights[it]}) {
+                        if(weights[bucket]<bitmap.width*bitmap.height*.01f)continue
+                        if(selected.all {val d=kotlin.math.abs(it-bucket);minOf(d,24-d)>=3}) selected.add(bucket)
+                        if(selected.size==3)break
+                    }
+                    if(selected.isEmpty()) neutralPalette
+                    else selected.map {bucket -> val weight=weights[bucket]
+                        Color((red[bucket]/weight/255f).coerceIn(0f,1f),
+                            (green[bucket]/weight/255f).coerceIn(0f,1f),
+                            (blue[bucket]/weight/255f).coerceIn(0f,1f))
+                    }.toMutableList().apply {
+                        while(size<3)add(lerp(first(),neutralPalette[size],.45f))
+                    }
                 } finally {bitmap.recycle()}
-            }.getOrDefault(neutralGlow)
+            }.getOrDefault(neutralPalette)
             synchronized(CoverGlowCache) {CoverGlowCache.colors[path]=color}
             color
         }

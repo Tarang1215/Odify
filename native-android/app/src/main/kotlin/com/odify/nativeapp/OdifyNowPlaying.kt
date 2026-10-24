@@ -1,6 +1,7 @@
 package com.odify.nativeapp
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -37,6 +38,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
@@ -73,6 +75,7 @@ private val playerWhite = Color(0xFFF5F6F7)
 fun OdifyNowPlaying(
     song: OdifySong,
     glow:Color,
+    palette:List<Color>,
     previousSong: OdifySong?,
     nextSong: OdifySong?,
     playing: Boolean,
@@ -97,6 +100,9 @@ fun OdifyNowPlaying(
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val playerBackdrop=rememberOdifyBackdrop()
+    val ambientA by animateColorAsState(lerp(palette[0],Color(0xFF646A70),.40f),tween(900),label="ambient-a")
+    val ambientB by animateColorAsState(lerp(palette[1],Color(0xFF646A70),.40f),tween(900),label="ambient-b")
+    val ambientC by animateColorAsState(lerp(palette[2],Color(0xFF414953),.48f),tween(900),label="ambient-c")
     var dragOffset by remember { mutableFloatStateOf(0f) }
     val threshold = with(LocalDensity.current) { 125.dp.toPx() }
     val scrollState = rememberScrollState()
@@ -178,22 +184,25 @@ fun OdifyNowPlaying(
     ) {
         // Reuse the bounded local cover cache. One blurred image behind all
         // controls avoids repeated backdrop capture or downloading audio.
-        Box(Modifier.fillMaxSize().recordOdifyBackdrop(playerBackdrop)) {
+        Box(Modifier.fillMaxSize().recordOdifyBackdrop(playerBackdrop)
+            .background(Brush.linearGradient(listOf(ambientA,ambientB,ambientC)))) {
         AlbumArt(song, Modifier.fillMaxSize()
-            .graphicsLayer { scaleX = 1.16f; scaleY = 1.16f }
-            .blur(24.dp), radius = RoundedCornerShape(0.dp),
-            fallbackKey = song.id.hashCode(), muted = true,
-            // A portrait crop can reduce a square cover to one solid center
-            // color. Preserve its whole composition in the frosted backdrop.
-            contentScale = androidx.compose.ui.layout.ContentScale.FillBounds)
+            .graphicsLayer { scaleX = 1.5f; scaleY = 1.5f;alpha=.32f }
+            .blur(64.dp), radius = RoundedCornerShape(0.dp),
+            fallbackKey = song.id.hashCode(),muted=false,
+            contentScale = androidx.compose.ui.layout.ContentScale.Crop)
+        AlbumArt(song,Modifier.align(Alignment.BottomCenter).fillMaxWidth().fillMaxHeight(.62f)
+            .graphicsLayer {scaleX=1.4f;scaleY=-1.15f;alpha=.18f}.blur(54.dp),
+            radius=RoundedCornerShape(0.dp),fallbackKey=song.id.hashCode(),muted=false)
         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(
-            Color(0x40101216), Color(0x65101216), Color(0xB8101216)))))
+            Color(0x18101216), Color(0x30101216), Color(0xA8101216)))))
         }
         BoxWithConstraints(
             Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()
         ) {
             val compact = maxHeight < 620.dp
             val artSize = minOf(maxWidth - 62.dp, maxHeight * 0.39f).coerceAtLeast(80.dp)
+            val lyricsHeight=maxHeight*.51f
             Column(
                 Modifier.fillMaxWidth()
                     // The scroll container owns the viewport while its child
@@ -215,18 +224,23 @@ fun OdifyNowPlaying(
                         Icon(Icons.Default.KeyboardArrowDown, "재생 화면 닫기",
                             tint = playerWhite)
                     }
+                    if(showLyrics) {
+                        AlbumArt(song,Modifier.size(40.dp),RoundedCornerShape(8.dp))
+                        Spacer(Modifier.width(10.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(song.title,color=playerWhite,fontSize=13.sp,maxLines=1,overflow=TextOverflow.Ellipsis,fontWeight=FontWeight.SemiBold)
+                            Text(song.artist,color=playerWhite.copy(alpha=.66f),fontSize=10.sp,maxLines=1,overflow=TextOverflow.Ellipsis)
+                        }
+                    } else {
                     Spacer(Modifier.weight(1f))
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("PLAYING FROM", color = playerSecondary, fontSize = 9.sp,
-                            letterSpacing = 1.5.sp, fontWeight = FontWeight.Medium)
-                        Text(when {
-                            song.id.startsWith("gdrive:") -> "Google Drive"
-                            song.isPhoneFolder -> "휴대폰 음악 폴더"
-                            else -> "내 음악"
-                        }, color = playerWhite, fontSize = 12.sp,
-                            fontWeight = FontWeight.SemiBold)
+                    Box(Modifier.width(32.dp).height(4.dp).clip(RoundedCornerShape(2.dp))
+                        .background(Color.White.copy(alpha=.45f)))
+                    Spacer(Modifier.weight(1f))
                     }
-                    Spacer(Modifier.weight(1f))
+                    if(showLyrics) IconButton(onClick=onLike,modifier=Modifier.size(36.dp)) {
+                        Icon(if(liked) Icons.Default.Favorite else Icons.Default.FavoriteBorder,"좋아요",tint=playerWhite,
+                            modifier=Modifier.size(21.dp))
+                    }
                     Box {
                         IconButton(onClick = { actionsOpen = true },
                             modifier = Modifier.size(44.dp)) {
@@ -262,16 +276,10 @@ fun OdifyNowPlaying(
                 // Three covers share one clipped viewport. As the user swipes,
                 // the next cover enters continuously instead of popping in.
                 if (showLyrics) {
-                    val lyricsBackdrop=rememberOdifyBackdrop()
-                    Box(Modifier.size(artSize)) {
-                        Box(Modifier.fillMaxSize().recordOdifyBackdrop(lyricsBackdrop)) {
-                            AlbumArt(song,Modifier.fillMaxSize(),RoundedCornerShape(22.dp))
-                        }
-                        OdifyLyricsPanel(song.copy(lyrics=availableLyrics), position, onSeek,
-                            Modifier.fillMaxSize().odifyGlass(lyricsBackdrop,RoundedCornerShape(22.dp),glow),
-                            editRequested=lyricsEditor,onEditorClosed={lyricsEditor=false},
-                            onLyricsChanged={availableLyrics=it})
-                    }
+                    OdifyLyricsPanel(song.copy(lyrics=availableLyrics), position, onSeek,
+                        Modifier.fillMaxWidth().height(lyricsHeight),immersive=true,
+                        editRequested=lyricsEditor,onEditorClosed={lyricsEditor=false},
+                        onLyricsChanged={availableLyrics=it})
                 } else Box(
                     Modifier.size(artSize)
                         .clip(RoundedCornerShape(22.dp))
@@ -357,6 +365,7 @@ fun OdifyNowPlaying(
                         fallbackKey = song.id.hashCode()
                     )
                 }
+                if(!showLyrics) {
                 Spacer(Modifier.height(22.dp))
 
                 Row(
@@ -377,6 +386,7 @@ fun OdifyNowPlaying(
                         Icon(if (liked) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
                             "좋아요", tint = playerWhite, modifier = Modifier.size(25.dp))
                     }
+                }
                 }
 
                 Spacer(Modifier.height(19.dp))

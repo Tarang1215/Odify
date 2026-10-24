@@ -19,6 +19,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -33,7 +38,7 @@ import kotlinx.coroutines.withContext
 fun OdifyLyricsPanel(song: OdifySong, positionMs: Long,
                      onSeek: (Long) -> Unit, modifier: Modifier = Modifier,
                      editRequested:Boolean=false,visible:Boolean=true,
-                     onEditorClosed:()->Unit={},onLyricsChanged:(String)->Unit={}) {
+                     onEditorClosed:()->Unit={},onLyricsChanged:(String)->Unit={},immersive:Boolean=false) {
     val context = LocalContext.current
     val repo = remember { OdifyLyricsRepository(context.applicationContext) }
     val scope = rememberCoroutineScope()
@@ -103,11 +108,18 @@ fun OdifyLyricsPanel(song: OdifySong, positionMs: Long,
     val listState = rememberLazyListState()
     LaunchedEffect(active, parsed.isTimed) {
         if (active >= 0 && parsed.isTimed)
-            listState.animateScrollToItem(active.coerceAtLeast(0))
+            listState.animateScrollToItem(active.coerceAtLeast(0),if(immersive) -(listState.layoutInfo.viewportEndOffset*.32f).toInt() else 0)
     }
+    val viewport=if(immersive) modifier.graphicsLayer {compositingStrategy=CompositingStrategy.Offscreen}
+        .drawWithContent {
+            drawContent()
+            drawRect(Brush.verticalGradient(0f to Color.Transparent,.10f to Color.White,
+                .82f to Color.White,1f to Color.Transparent),blendMode=BlendMode.DstIn)
+        } else modifier
     if(visible) Column(
-        modifier.padding(14.dp)
+        viewport.padding(horizontal=if(immersive) 4.dp else 14.dp,vertical=if(immersive) 0.dp else 14.dp)
     ) {
+        if(!immersive) {
         Row(verticalAlignment=Alignment.CenterVertically) {
             Text("LYRICS",fontWeight=FontWeight.Bold,color=Color.White,
                 fontSize=13.sp,modifier=Modifier.weight(1f))
@@ -122,6 +134,7 @@ fun OdifyLyricsPanel(song: OdifySong, positionMs: Long,
                 color = Color(0xFFFFCD86), fontSize = 10.sp,
                 modifier = Modifier.padding(vertical = 4.dp))
         }
+        }
         if (text.isBlank()) {
             Box(Modifier.fillMaxSize(),contentAlignment=Alignment.Center) {
                 Text("가사 없음\n가사 추가에서 LRC 파일·온라인 검색·직접 입력을 선택하세요.",
@@ -129,20 +142,21 @@ fun OdifyLyricsPanel(song: OdifySong, positionMs: Long,
             }
         } else if (parsed.isTimed) {
             LazyColumn(state=listState,modifier=Modifier.fillMaxSize(),
-                verticalArrangement=Arrangement.spacedBy(15.dp),
-                contentPadding=PaddingValues(top=18.dp,bottom=24.dp)) {
+                verticalArrangement=Arrangement.spacedBy(if(immersive) 23.dp else 15.dp),
+                contentPadding=PaddingValues(top=if(immersive) 55.dp else 18.dp,bottom=if(immersive) 120.dp else 24.dp)) {
                 itemsIndexed(parsed.lines) { index,line ->
                     Text(line.text.ifBlank { "♪" },
-                        color=if(index == active) Color.White else Color(0xFF9CA5B1),
+                        color=if(index == active) Color.White else Color.White.copy(alpha=if(immersive) .42f else .64f),
                         fontWeight=if(index==active) FontWeight.Bold else FontWeight.Normal,
-                        fontSize=if(index==active) 16.sp else 13.sp,
-                        lineHeight=21.sp,textAlign=TextAlign.Center,modifier=Modifier.fillMaxWidth()
+                        fontSize=if(immersive) {if(index==active) 20.sp else 17.sp} else {if(index==active) 16.sp else 13.sp},
+                        lineHeight=if(immersive) 29.sp else 21.sp,textAlign=TextAlign.Center,modifier=Modifier.fillMaxWidth()
                             .clickable { onSeek(line.milliseconds) })
                 }
             }
         } else {
-            Column(Modifier.verticalScroll(rememberScrollState())) {
-                Text(text,color=Color.White,fontSize=13.sp,lineHeight=22.sp,textAlign=TextAlign.Center,
+            Column(Modifier.verticalScroll(rememberScrollState()).padding(vertical=if(immersive) 35.dp else 0.dp)) {
+                Text(text,color=Color.White,fontSize=if(immersive) 17.sp else 13.sp,
+                    lineHeight=if(immersive) 30.sp else 22.sp,fontWeight=if(immersive) FontWeight.SemiBold else FontWeight.Normal,textAlign=TextAlign.Center,
                     modifier=Modifier.fillMaxWidth())
             }
         }
