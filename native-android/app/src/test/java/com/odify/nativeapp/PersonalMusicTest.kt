@@ -9,9 +9,14 @@ class PersonalMusicTest {
         assertEquals(12,patterns.distinct().size)
         patterns.forEach { bars ->
             assertEquals(96,bars.size)
-            assertTrue(bars.all {it in .07f.. .94f})
-            assertTrue(bars.max()-bars.min() > .25f)
+            assertTrue(bars.all {it in .025f.. .98f})
+            assertTrue(bars.max()-bars.min() > .8f)
             assertTrue(bars.count {it<.25f}>15)
+            assertTrue(bars.first()<.1f && bars.last()<.1f)
+            val mean = bars.average()
+            val variance = bars.sumOf { (it-mean)*(it-mean) }
+            val neighbors = bars.zipWithNext().sumOf { (a,b) -> (a-mean)*(b-mean) }
+            assertTrue("The whole waveform must read as one coherent silhouette", neighbors/variance > .75)
         }
     }
     private fun song(id:String,artist:String="Artist",genre:String="Pop") =
