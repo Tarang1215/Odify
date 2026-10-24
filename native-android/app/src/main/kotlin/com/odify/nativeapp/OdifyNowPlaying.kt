@@ -31,10 +31,15 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
@@ -42,6 +47,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.Velocity
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import kotlin.math.abs
@@ -54,7 +60,7 @@ private val playerWhite = Color(0xFFF5F6F7)
 
 /**
  * Fullscreen, dark album-first player. Swipe DOWN anywhere outside the seek
- * gesture to collapse. No expensive GPU blur or exaggerated button glow.
+ * gesture to collapse. The cached cover supplies one frosted backdrop layer.
  */
 @Composable
 fun OdifyNowPlaying(
@@ -77,12 +83,46 @@ fun OdifyNowPlaying(
     onRepeat: () -> Unit,
     onShowQueue: () -> Unit,
     onAddToPlaylist: () -> Unit,
-    onSaveDevice: () -> Unit
+    onSaveDevice: () -> Unit,
+    onDragProgress: (Float) -> Unit = {}
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     var dragOffset by remember { mutableFloatStateOf(0f) }
     val threshold = with(LocalDensity.current) { 125.dp.toPx() }
+    val scrollState = rememberScrollState()
+    val viewportHeightPx = with(LocalDensity.current) {
+        androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp.toPx()
+    }.coerceAtLeast(1f)
+    SideEffect { onDragProgress((dragOffset / viewportHeightPx).coerceIn(0f, .65f)) }
+    fun finishDrag(velocity: Float) {
+        if (dragOffset > threshold || (dragOffset > 0f && velocity > 1500f)) {
+            onDismiss()
+        } else {
+            scope.launch {
+                val springBack = Animatable(dragOffset)
+                springBack.animateTo(0f, spring(dampingRatio = .9f, stiffness = 420f)) {
+                    dragOffset = value
+                }
+            }
+        }
+    }
+    val collapseScroll = remember(scrollState, threshold) { object : NestedScrollConnection {
+        override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+            if (source != NestedScrollSource.UserInput) return Offset.Zero
+            if ((available.y > 0f && scrollState.value == 0) || dragOffset > 0f) {
+                val previous = dragOffset
+                dragOffset = (dragOffset + available.y).coerceAtLeast(0f)
+                return Offset(0f, dragOffset - previous)
+            }
+            return Offset.Zero
+        }
+        override suspend fun onPreFling(available: Velocity): Velocity {
+            if (dragOffset <= 0f) return Velocity.Zero
+            finishDrag(available.y)
+            return Velocity(0f, available.y)
+        }
+    } }
     var showInfo by remember { mutableStateOf(false) }
     var actionsOpen by remember { mutableStateOf(false) }
     var showLyrics by remember { mutableStateOf(false) }
@@ -109,32 +149,24 @@ fun OdifyNowPlaying(
 
     Box(
         Modifier.fillMaxSize()
-            .offset { IntOffset(0, dragOffset.roundToInt()) }
-            .background(
-                Brush.verticalGradient(
-                    listOf(Color(0xFF181B21), playerBg, Color(0xFF15181D))
-                )
-            )
+            .background(playerBg)
+            .nestedScroll(collapseScroll)
             .draggable(
                 orientation = Orientation.Vertical,
                 state = dragState,
                 onDragStopped = { velocity ->
-                    if (dragOffset > threshold || velocity > 1500f) {
-                        // Let the outer player morph finish the dismissal.
-                        // Resetting dragOffset here would flash the full-size
-                        // rectangular surface before exit.
-                        onDismiss()
-                    } else {
-                        scope.launch {
-                            val springBack = Animatable(dragOffset)
-                            springBack.animateTo(0f, tween(200)) {
-                                dragOffset = value
-                            }
-                        }
-                    }
+                    finishDrag(velocity)
                 }
             )
     ) {
+        // Reuse the bounded local cover cache. One blurred image behind all
+        // controls avoids repeated backdrop capture or downloading audio.
+        AlbumArt(song, Modifier.fillMaxSize()
+            .graphicsLayer { scaleX = 1.3f; scaleY = 1.3f; alpha = .8f }
+            .blur(52.dp), radius = RoundedCornerShape(0.dp),
+            fallbackKey = song.id.hashCode())
+        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(
+            Color(0x80101216), Color(0x65101216), Color(0xD4101216)))))
         BoxWithConstraints(
             Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()
         ) {
@@ -145,7 +177,7 @@ fun OdifyNowPlaying(
                     // The scroll container owns the viewport while its child
                     // respects the viewport minimum height; reversed modifier
                     // order created empty bottom space on tall Galaxy screens.
-                    .verticalScroll(rememberScrollState())
+                    .verticalScroll(scrollState)
                     .heightIn(min = maxHeight)
                     .padding(horizontal = 25.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -530,3 +562,4 @@ private fun OdifyWaveformProgress(
         }
     }
 }
+
