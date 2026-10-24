@@ -75,7 +75,6 @@ private val playerWhite = Color(0xFFF5F6F7)
 fun OdifyNowPlaying(
     song: OdifySong,
     glow:Color,
-    palette:List<Color>,
     previousSong: OdifySong?,
     nextSong: OdifySong?,
     playing: Boolean,
@@ -100,9 +99,6 @@ fun OdifyNowPlaying(
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val playerBackdrop=rememberOdifyBackdrop()
-    val ambientA by animateColorAsState(lerp(palette[0],Color(0xFF646A70),.40f),tween(900),label="ambient-a")
-    val ambientB by animateColorAsState(lerp(palette[1],Color(0xFF646A70),.40f),tween(900),label="ambient-b")
-    val ambientC by animateColorAsState(lerp(palette[2],Color(0xFF414953),.48f),tween(900),label="ambient-c")
     var dragOffset by remember { mutableFloatStateOf(0f) }
     val threshold = with(LocalDensity.current) { 125.dp.toPx() }
     val scrollState = rememberScrollState()
@@ -173,29 +169,24 @@ fun OdifyNowPlaying(
     Box(
         Modifier.fillMaxSize()
             .background(playerBg)
-            .nestedScroll(collapseScroll)
-            .draggable(
+            .then(if(showLyrics) Modifier else Modifier.nestedScroll(collapseScroll).draggable(
                 orientation = Orientation.Vertical,
                 state = dragState,
                 onDragStopped = { velocity ->
                     finishDrag(velocity)
                 }
-            )
+            ))
     ) {
-        // Reuse the bounded local cover cache. One blurred image behind all
-        // controls avoids repeated backdrop capture or downloading audio.
-        Box(Modifier.fillMaxSize().recordOdifyBackdrop(playerBackdrop)
-            .background(Brush.linearGradient(listOf(ambientA,ambientB,ambientC)))) {
+        // Preserve the actual cover's spatial shapes. Palette gradients and a
+        // partial-height reflected layer created visible color bands instead.
+        Box(Modifier.fillMaxSize().recordOdifyBackdrop(playerBackdrop)) {
         AlbumArt(song, Modifier.fillMaxSize()
-            .graphicsLayer { scaleX = 1.5f; scaleY = 1.5f;alpha=.32f }
-            .blur(64.dp), radius = RoundedCornerShape(0.dp),
+            .graphicsLayer { scaleX = 1.18f; scaleY = 1.18f;alpha=.94f }
+            .blur(36.dp), radius = RoundedCornerShape(0.dp),
             fallbackKey = song.id.hashCode(),muted=false,
-            contentScale = androidx.compose.ui.layout.ContentScale.Crop)
-        AlbumArt(song,Modifier.align(Alignment.BottomCenter).fillMaxWidth().fillMaxHeight(.62f)
-            .graphicsLayer {scaleX=1.4f;scaleY=-1.15f;alpha=.18f}.blur(54.dp),
-            radius=RoundedCornerShape(0.dp),fallbackKey=song.id.hashCode(),muted=false)
+            contentScale = androidx.compose.ui.layout.ContentScale.FillBounds)
         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(
-            Color(0x18101216), Color(0x30101216), Color(0xA8101216)))))
+            Color(0x24101216), Color(0x44101216), Color(0xB8101216)))))
         }
         BoxWithConstraints(
             Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()
@@ -217,7 +208,9 @@ fun OdifyNowPlaying(
                 verticalArrangement = Arrangement.SpaceBetween
             ) {
                 Row(
-                    Modifier.fillMaxWidth().height(58.dp),
+                    Modifier.fillMaxWidth().height(58.dp).then(if(showLyrics) Modifier.draggable(
+                        orientation=Orientation.Vertical,state=dragState,
+                        onDragStopped={finishDrag(it)}) else Modifier),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     IconButton(onClick = onDismiss, modifier = Modifier.size(40.dp)) {

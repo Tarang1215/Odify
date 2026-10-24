@@ -43,6 +43,8 @@ import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.graphicsLayer
@@ -598,7 +600,6 @@ fun OdifyRoot(
                 OdifyNowPlaying(
                     song = active,
                     glow=sharedGlow,
-                    palette=artworkPalette,
                     previousSong = songIndex[playback.previousMediaId],
                     nextSong = songIndex[playback.nextMediaId],
                     playing = playback.isPlaying,
@@ -830,7 +831,11 @@ private fun OdifyMiniPlayer(
             .padding(horizontal = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        AlbumArt(song, Modifier.size(if(compact) 29.dp else 41.dp), radius = if(compact) CircleShape else RoundedCornerShape(10.dp),
+        AlbumArt(song, Modifier.size(if(compact) 29.dp else 41.dp)
+            .clickable(onClickLabel="전체 재생 화면 열기") {
+                expandAction(coordinates?.takeIf {it.isAttached}?.boundsInRoot())
+            }.semantics {contentDescription="전체 재생 화면 열기"},
+            radius = if(compact) CircleShape else RoundedCornerShape(10.dp),
             fallbackKey = song.id.hashCode())
         Spacer(Modifier.width(10.dp))
         if(compact) {
