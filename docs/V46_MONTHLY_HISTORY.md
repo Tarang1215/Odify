@@ -63,10 +63,12 @@ of the chat. It then exited as `source_paused`; it is not still downloading.
 Drive publication uses a 1 GiB headroom reserve, immutable copies and checksum
 verification, with no sync/delete operation.
 
-The metadata export is also queued for checksum-verified Drive backup under
-`History/Catalog_20261025`. Its completed upload receipt is stored privately at
-`.local/history2024/catalog_drive_receipt.json`; do not infer completion if that
-receipt is absent.
+The metadata export completed checksum-verified Drive backup under
+`History/Catalog_20261025`: 210 files, 320,881,274 bytes. The database SHA-256 is
+`71a6737dca7d0cb8c2da0f7aead463978462695d31fd833dd5203a71d32c0678`.
+Its completed upload receipt is stored privately at
+`.local/history2024/catalog_drive_receipt.json`. Drive had 4,259,441,097 bytes
+free after that backup; this is a point-in-time observation, not a space guarantee.
 
 ## Reproducible code and checks
 
