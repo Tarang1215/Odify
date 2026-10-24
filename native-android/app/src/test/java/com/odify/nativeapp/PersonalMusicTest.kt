@@ -16,6 +16,9 @@ class PersonalMusicTest {
         assertEquals(collected,OdifyChartMatching.resolve(track,listOf(collected)))
         assertNull(OdifyChartMatching.storedReference("chart:123",emptyList()))
         assertEquals(collected,OdifyChartMatching.storedReference("chart:123",listOf(collected)))
+        val reused=unrelated.copy(chartAliases=listOf("123"),contentMd5="a".repeat(32))
+        val mirror=reused.copy(id="localfolder:mirror",chartAliases=emptyList())
+        assertEquals(mirror,OdifyChartMatching.resolve(track,listOf(reused,mirror)))
     }
     @Test fun playerClosesWithoutAnOpaqueFinalFlashAndTabSwipesRespectEdges() {
         assertEquals(0f, OdifyMotion.playerOpacity(0f))

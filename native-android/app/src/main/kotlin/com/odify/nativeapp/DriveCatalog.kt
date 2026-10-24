@@ -239,6 +239,8 @@ class DriveCatalog(private val context: Context) {
 
     fun tracks(): List<OdifySong> {
         val result = ArrayList<OdifySong>()
+        val chartMap=runCatching {JSONObject(prefs.getString("chartAliases","{}").orEmpty())}.getOrDefault(JSONObject())
+        val aliasesByFile=chartMap.keys().asSequence().groupBy {chartMap.optString(it)}
         val hidden = prefs.getStringSet("hidden", emptySet()) ?: emptySet()
         db.readableDatabase.rawQuery(
             "SELECT id,name,title,artist,album,genre,cover,lyrics,meta_source,md5 FROM tracks ORDER BY modified DESC,name LIMIT 100000",
@@ -265,7 +267,8 @@ class DriveCatalog(private val context: Context) {
                     genre = cursor.getString(5),
                     lyrics = cursor.getString(7).orEmpty().take(20000),
                     contentMd5 = cursor.getString(9).orEmpty(),
-                    chartId = Regex("^CHART([0-9]+)\\.").find(cursor.getString(1).orEmpty())?.groupValues?.get(1).orEmpty()
+                    chartId = Regex("^CHART([0-9]+)\\.").find(cursor.getString(1).orEmpty())?.groupValues?.get(1).orEmpty(),
+                    chartAliases = aliasesByFile[fileId].orEmpty()
                 )
             }
         }
@@ -309,6 +312,7 @@ class DriveCatalog(private val context: Context) {
         roots.forEach { queue.add(it to "") }
         val scannedFolders = mutableSetOf<String>()
         val collected = LinkedHashMap<String, JSONObject>()
+        val chartIndexes=LinkedHashMap<String,JSONObject>()
         var visitedFolders = 0
         while (queue.isNotEmpty()) {
             val (parent, genrePath) = queue.removeFirst()
@@ -334,6 +338,11 @@ class DriveCatalog(private val context: Context) {
                         queue.add(id to if (genrePath.isEmpty()) name else "$genrePath / $name")
                         continue
                     }
+                    if(name.startsWith("odify_chart_index_") && name.endsWith(".json") && f.optLong("size") in 1..512_000) {
+                        val previous=chartIndexes[parent]
+                        if(previous==null || f.optString("modifiedTime")>previous.optString("modifiedTime")) chartIndexes[parent]=f
+                        continue
+                    }
                     if (!isAudio(name, mime)) continue
                     if (f.optJSONObject("capabilities")?.optBoolean("canDownload", true) == false) {
                         continue
@@ -345,6 +354,19 @@ class DriveCatalog(private val context: Context) {
                 onProgress(collected.size)
                 nextPage = json.optString("nextPageToken").takeIf { it.isNotBlank() }
             } while (nextPage != null)
+        }
+        val aliases=runCatching {JSONObject(prefs.getString("chartAliases","{}").orEmpty())}.getOrDefault(JSONObject())
+        chartIndexes.values.take(32).forEach {index ->
+            runCatching {
+                val payload=JSONObject(apiJson("files/${index.getString("id")}",mapOf("alt" to "media")))
+                check(payload.optInt("schemaVersion")==1)
+                val entries=payload.getJSONObject("mappings")
+                check(entries.length()<=1000)
+                entries.keys().forEach {chartId ->
+                    val driveId=entries.getJSONObject(chartId).optString("driveId")
+                    if(Regex("[0-9]+").matches(chartId) && collected.containsKey(driveId)) aliases.put(chartId,driveId)
+                }
+            }
         }
         val dbConn = db.writableDatabase
         dbConn.beginTransaction()
@@ -387,6 +409,7 @@ class DriveCatalog(private val context: Context) {
             dbConn.execSQL("DELETE FROM tracks WHERE id NOT IN (SELECT id FROM odify_seen)")
             dbConn.setTransactionSuccessful()
         } finally { dbConn.endTransaction() }
+        prefs.edit().putString("chartAliases",aliases.toString()).apply()
         lastSync = System.currentTimeMillis()
         collected.size
     }

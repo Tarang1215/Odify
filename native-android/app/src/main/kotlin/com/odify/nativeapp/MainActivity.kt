@@ -367,7 +367,8 @@ private fun NativeOdify() {
         if(!driveBusy && phoneFolder.hasFolder) {
             val base=withContext(Dispatchers.IO) {library.songs()+driveCatalog.tracks()}
             phoneFolder.fingerprintMirrors(base) { local ->
-                withContext(Dispatchers.Main) {songs=base+local}
+                val refreshed=withContext(Dispatchers.IO) {library.songs()+driveCatalog.tracks()+local}
+                withContext(Dispatchers.Main) {songs=refreshed}
             }
         }
     }

@@ -4,7 +4,9 @@ package com.odify.nativeapp
 object OdifyChartMatching {
     fun resolve(track: ExploreTrack, songs: List<OdifySong>): OdifySong? {
         val visible=OdifySongPresentation.visible(songs)
-        visible.firstOrNull {it.chartId==track.id}?.let {return it}
+        songs.firstOrNull {it.chartId==track.id || track.id in it.chartAliases}?.let {identified ->
+            return visible.firstOrNull {identified.contentMd5.isNotBlank() && it.contentMd5==identified.contentMd5} ?: identified
+        }
         val title=OdifyYouTubeMatcher.norm(track.title)
         val artist=OdifyYouTubeMatcher.norm(track.artist)
         if(title.isBlank() || artist.isBlank()) return null
@@ -13,5 +15,5 @@ object OdifyChartMatching {
     }
     fun storedReference(id:String,songs:List<OdifySong>):OdifySong? =
         songs.firstOrNull {it.id==id} ?: id.takeIf {it.startsWith("chart:")}
-            ?.removePrefix("chart:")?.let {chartId -> songs.firstOrNull {it.chartId==chartId}}
+            ?.removePrefix("chart:")?.let {chartId -> songs.firstOrNull {it.chartId==chartId || chartId in it.chartAliases}}
 }
