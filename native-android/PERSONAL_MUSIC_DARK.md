@@ -1,4 +1,4 @@
-# Dark personal music experience — preview12.9
+# Dark personal music experience — preview12.10
 
 Requested navigation: **Home → Explore → Search → Library**, with icon-only tabs,
 a 48dp touch target and accessible names. Profile and account/source management
@@ -12,8 +12,9 @@ including artwork and text. The sample is opaque before blurring so original sha
 glyphs cannot show through. Live coordinate conversion and draw-only frame updates
 follow scrolling and ancestor translations without per-frame recomposition or bitmap
 readback. A 24dp blur with sampling bleed prevents a thin transparent edge.
-The centered compact player is 196dp wide, contains the cover, title and pause
-control, and reveals the full mini-player on tap or upward swipe. Long titles wait
+The centered compact player follows measured title width within 168–216dp,
+contains the cover, title and a circular pause control, and reveals the full
+mini-player on tap or upward swipe. Long titles wait
 2.2 seconds before scrolling; the full mini-player also scrolls overflowing titles.
 
 All main pages, search, settings, sheets, splash and system bars use the same dark

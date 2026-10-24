@@ -94,6 +94,11 @@ def resolve(row,root):
             info=json.loads(execute([sys.executable,'-m','yt_dlp','--no-playlist','--skip-download',
                 '--dump-single-json','--socket-timeout','20','--retries','1',url],120))
         except Exception as error:
+            # An individual recording may require age authorization. Hold that
+            # recording without cookies/authentication, but do not classify it
+            # as a site-wide challenge or rate limit for the other chart songs.
+            if 'sign in to confirm your age' in str(error).casefold():
+                raise ValueError('Age-restricted recording held; no authentication attempted') from error
             if access_blocked(str(error)):raise
             continue
         target=row.get('duration_ms',0)/1000

@@ -28,6 +28,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
@@ -66,6 +67,9 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.style.TextAlign
@@ -751,8 +755,15 @@ private fun OdifyMiniPlayer(
     onLike: () -> Unit
 ) {
     var coordinates by remember { mutableStateOf<androidx.compose.ui.layout.LayoutCoordinates?>(null) }
+    val titleStyle=TextStyle(fontSize=12.sp,fontWeight=FontWeight.SemiBold)
+    val titleMeasurer=rememberTextMeasurer()
+    val measuredTitle=titleMeasurer.measure(song.title,style=titleStyle,maxLines=1,softWrap=false)
+    val titleWidth=with(LocalDensity.current) {measuredTitle.size.width.toDp()}
     BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal=11.dp,vertical=5.dp),contentAlignment=Alignment.Center) {
-    val width by animateDpAsState(if(compact) 196.dp.coerceAtMost(maxWidth) else maxWidth,spring(dampingRatio=.88f,stiffness=420f),label="island-width")
+    // Bounded organic sizing: short titles avoid a hollow center; long titles
+    // retain breathing room and marquee instead of creating a screen-wide pill.
+    val compactWidth=(titleWidth+110.dp).coerceIn(168.dp,216.dp).coerceAtMost(maxWidth)
+    val width by animateDpAsState(if(compact) compactWidth else maxWidth,spring(dampingRatio=.88f,stiffness=420f),label="island-width")
     val height by animateDpAsState(if(compact) 43.dp else 56.dp,spring(dampingRatio=.88f,stiffness=420f),label="island-height")
     Row(
         Modifier.width(width).height(height)
@@ -792,7 +803,7 @@ private fun OdifyMiniPlayer(
                 "좋아요", tint = ink, modifier = Modifier.size(19.dp))
         }
         Box(Modifier.size(37.dp)
-            .clip(RoundedCornerShape(13.dp)).background(ink)
+            .clip(if(compact) CircleShape else RoundedCornerShape(13.dp)).background(ink)
             .clickable(onClick = onToggle), contentAlignment = Alignment.Center) {
             Icon(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow,
                 "재생·일시정지", tint = white, modifier = Modifier.size(23.dp))
