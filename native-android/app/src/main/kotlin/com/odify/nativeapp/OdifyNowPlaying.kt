@@ -1,6 +1,7 @@
 package com.odify.nativeapp
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -13,6 +14,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
@@ -31,10 +33,16 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
@@ -42,6 +50,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.Velocity
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.progressBarRangeInfo
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
+import androidx.compose.ui.semantics.setProgress
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import kotlin.math.abs
@@ -54,11 +68,13 @@ private val playerWhite = Color(0xFFF5F6F7)
 
 /**
  * Fullscreen, dark album-first player. Swipe DOWN anywhere outside the seek
- * gesture to collapse. No expensive GPU blur or exaggerated button glow.
+ * gesture to collapse. The cached cover supplies one frosted backdrop layer.
  */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun OdifyNowPlaying(
     song: OdifySong,
+    glow:Color,
     previousSong: OdifySong?,
     nextSong: OdifySong?,
     playing: Boolean,
@@ -77,15 +93,63 @@ fun OdifyNowPlaying(
     onRepeat: () -> Unit,
     onShowQueue: () -> Unit,
     onAddToPlaylist: () -> Unit,
-    onSaveDevice: () -> Unit
+    onSaveDevice: () -> Unit,
+    onDragProgress: (Float) -> Unit = {}
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+    val playerBackdrop=rememberOdifyBackdrop()
     var dragOffset by remember { mutableFloatStateOf(0f) }
     val threshold = with(LocalDensity.current) { 125.dp.toPx() }
+    val scrollState = rememberScrollState()
+    val viewportHeightPx = with(LocalDensity.current) {
+        androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp.toPx()
+    }.coerceAtLeast(1f)
+    var settling by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    fun updateDrag(value: Float) {
+        dragOffset = value.coerceAtLeast(0f)
+        // Publish from input/animation callbacks, never read this offset during
+        // composition. A slow drag must only invalidate the parent render layer.
+        onDragProgress((dragOffset / viewportHeightPx).coerceIn(0f, .65f))
+    }
+    fun finishDrag(velocity: Float) {
+        settling?.cancel()
+        if (dragOffset > threshold || (dragOffset > 0f && velocity > 1500f)) {
+            onDismiss()
+        } else {
+            settling = scope.launch {
+                val springBack = Animatable(dragOffset)
+                springBack.animateTo(0f, spring(dampingRatio = .9f, stiffness = 420f)) {
+                    updateDrag(value)
+                }
+            }
+        }
+    }
+    val collapseScroll = remember(scrollState, threshold, viewportHeightPx) { object : NestedScrollConnection {
+        override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+            if (source != NestedScrollSource.UserInput) return Offset.Zero
+            if ((available.y > 0f && scrollState.value == 0) || dragOffset > 0f) {
+                val previous = dragOffset
+                settling?.cancel()
+                updateDrag(dragOffset + available.y)
+                return Offset(0f, dragOffset - previous)
+            }
+            return Offset.Zero
+        }
+        override suspend fun onPreFling(available: Velocity): Velocity {
+            if (dragOffset <= 0f) return Velocity.Zero
+            finishDrag(available.y)
+            return Velocity(0f, available.y)
+        }
+    } }
     var showInfo by remember { mutableStateOf(false) }
     var actionsOpen by remember { mutableStateOf(false) }
-    var showLyrics by remember { mutableStateOf(false) }
+    val lyricsRepository=remember {OdifyLyricsRepository(context.applicationContext)}
+    var availableLyrics by remember(song.id) {mutableStateOf(song.lyrics)}
+    LaunchedEffect(song.id,song.lyrics) {availableLyrics=lyricsRepository.read(song)}
+    var showLyrics by remember(song.id) { mutableStateOf(false) }
+    var lyricsMenu by remember(song.id) {mutableStateOf(false)}
+    var lyricsEditor by remember(song.id) {mutableStateOf(false)}
     var albumSlide by remember(song.id) { mutableFloatStateOf(0f) }
     var albumSettling by remember(song.id) { mutableStateOf(false) }
     val swipeThreshold = with(LocalDensity.current) { 68.dp.toPx() }
@@ -93,59 +157,49 @@ fun OdifyNowPlaying(
         albumSlide = 0f
         albumSettling = false
     }
-    val waveform by produceState<List<Float>>(
-        initialValue = if (song.isCloud) emptyList()
-            else OdifyWaveformRepository.peek(song.id), song.id
-    ) {
-        // Never decode a remote Drive file merely to draw a waveform: that
-        // defeats range-streaming and can burn through the free-tier data plan.
-        value = if (song.isCloud) emptyList()
-            else OdifyWaveformRepository.load(context = context, song = song)
-    }
+    // Decorative 12-pattern seek art stays stable during one song view.
+    // No decoding/download, and no claim to visualize the audio's real waveform.
+    val waveform = remember(song.id) { OdifyWaveformPatterns.samples(kotlin.random.Random.nextInt(OdifyWaveformPatterns.count)) }
     val dragState = rememberDraggableState { delta ->
         // Direct state update follows the finger at display refresh rate.
-        dragOffset = (dragOffset + delta).coerceAtLeast(0f)
+        settling?.cancel()
+        updateDrag(dragOffset + delta)
     }
 
     Box(
         Modifier.fillMaxSize()
-            .offset { IntOffset(0, dragOffset.roundToInt()) }
-            .background(
-                Brush.verticalGradient(
-                    listOf(Color(0xFF181B21), playerBg, Color(0xFF15181D))
-                )
-            )
-            .draggable(
+            .background(playerBg)
+            .then(if(showLyrics) Modifier else Modifier.nestedScroll(collapseScroll).draggable(
                 orientation = Orientation.Vertical,
                 state = dragState,
                 onDragStopped = { velocity ->
-                    if (dragOffset > threshold || velocity > 1500f) {
-                        // Let the outer player morph finish the dismissal.
-                        // Resetting dragOffset here would flash the full-size
-                        // rectangular surface before exit.
-                        onDismiss()
-                    } else {
-                        scope.launch {
-                            val springBack = Animatable(dragOffset)
-                            springBack.animateTo(0f, tween(200)) {
-                                dragOffset = value
-                            }
-                        }
-                    }
+                    finishDrag(velocity)
                 }
-            )
+            ))
     ) {
+        // Preserve the actual cover's spatial shapes. Palette gradients and a
+        // partial-height reflected layer created visible color bands instead.
+        Box(Modifier.fillMaxSize().recordOdifyBackdrop(playerBackdrop)) {
+        AlbumArt(song, Modifier.fillMaxSize()
+            .graphicsLayer { scaleX = 1.18f; scaleY = 1.18f;alpha=.94f }
+            .blur(36.dp), radius = RoundedCornerShape(0.dp),
+            fallbackKey = song.id.hashCode(),muted=false,
+            contentScale = androidx.compose.ui.layout.ContentScale.FillBounds)
+        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(
+            Color(0x24101216), Color(0x44101216), Color(0xB8101216)))))
+        }
         BoxWithConstraints(
             Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()
         ) {
             val compact = maxHeight < 620.dp
             val artSize = minOf(maxWidth - 62.dp, maxHeight * 0.39f).coerceAtLeast(80.dp)
+            val lyricsHeight=maxHeight*.51f
             Column(
                 Modifier.fillMaxWidth()
                     // The scroll container owns the viewport while its child
                     // respects the viewport minimum height; reversed modifier
                     // order created empty bottom space on tall Galaxy screens.
-                    .verticalScroll(rememberScrollState())
+                    .verticalScroll(scrollState)
                     .heightIn(min = maxHeight)
                     .padding(horizontal = 25.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -154,25 +208,32 @@ fun OdifyNowPlaying(
                 verticalArrangement = Arrangement.SpaceBetween
             ) {
                 Row(
-                    Modifier.fillMaxWidth().height(58.dp),
+                    Modifier.fillMaxWidth().height(58.dp).then(if(showLyrics) Modifier.draggable(
+                        orientation=Orientation.Vertical,state=dragState,
+                        onDragStopped={finishDrag(it)}) else Modifier),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     IconButton(onClick = onDismiss, modifier = Modifier.size(40.dp)) {
                         Icon(Icons.Default.KeyboardArrowDown, "재생 화면 닫기",
                             tint = playerWhite)
                     }
+                    if(showLyrics) {
+                        AlbumArt(song,Modifier.size(40.dp),RoundedCornerShape(8.dp))
+                        Spacer(Modifier.width(10.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(song.title,color=playerWhite,fontSize=13.sp,maxLines=1,overflow=TextOverflow.Ellipsis,fontWeight=FontWeight.SemiBold)
+                            Text(song.artist,color=playerWhite.copy(alpha=.66f),fontSize=10.sp,maxLines=1,overflow=TextOverflow.Ellipsis)
+                        }
+                    } else {
                     Spacer(Modifier.weight(1f))
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("PLAYING FROM", color = playerSecondary, fontSize = 9.sp,
-                            letterSpacing = 1.5.sp, fontWeight = FontWeight.Medium)
-                        Text(when {
-                            song.id.startsWith("gdrive:") -> "Google Drive"
-                            song.isPhoneFolder -> "휴대폰 음악 폴더"
-                            else -> "내 음악"
-                        }, color = playerWhite, fontSize = 12.sp,
-                            fontWeight = FontWeight.SemiBold)
+                    Box(Modifier.width(32.dp).height(4.dp).clip(RoundedCornerShape(2.dp))
+                        .background(Color.White.copy(alpha=.45f)))
+                    Spacer(Modifier.weight(1f))
                     }
-                    Spacer(Modifier.weight(1f))
+                    if(showLyrics) IconButton(onClick=onLike,modifier=Modifier.size(36.dp)) {
+                        Icon(if(liked) Icons.Default.Favorite else Icons.Default.FavoriteBorder,"좋아요",tint=playerWhite,
+                            modifier=Modifier.size(21.dp))
+                    }
                     Box {
                         IconButton(onClick = { actionsOpen = true },
                             modifier = Modifier.size(44.dp)) {
@@ -208,10 +269,14 @@ fun OdifyNowPlaying(
                 // Three covers share one clipped viewport. As the user swipes,
                 // the next cover enters continuously instead of popping in.
                 if (showLyrics) {
-                    OdifyLyricsPanel(song, position, onSeek, Modifier.size(artSize))
+                    OdifyLyricsPanel(song.copy(lyrics=availableLyrics), position, onSeek,
+                        Modifier.fillMaxWidth().height(lyricsHeight),immersive=true,
+                        editRequested=lyricsEditor,onEditorClosed={lyricsEditor=false},
+                        onLyricsChanged={availableLyrics=it})
                 } else Box(
                     Modifier.size(artSize)
                         .clip(RoundedCornerShape(22.dp))
+                        .border(.7.dp, Color.White.copy(alpha = .22f), RoundedCornerShape(22.dp))
                         .pointerInput(song.id, previousSong?.id, nextSong?.id) {
                             detectHorizontalDragGestures(
                                 onHorizontalDrag = { change, amount ->
@@ -293,6 +358,7 @@ fun OdifyNowPlaying(
                         fallbackKey = song.id.hashCode()
                     )
                 }
+                if(!showLyrics) {
                 Spacer(Modifier.height(22.dp))
 
                 Row(
@@ -314,6 +380,7 @@ fun OdifyNowPlaying(
                             "좋아요", tint = playerWhite, modifier = Modifier.size(25.dp))
                     }
                 }
+                }
 
                 Spacer(Modifier.height(19.dp))
                 // Waveform scrubber replaces a bulky default slider.
@@ -322,7 +389,7 @@ fun OdifyNowPlaying(
                     duration = duration,
                     waveform = waveform,
                     onSeek = onSeek,
-                    modifier = Modifier.fillMaxWidth().height(45.dp)
+                    modifier = Modifier.fillMaxWidth().height(54.dp)
                 )
                 Row(Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween) {
@@ -349,14 +416,12 @@ fun OdifyNowPlaying(
                     Box(
                         Modifier.size(65.dp)
                             .clip(CircleShape)
-                            .background(Brush.linearGradient(listOf(
-                                Color(0xFF32363C), Color(0xFF25292E))))
-                            .border(0.8.dp, Color.White.copy(alpha = 0.19f), CircleShape)
+                            .background(Color(0xFFF2F3F6))
                             .clickable(onClick = onToggle),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow,
-                            "재생·일시정지", tint = playerWhite,
+                            "재생·일시정지", tint = playerBg,
                             modifier = Modifier.size(31.dp))
                     }
                     IconButton(onClick = onNext) {
@@ -374,22 +439,22 @@ fun OdifyNowPlaying(
                 // Precisely center the AUDIO pill on the same x-axis as Play.
                 Box(
                     Modifier.fillMaxWidth().height(53.dp)
-                        .clip(RoundedCornerShape(24.dp))
-                        .background(Brush.horizontalGradient(
-                            listOf(Color(0x7040444A), Color(0x7844484E))
-                        ))
-                        .border(0.7.dp, Color.White.copy(alpha = 0.18f),
-                            RoundedCornerShape(24.dp))
+                        .odifyGlass(playerBackdrop,RoundedCornerShape(24.dp),glow)
                 ) {
-                    IconButton(
-                        onClick = { showLyrics = !showLyrics },
-                        modifier = Modifier.align(Alignment.CenterStart)
-                            .padding(start = 9.dp).size(44.dp)
-                    ) {
+                    Box(Modifier.align(Alignment.CenterStart).padding(start=9.dp)) {
+                    Box(Modifier.size(44.dp).clip(CircleShape).combinedClickable(
+                        onClick={if(availableLyrics.isNotBlank()) showLyrics=!showLyrics},
+                        onLongClick={lyricsMenu=true}),contentAlignment=Alignment.Center) {
                         Icon(Icons.Default.Subtitles,
                             if (showLyrics) "앨범커버 보기" else "가사 보기",
                             tint = if (showLyrics) Color.White else playerSecondary,
                             modifier = Modifier.size(22.dp))
+                    }
+                    DropdownMenu(expanded=lyricsMenu,onDismissRequest={lyricsMenu=false},
+                        shape=RoundedCornerShape(18.dp),containerColor=Color(0xF022252C)) {
+                        DropdownMenuItem(text={Text("가사 수정")},leadingIcon={Icon(Icons.Default.Edit,null)},
+                            onClick={lyricsMenu=false;lyricsEditor=true})
+                    }
                     }
                     Text(
                         text = if (showLyrics) "가사 보기" else "다음 재생목록",
@@ -413,6 +478,8 @@ fun OdifyNowPlaying(
             }
         }
     }
+    if(lyricsEditor && !showLyrics) OdifyLyricsPanel(song.copy(lyrics=availableLyrics),position,onSeek,
+        editRequested=true,visible=false,onEditorClosed={lyricsEditor=false},onLyricsChanged={availableLyrics=it})
     if (showInfo) {
         AlertDialog(
             onDismissRequest = { showInfo = false },
@@ -469,7 +536,13 @@ private fun OdifyWaveformProgress(
         label = "odify-waveform-crossfade"
     )
     Canvas(
-        modifier.pointerInput(duration) {
+        modifier.semantics {
+            contentDescription = "재생 위치"
+            progressBarRangeInfo = ProgressBarRangeInfo(actualFraction,0f..1f)
+            setProgress { target ->
+                if(duration > 0) {onSeek((duration*target.coerceIn(0f,1f)).toLong());true} else false
+            }
+        }.pointerInput(duration) {
             awaitEachGesture {
                 val down = awaitFirstDown(requireUnconsumed = false)
                 if (duration <= 0L || size.width <= 0) return@awaitEachGesture
@@ -499,7 +572,7 @@ private fun OdifyWaveformProgress(
     ) {
         val center = size.height / 2f
         val played = Color(0xFFF6F7F8)
-        val unplayed = Color(0xFF555961)
+        val unplayed = Color.White.copy(alpha = .28f)
         if (reveal < 1f) {
             drawLine(unplayed.copy(alpha = 1f - reveal), Offset(0f, center),
                 Offset(size.width, center), strokeWidth = 2.dp.toPx())
@@ -509,18 +582,19 @@ private fun OdifyWaveformProgress(
         if (waveform.size == 96 && reveal > 0f) {
             waveform.forEachIndexed { index, amplitude ->
                 val x = (index + .5f) / waveform.size * size.width
-                val height = max(2.dp.toPx(), amplitude * size.height * .42f)
+                val height = max(1.dp.toPx(), amplitude * size.height * .46f)
+                val barColor = if ((index + .5f) / waveform.size <= fraction) played else unplayed
                 drawLine(
-                    color = (if ((index + .5f) / waveform.size <= fraction)
-                        played else unplayed).copy(alpha = reveal),
+                    color = barColor.copy(alpha = barColor.alpha * reveal),
                     start = Offset(x, center - height),
                     end = Offset(x, center + height),
-                    strokeWidth = 2.dp.toPx()
+                    strokeWidth = 1.1.dp.toPx(),
+                    cap = androidx.compose.ui.graphics.StrokeCap.Round
                 )
             }
         }
-        // Thin position marker gives a continuous indicator between waveform bins.
-        if (duration > 0L) {
+        // Keep the silhouette uninterrupted; show the handle only while seeking.
+        if (duration > 0L && scrubbing != null) {
             val x = fraction.coerceIn(0f, 1f) * size.width
             drawCircle(
                 color = playerWhite,
@@ -530,3 +604,4 @@ private fun OdifyWaveformProgress(
         }
     }
 }
+

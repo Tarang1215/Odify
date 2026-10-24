@@ -13,7 +13,8 @@ import kotlinx.coroutines.withContext
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.lightColorScheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -33,24 +34,39 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, false)
         // Do not let Samsung/Android draw a contrasting grey scrim below the
-        // white rounded Odify navigation surface and the system gesture bar.
+        // dark rounded Odify navigation surface and the system gesture bar.
         @Suppress("DEPRECATION")
-        window.navigationBarColor = android.graphics.Color.WHITE
+        window.navigationBarColor = android.graphics.Color.rgb(12, 14, 18)
+        window.statusBarColor = android.graphics.Color.rgb(12, 14, 18)
         if (android.os.Build.VERSION.SDK_INT >= 29) {
             window.isNavigationBarContrastEnforced = false
         }
         setContent {
             MaterialTheme(
                 typography = OdifyTypography,
-                colorScheme = lightColorScheme(
-                    primary = Color(0xFF111215),
-                    onPrimary = Color.White,
-                    surface = Color.White,
-                    background = Color.White,
-                    onSurface = Color(0xFF111215)
+                colorScheme = darkColorScheme(
+                    primary = OdifyPalette.text,
+                    onPrimary = OdifyPalette.background,
+                    primaryContainer = OdifyPalette.raised,
+                    onPrimaryContainer = OdifyPalette.text,
+                    surface = OdifyPalette.surface,
+                    surfaceVariant = OdifyPalette.raised,
+                    background = OdifyPalette.background,
+                    onBackground = OdifyPalette.text,
+                    onSurface = OdifyPalette.text,
+                    onSurfaceVariant = OdifyPalette.muted,
+                    secondary = Color(0xFFCED3DF),
+                    secondaryContainer = OdifyPalette.raised,
+                    onSecondaryContainer = OdifyPalette.text,
+                    outline = OdifyPalette.hairline
                 )
             ) {
-                NativeOdify()
+                // MaterialTheme alone does not supply LocalContentColor. A
+                // Surface keeps inherited text/icons readable on every route.
+                Surface(Modifier.fillMaxSize(), color = OdifyPalette.background,
+                    contentColor = OdifyPalette.text) {
+                    NativeOdify()
+                }
             }
         }
     }
@@ -283,6 +299,10 @@ private fun NativeOdify() {
                 savingDeviceSong = true
                 runCatching { deviceExport.save(current, destination) }
                     .onSuccess { total ->
+                        withContext(Dispatchers.IO) {
+                            library.rememberOfflineExport(current,destination)
+                            songs = library.songs() + driveCatalog.tracks() + phoneFolder.tracks()
+                        }
                         Toast.makeText(context,
                             "디바이스에 저장 완료 (${OdifyDiagnostics.humanBytes(total)})",
                             Toast.LENGTH_LONG).show()
@@ -341,6 +361,15 @@ private fun NativeOdify() {
         while (driveConnected && isActive) {
             delay(15L * 60L * 1000L)
             refreshCatalog(showProgress = false)
+        }
+    }
+    LaunchedEffect(driveBusy,phoneFolderStatus) {
+        if(!driveBusy && phoneFolder.hasFolder) {
+            val base=withContext(Dispatchers.IO) {library.songs()+driveCatalog.tracks()}
+            phoneFolder.fingerprintMirrors(base) { local ->
+                val refreshed=withContext(Dispatchers.IO) {library.songs()+driveCatalog.tracks()+local}
+                withContext(Dispatchers.Main) {songs=refreshed}
+            }
         }
     }
     LaunchedEffect(playback.mediaId) {
@@ -546,13 +575,13 @@ private fun NativeOdify() {
         delay(if (expanded) 210L else 200L)
         @Suppress("DEPRECATION")
         activity.window.statusBarColor =
-            if (expanded) android.graphics.Color.rgb(16, 18, 22) else android.graphics.Color.WHITE
+            if (expanded) android.graphics.Color.rgb(16, 18, 22) else android.graphics.Color.rgb(12,14,18)
         @Suppress("DEPRECATION")
         activity.window.navigationBarColor =
-            if (expanded) android.graphics.Color.rgb(16, 18, 22) else android.graphics.Color.WHITE
+            if (expanded) android.graphics.Color.rgb(16, 18, 22) else android.graphics.Color.rgb(12,14,18)
         val insets = WindowCompat.getInsetsController(activity.window, activity.window.decorView)
-        insets.isAppearanceLightStatusBars = !expanded
-        insets.isAppearanceLightNavigationBars = !expanded
+        insets.isAppearanceLightStatusBars = false
+        insets.isAppearanceLightNavigationBars = false
     }
 
     if (startup) {

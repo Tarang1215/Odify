@@ -3,6 +3,8 @@ name: Odify Independent Native Android Preview
 on:
   push:
     branches:
+      - codex/odify-v46-personal-music
+      - feature/odify-compact-navigation-20261024
       - feature/odify-native-v1-design
       - feature/odify-native-ui-v2
       - feature/odify-native-ui-v3
@@ -119,3 +121,4 @@ jobs:
           path: native-android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
           if-no-files-found: error
           retention-days: 14
+

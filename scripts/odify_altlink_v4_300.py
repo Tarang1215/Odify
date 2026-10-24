@@ -21,6 +21,7 @@ import time
 from urllib.parse import urlencode, urlparse
 from urllib.error import HTTPError, URLError
 from urllib.request import Request,urlopen
+from contextlib import closing
 
 sys.path.insert(0,str(Path(__file__).resolve().parent))
 import odify_altlink_pilot as v2
@@ -65,7 +66,7 @@ def balanced_300(catalog, cached_sample=None):
         if row["id"] not in used:
             chosen.append(row)
             used.add(row["id"])
-    with sqlite3.connect(f"file:{Path(catalog).resolve()}?mode=ro",uri=True) as conn:
+    with closing(sqlite3.connect(Path(catalog).resolve().as_uri()+"?mode=ro",uri=True)) as conn:
         conn.row_factory=sqlite3.Row
         for country in REGIONS:
             rows=conn.execute("""

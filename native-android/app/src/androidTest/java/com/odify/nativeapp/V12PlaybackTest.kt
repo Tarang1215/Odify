@@ -26,6 +26,22 @@ import java.util.concurrent.TimeUnit
 /** Runs against real Media3 on Android, with generated audio and no user accounts. */
 @RunWith(AndroidJUnit4::class)
 class V12PlaybackTest {
+    @Test fun bundledCountryChartsHaveExactlyOneHundredRealEntries() {
+        for(country in listOf("kr","jp","us")) {
+            val raw=context.assets.open("charts/$country.json").bufferedReader().use {it.readText()}
+            val feed=org.json.JSONObject(raw).getJSONObject("feed")
+            val rows=feed.getJSONArray("results")
+            assertEquals(100,rows.length())
+            val ids=(0 until rows.length()).map {rows.getJSONObject(it).getString("id")}
+            assertEquals(100,ids.toSet().size)
+            assertTrue((0 until rows.length()).all {rows.getJSONObject(it).getString("name").isNotBlank() &&
+                rows.getJSONObject(it).getString("artistName").isNotBlank()})
+        }
+        val store=OdifyPlaylists(context)
+        val saved=store.saveMix("Chart references test ${System.nanoTime()}",(1..100).map {"chart:$it"})
+        try {assertEquals(100,OdifyPlaylists(context).all().first {it.id==saved.id}.songIds.size)}
+        finally {store.delete(saved.id)}
+    }
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
     private val context get() = instrumentation.targetContext
     private fun main(block: () -> Unit) = instrumentation.runOnMainSync(block)
@@ -164,8 +180,12 @@ class V12PlaybackTest {
             playlists.removeSong(list.id, "localfolder:one")
             assertTrue(OdifyPlaylists(context).all().first { it.id == list.id }.songIds.isEmpty())
             val track = OdifySong("localfolder:one", "밤편지", "아이유", "", "")
-            assertEquals(track, OdifyYouTubeMatcher.find(
+            assertNull(OdifyYouTubeMatcher.find(
                 YoutubeVideo("abcdefghijk", "아이유 - 밤편지 (Official Audio)", "", ""), listOf(track), emptyList()))
+            val reviewed = MasterTrack("ODF000001", "2026", "", "아이유", "밤편지", "",
+                "https://www.youtube.com/watch?v=abcdefghijk", true, "", "", "studio")
+            assertEquals(track, OdifyYouTubeMatcher.find(
+                YoutubeVideo("abcdefghijk", "아이유 - 밤편지 (Official Audio)", "", ""), listOf(track), listOf(reviewed)))
             assertNull(OdifyYouTubeMatcher.find(
                 YoutubeVideo("abcdefghijk", "아이유 - 밤편지 (Live)", "", ""), listOf(track), emptyList()))
             assertEquals("米津玄師", OdifyYouTubeMatcher.norm("米津 玄師"))

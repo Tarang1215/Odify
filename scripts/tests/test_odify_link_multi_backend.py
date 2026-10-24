@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import json
+from contextlib import closing
 import sqlite3
 import sys
 import tempfile
@@ -89,7 +90,7 @@ class MultiBackendTests(unittest.TestCase):
         self.assertEqual(len(calls),8)
         self.assertEqual(second["attempts"],8)
         self.assertEqual(sum(1 for _ in csv_rows(self.output/"pilot_link_proposals.csv")),4)
-        with sqlite3.connect(self.state) as con:
+        with closing(sqlite3.connect(self.state)) as con:
             self.assertEqual(con.execute("SELECT count(*) FROM candidate").fetchone()[0],8)
 
     def test_offline_provider_failures_and_retry_errors(self):

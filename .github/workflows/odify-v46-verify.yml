@@ -1,0 +1,31 @@
+name: Odify V4.6 non-destructive workflow checks
+
+# Explicitly manual: does not download music, connect Drive or build/install APKs.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-regression:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test archive, matching, selection and remote verification
+        shell: pwsh
+        run: |
+          $env:PYTHONUTF8='1'
+          python -m unittest discover -s tests -v
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m unittest discover -s windows-collector -v
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m unittest discover -s tools/v46/Tests -v
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m unittest discover -s scripts/tests -v
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & ./tools/v46/Tests/test_v46_storage_windows.ps1

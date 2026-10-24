@@ -15,6 +15,9 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import java.io.File
+import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
+import kotlinx.coroutines.*
 
 /**
  * An isolated Android Media3 session. DocumentsUI content:// entries are opened
@@ -26,6 +29,8 @@ class OdifyPlaybackService : MediaSessionService() {
     private var session: MediaSession? = null
     private var cache: SimpleCache? = null
     private var cacheDb: StandaloneDatabaseProvider? = null
+    private val listeningScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private var listeningJob: Job? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -77,6 +82,26 @@ class OdifyPlaybackService : MediaSessionService() {
             setWakeMode(C.WAKE_MODE_LOCAL)
         }
         session = MediaSession.Builder(this, player).build()
+        val listeningStore = OdifyListeningStore(applicationContext)
+        player.addListener(object : Player.Listener {
+            override fun onMediaItemTransition(item: MediaItem?, reason: Int) {
+                listeningJob?.cancel()
+                if (item == null) return
+                val entry = java.util.UUID.randomUUID().toString()
+                // Count actual playing time; seeking to 30 seconds cannot fabricate a listen.
+                listeningJob = listeningScope.launch {
+                    var listened = 0L
+                    while (isActive && listened < 30_000L) {
+                        val started = android.os.SystemClock.elapsedRealtime()
+                        val wasPlaying = player.isPlaying
+                        delay(1000L)
+                        if (wasPlaying && player.isPlaying) listened +=
+                            (android.os.SystemClock.elapsedRealtime() - started).coerceAtMost(1500L)
+                    }
+                    listeningStore.record(entry, item.mediaId)
+                }
+            }
+        })
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? =
@@ -88,6 +113,7 @@ class OdifyPlaybackService : MediaSessionService() {
     }
 
     override fun onDestroy() {
+        listeningScope.cancel()
         session?.run {
             player.release()
             release()

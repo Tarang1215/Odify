@@ -21,14 +21,14 @@ data class LyricView(val text: String, val lines: List<TimedLyric>, val isTimed:
 
 object LrcParser {
     private val time = Regex("""\[(\d{1,3}):(\d{2})(?:[.:](\d{1,3}))?]""")
+    private val metadata=Regex("""^\[(ar|al|ti|by|offset|re|ve|length|id|au):""",RegexOption.IGNORE_CASE)
     fun parse(source: String): LyricView {
         val result = ArrayList<TimedLyric>()
         val plainLines = ArrayList<String>()
         for (line in source.lines()) {
             val matches = time.findAll(line).toList()
             if (matches.isEmpty()) {
-                if (line.isNotBlank() && !Regex("""^\[(ar|al|ti|by|offset):""",
-                        RegexOption.IGNORE_CASE).containsMatchIn(line)) {
+                if (line.isNotBlank() && !metadata.containsMatchIn(line)) {
                     plainLines.add(line)
                 }
                 continue
@@ -48,8 +48,12 @@ object LrcParser {
             }
         }
         val timed = result.sortedBy { it.milliseconds }
-        return LyricView(source, timed,
-            isTimed = timed.isNotEmpty() && timed.any { it.text.isNotBlank() })
+        // Some embedded files timestamp only a title header and leave every
+        // lyric untimed. Treating those as LRC hid the entire actual song text.
+        val isTimed=timed.any {it.text.isNotBlank()} && plainLines.isEmpty()
+        val text=if(isTimed) source else source.lines().filterNot {metadata.containsMatchIn(it)}
+            .joinToString("\n") {it.replace(time,"").trim()}.trim()
+        return LyricView(text,timed,isTimed)
     }
 }
 

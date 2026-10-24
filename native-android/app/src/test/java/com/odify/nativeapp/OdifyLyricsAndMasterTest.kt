@@ -6,6 +6,13 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class OdifyLyricsAndMasterTest {
+    @Test fun timestampedHeaderMustNotHideUntimedLyrics() {
+        val parsed=LrcParser.parse("[ti:Song]\n[00:00.00]Song - Artist\nFirst actual line\nSecond actual line")
+        assertFalse(parsed.isTimed)
+        assertTrue(parsed.text.contains("First actual line\nSecond actual line"))
+        assertFalse(parsed.text.contains("[00:00"))
+        assertFalse(parsed.text.contains("[ti:"))
+    }
     @Test fun parseSynchronizedLrcAndOrdinaryText() {
         val parsed = LrcParser.parse("[ar:Vaundy]\n[00:03.14]First line\n[01:02.300]Second line")
         assertTrue(parsed.isTimed)

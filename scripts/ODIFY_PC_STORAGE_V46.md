@@ -1,5 +1,13 @@
 # Odify V4.6: Windows external storage and safe PC link verification
 
+**Local execution update (2026-10-24):** the kit is now integrated under
+`tools/v46`. The 22 checkpointed observations were imported and reviewed, 750
+existing audio files were SHA-256 copied to the external archive, and all 552
+user-selected personal files were verified on Drive (547 added, 5 reused).
+MASTER links and original audio remain unchanged. See
+[the measured results and repeatable workflow](../docs/V46_PROGRESS.md).
+The following sections retain the original kit's preview/staging usage.
+
 Scope: user's external Toshiba volume **D:\Odify** (exFAT, ~742 GB free as pictured on 2026-10-24). This is user-side path only; GitHub Actions cannot browse or write it.
 
 ## Windows deployment and local status

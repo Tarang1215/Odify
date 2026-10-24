@@ -113,7 +113,7 @@ fun OdifyYoutubeScreen(
         properties=DialogProperties(usePlatformDefaultWidth=false)) {
         Surface(Modifier.fillMaxSize().statusBarsPadding()
             .navigationBarsPadding().padding(10.dp),
-            shape=RoundedCornerShape(22.dp),color=Color.White) {
+            shape=RoundedCornerShape(22.dp),color=OdifyPalette.surface) {
             Column(Modifier.fillMaxSize().padding(16.dp)) {
                 Row(verticalAlignment=Alignment.CenterVertically) {
                     IconButton(onClick=::back) {Icon(Icons.Default.ArrowBack,"뒤로")}
