@@ -226,6 +226,7 @@ def collect(args):
         failures=0
         try:
             for row in rows:
+                if args.download_only and row['status']=='DOWNLOADED_VERIFIED':continue
                 if row['status'] in ('UPLOADED_VERIFIED','REUSED_EXISTING') or row['status']=='HELD_REVIEW' and (
                     not args.retry_held or age_restricted(row.get('error',''))):continue
                 try:
@@ -249,6 +250,11 @@ def collect(args):
                         row['status']='DOWNLOADING';snapshot(root,rows,True)
                         audio.download_one(db,(identity,artist,title,row['album'],'',url),root,True,True,audio_format='mp3',
                             inspected_metadata=evidence)
+                    if args.download_only:
+                        row.update(status='DOWNLOADED_VERIFIED',sha256=hashlib.sha256(path.read_bytes()).hexdigest(),error='')
+                        snapshot(root,rows,True)
+                        print(row['id'],row['status'],flush=True)
+                        continue
                     # Canonical inspected metadata stays in the audio. Display
                     # aliases and original chart ranks stay in the sidecar.
                     row['status']='UPLOADING';snapshot(root,rows,True)
@@ -278,8 +284,9 @@ def main():
     p.add_argument('--retry-held',action='store_true',help='Explicitly retry prior review holds')
     p.add_argument('--reuse-only',action='store_true',help='Only reuse cached owned files; make zero network requests')
     p.add_argument('--links-only',action='store_true',help='Cache public search candidates; do not inspect/download/approve audio')
+    p.add_argument('--download-only',action='store_true',help='Download verified audio locally; no Drive credentials or uploads')
     p.add_argument('--config',type=Path);p.add_argument('--folder-id');p.add_argument('--rclone',default='rclone')
     a=p.parse_args()
-    if not (a.plan or a.links_only) and (not a.config or not re.fullmatch(r'[A-Za-z0-9_-]{10,150}',a.folder_id or '')):p.error('Exact Drive root and private config required')
+    if not (a.plan or a.links_only or a.download_only) and (not a.config or not re.fullmatch(r'[A-Za-z0-9_-]{10,150}',a.folder_id or '')):p.error('Exact Drive root and private config required')
     collect(a)
 if __name__=='__main__':main()

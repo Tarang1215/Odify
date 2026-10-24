@@ -4,6 +4,7 @@ from pathlib import Path
 import unittest
 from unittest.mock import patch
 import tempfile
+from types import SimpleNamespace
 
 spec=importlib.util.spec_from_file_location('odify_charts',Path(__file__).parents[1]/'odify_charts.py')
 charts=importlib.util.module_from_spec(spec);spec.loader.exec_module(charts)
@@ -11,6 +12,26 @@ publisher_spec=importlib.util.spec_from_file_location('publish_chart_index',Path
 publisher=importlib.util.module_from_spec(publisher_spec);publisher_spec.loader.exec_module(publisher)
 
 class ChartTests(unittest.TestCase):
+    def test_download_only_never_requires_drive_config_or_runs_rclone(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            row={'id':'123','artist':'Artist','title':'Song','album':'Album','country':'kr','rank':1,
+                 'duration_ms':180000,'status':'QUEUED','appearances':[{'id':'123','country':'kr','rank':1}]}
+            (root/'chart_status.json').write_text(json.dumps({'tracks':[row]}),encoding='utf-8')
+            (root/'Metadata').mkdir()
+            def download(db,track,folder,*args,**kwargs):
+                (folder/'Audio').mkdir(exist_ok=True)
+                (folder/'Audio'/'CHART123.mp3').write_bytes(b'validated audio for transport test')
+            args=SimpleNamespace(root=root,catalog=None,plan=False,links_only=False,reuse_only=False,
+                download_only=True,retry_held=True,config=None,folder_id=None,rclone='not-installed',snapshots=None)
+            with patch.object(charts,'variants',return_value=[('Artist','Song')]), \
+                 patch.object(charts,'resolve',return_value=('https://youtu.be/abcdefghijk','Artist','Song',{})), \
+                 patch.object(charts.audio,'download_one',side_effect=download), \
+                 patch.object(charts,'execute',side_effect=AssertionError('No Drive requests')):
+                charts.collect(args)
+            result=json.loads((root/'chart_status.json').read_text(encoding='utf-8'))
+            self.assertEqual('DOWNLOADED_VERIFIED',result['tracks'][0]['status'])
+            self.assertEqual(64,len(result['tracks'][0]['sha256']))
     def test_reuse_only_is_network_free_and_preserves_holds_and_versions(self):
         rows=[{'id':str(i),'artist':'Artist','title':title,'status':status,'file_id':''}
             for i,title,status in [(1,'Song','QUEUED'),(2,'Song (English ver.)','QUEUED'),(3,'Song','HELD_REVIEW')]]
