@@ -4,6 +4,18 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class PersonalMusicTest {
+    @Test fun playerClosesWithoutAnOpaqueFinalFlashAndTabSwipesRespectEdges() {
+        assertEquals(0f, OdifyMotion.playerOpacity(0f))
+        assertEquals(1f, OdifyMotion.playerOpacity(1f))
+        val opacity=(0..100).map {OdifyMotion.playerOpacity(it/100f)}
+        assertTrue(opacity.zipWithNext().all {(a,b)->b>=a})
+        assertTrue(OdifyMotion.playerOpacity(.05f)<.03f)
+        assertEquals(OdifyTab.Explore,OdifyMotion.adjacentTab(OdifyTab.Home,-100f))
+        assertEquals(OdifyTab.Home,OdifyMotion.adjacentTab(OdifyTab.Explore,100f))
+        assertNull(OdifyMotion.adjacentTab(OdifyTab.Home,100f))
+        assertNull(OdifyMotion.adjacentTab(OdifyTab.Library,-100f))
+        assertNull(OdifyMotion.adjacentTab(OdifyTab.Profile,100f))
+    }
     @Test fun chartTitleDoesNotMatchAnUnrelatedLyricButLyricsStaySearchable() {
         val drowning = song("gdrive:one").copy(title="Drowning", artist="WOODZ", lyrics="neon light")
         val neon = song("gdrive:two").copy(title="NEON", artist="A2O")

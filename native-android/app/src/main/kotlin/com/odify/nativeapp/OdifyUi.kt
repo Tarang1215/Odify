@@ -3,6 +3,10 @@ package com.odify.nativeapp
 import android.graphics.BitmapFactory
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.spring
@@ -302,7 +306,6 @@ fun OdifyRoot(
             playerDragFraction = 0f
         }
     }
-    var interaction by remember { mutableIntStateOf(0) }
     // Navigation state is gesture-driven and the mini-player is a separate surface.
 
     val songIndex = remember(songs) { songs.associateBy(OdifySong::id) }
@@ -346,10 +349,10 @@ fun OdifyRoot(
 
     // Both controls live in a stable overlay. Animating layout height caused
     // the old mini-player to snap down after the navigation animation finished.
-    val navShown = true
+    val navShown = navVisible
     val navFraction by animateFloatAsState(
         targetValue = if (navShown) 1f else 0f,
-        animationSpec = tween(durationMillis = 360, easing = FastOutSlowInEasing),
+        animationSpec = spring(dampingRatio = .95f, stiffness = 420f),
         label = "odify-nav-and-mini-linked"
     )
     // Four primary destinations stay reachable; the full player covers them.
@@ -378,29 +381,44 @@ fun OdifyRoot(
                         val down = awaitFirstDown(requireUnconsumed = false)
                         var previousY = down.position.y
                         var net = 0f
+                        var horizontal = 0f
+                        var vertical = 0f
+                        var childOwnsGesture = false
+                        val primary = selectedTab in odifyPrimaryTabs
                         while (true) {
-                            val event = awaitPointerEvent(PointerEventPass.Initial)
+                            // Children get first refusal: horizontal album rows
+                            // and sliders must keep ownership of their gestures.
+                            val event = awaitPointerEvent(PointerEventPass.Final)
                             val pointer = event.changes.firstOrNull { it.id == down.id }
                                 ?: break
-                            if (!pointer.pressed) break
+                            if (!pointer.pressed) {
+                                if (primary && !childOwnsGesture && abs(horizontal) > 78.dp.toPx() &&
+                                    abs(horizontal) > abs(vertical)*1.8f) {
+                                    OdifyMotion.adjacentTab(selectedTab, horizontal)?.let(::navigateTo)
+                                }
+                                break
+                            }
+                            horizontal = pointer.position.x - down.position.x
+                            vertical = pointer.position.y - down.position.y
+                            if (pointer.isConsumed) childOwnsGesture = true
                             net += pointer.position.y - previousY
                             previousY = pointer.position.y
-                            if (kotlin.math.abs(net) >= 27.dp.toPx()) {
-                                if (active != null) {
-                                    val shouldShow = net > 0f
-                                    if (navVisible != shouldShow) {
-                                        navVisible = shouldShow
-                                    }
-                                    interaction++
-                                }
+                            if (abs(net) >= 20.dp.toPx() && abs(vertical) > abs(horizontal)*1.3f) {
+                                navVisible = net > 0f
                                 net = 0f
                             }
                         }
                     }
                 }
         ) {
-            pageState.SaveableStateProvider(selectedTab.name) {
-                when (selectedTab) {
+            AnimatedContent(targetState = selectedTab, modifier = Modifier.fillMaxSize(),
+                transitionSpec = {
+                    val direction = if (odifyPrimaryTabs.indexOf(targetState) >= odifyPrimaryTabs.indexOf(initialState)) 1 else -1
+                    (slideInHorizontally(tween(230, easing = FastOutSlowInEasing)) { it*direction/5 } + fadeIn(tween(180)))
+                        .togetherWith(slideOutHorizontally(tween(200, easing = FastOutSlowInEasing)) { -it*direction/5 } + fadeOut(tween(150)))
+                }, label = "primary-page-change") { pageTab ->
+            pageState.SaveableStateProvider(pageTab.name) {
+                when (pageTab) {
                 OdifyTab.Home -> OdifyPersonalHome(
                     recent = displayed,
                     hasHistory = recent.isNotEmpty(),
@@ -462,11 +480,10 @@ fun OdifyRoot(
                 )
                 }
             }
+            }
         }
 
-        // Two visually separate floating surfaces on ONE animation timeline.
-        // Fade the navigation as it exits instead of dragging its solid panel
-        // across scrollable content or leaving an opaque rectangular ghost.
+        // Linked glass navigation and mini-player follow the same spring.
         Box(
             Modifier.align(Alignment.BottomCenter)
                 .graphicsLayer {
@@ -477,7 +494,6 @@ fun OdifyRoot(
             OdifyBottomBar(selectedTab, gestureInset) {
                 navigateTo(it)
                 navVisible = true
-                interaction++
             }
         }
         if (active != null) {
@@ -527,15 +543,18 @@ fun OdifyRoot(
                             size.width - 11.dp.toPx(), size.height - gestureInsetPx -
                                 navFraction * navigationHeight.toPx() - 5.dp.toPx()
                         )
-                        // Keep a single opaque surface anchored to the measured
-                        // mini-player; opening and closing use the same geometry.
+                        // Blend out while approaching the measured mini-player.
+                        // Never flatten a portrait render into a 56dp strip:
+                        // its final frame would otherwise flash against the mini.
                         transformOrigin = TransformOrigin(0f, 0f)
                         // Follow the finger at a uniform scale; do not squash
                         // portrait content into mini-player proportions mid-drag.
-                        translationX = origin.left * closed + size.width * drag * .05f * progress
+                        val uniformScale = (1f - closed*.08f) * (1f-drag*.10f)
+                        translationX = size.width*(1f-uniformScale)/2f
                         translationY = origin.top * closed + size.height * drag * progress
-                        scaleX = origin.width / size.width * closed + progress * (1f - drag * .10f)
-                        scaleY = origin.height / size.height * closed + progress * (1f - drag * .10f)
+                        scaleX = uniformScale
+                        scaleY = uniformScale
+                        alpha = OdifyMotion.playerOpacity(progress)
                         shape = RoundedCornerShape((22f * maxOf(closed, drag)).dp)
                         clip = true
                     }
@@ -621,7 +640,7 @@ private fun EmptyMusicPrompt(onImport: () -> Unit, importing: Boolean) {
     }
 }
 
-/** Edge-attached navigation; the page ends at one quiet, full-width dark surface. */
+/** Restrained glass surface; no opaque rectangular slab behind the rounded bar. */
 @Composable
 private fun OdifyBottomBar(
     selected: OdifyTab,
@@ -630,13 +649,15 @@ private fun OdifyBottomBar(
 ) {
     Box(
         Modifier.fillMaxWidth().height(navigationHeight + bottomInset)
-            .background(OdifyPalette.background)
-            .padding(bottom = bottomInset),
+            .padding(start = 12.dp, end = 12.dp, bottom = bottomInset + 4.dp),
         contentAlignment = Alignment.TopCenter
     ) {
         Row(
-            Modifier.widthIn(max = 480.dp).fillMaxWidth().height(navigationHeight)
-                .selectableGroup().padding(horizontal = 24.dp),
+            Modifier.widthIn(max = 480.dp).fillMaxWidth().height(58.dp)
+                .clip(RoundedCornerShape(21.dp))
+                .background(Brush.verticalGradient(listOf(Color(0xE8383B40),Color(0xEA202328))))
+                .border(.65.dp, Brush.verticalGradient(listOf(Color.White.copy(alpha=.25f),Color.White.copy(alpha=.06f))),RoundedCornerShape(21.dp))
+                .selectableGroup().padding(horizontal = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             odifyPrimaryTabs.forEach { tab ->

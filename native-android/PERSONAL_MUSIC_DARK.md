@@ -1,16 +1,20 @@
-# Dark personal music experience — preview12.4
+# Dark personal music experience — preview12.7
 
 Requested navigation: **Home → Explore → Search → Library**, with icon-only tabs,
 a 48dp touch target and accessible names. Profile and account/source management
-are utilities reached from the page headers. A full-width, edge-attached black
-navigation surface stays visible on primary screens; fullscreen playback covers it.
-There is no floating capsule, outer shadow or detached grey navigation background.
+are utilities reached from the page headers. The latest direction uses a shallow,
+rounded charcoal glass bar without an opaque rectangular backing. Finger movement
+up hides it; movement down brings it back on the same spring as the mini-player.
+Horizontal gestures in unclaimed page areas change neighboring primary tabs.
+Album carousels and sliders retain their own gestures; account pages are excluded.
 
 All main pages, search, settings, sheets, splash and system bars use the same dark
 palette. Artwork supplies color; the UI uses restrained charcoal surfaces and thin
-boundaries. The immersive player uses one cached blurred album cover, springs out
-of the actual mini-player bounds, follows a downward drag and collapses to the
-same origin. There is no full-player opacity fade or remote-audio decoding for art.
+boundaries. The immersive player uses one cached blurred album cover, follows a
+downward drag and blends back toward the measured mini-player origin. Closing
+keeps portrait proportions and smoothly fades the final portion, avoiding the
+opaque flattened frame that flashed against the mini-player. Artwork needs no
+remote-audio decoding.
 
 Home contains an actual artwork hero, personal mix cards, recent music and saved
 playlists. The device records a qualified listen after 30 seconds of actual playing
@@ -28,8 +32,10 @@ Six-hour metadata caching and saved-chart fallback avoid blocking the screen whe
 offline. Selecting a chart song searches the user's owned catalog; no unowned audio
 or unreviewed YouTube stream is silently substituted.
 
-Search covers the full connected music server by title, artist, album, genre and
-available lyrics. Library defaults to saved playlists, with Offline and Liked tabs;
+Search covers the connected music server by title, artist, album and genre, with
+an explicit separate lyrics scope. Chart selections always use music metadata,
+so a coincidental lyric substring cannot substitute an unrelated song in results.
+Library defaults to saved playlists, with Offline and Liked tabs;
 it does not dump the whole Drive server into the personal collection. Imported local
 files and supported local document URIs count as offline. Google Drive document
 links and Media3's temporary streaming cache do not. Completed exports to a local
@@ -43,7 +49,7 @@ measurement. Tapping/dragging and accessibility progress actions still seek actu
 audio position. Embedded lyrics, queue editing, source audio, playlists, OAuth
 scopes and the permanent package/signing identity are retained.
 
-Local validation: 24 JVM tests and Android-test Kotlin compilation passed. The
+Local validation: 26 JVM tests and Android-test Kotlin compilation passed. The
 fixed-signature GitHub build, private app-data backup and real Galaxy acceptance
 results are tracked in `docs/V46_PROGRESS.md`. Never uninstall the user's existing
 app to bypass a signature mismatch.
