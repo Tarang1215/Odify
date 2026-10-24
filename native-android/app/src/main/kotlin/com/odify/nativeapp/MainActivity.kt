@@ -13,6 +13,7 @@ import kotlinx.coroutines.withContext
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -33,7 +34,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, false)
         // Do not let Samsung/Android draw a contrasting grey scrim below the
-        // white rounded Odify navigation surface and the system gesture bar.
+        // dark rounded Odify navigation surface and the system gesture bar.
         @Suppress("DEPRECATION")
         window.navigationBarColor = android.graphics.Color.rgb(12, 14, 18)
         window.statusBarColor = android.graphics.Color.rgb(12, 14, 18)
@@ -46,6 +47,8 @@ class MainActivity : ComponentActivity() {
                 colorScheme = darkColorScheme(
                     primary = OdifyPalette.text,
                     onPrimary = OdifyPalette.background,
+                    primaryContainer = OdifyPalette.raised,
+                    onPrimaryContainer = OdifyPalette.text,
                     surface = OdifyPalette.surface,
                     surfaceVariant = OdifyPalette.raised,
                     background = OdifyPalette.background,
@@ -53,10 +56,17 @@ class MainActivity : ComponentActivity() {
                     onSurface = OdifyPalette.text,
                     onSurfaceVariant = OdifyPalette.muted,
                     secondary = Color(0xFFCED3DF),
+                    secondaryContainer = OdifyPalette.raised,
+                    onSecondaryContainer = OdifyPalette.text,
                     outline = OdifyPalette.hairline
                 )
             ) {
-                NativeOdify()
+                // MaterialTheme alone does not supply LocalContentColor. A
+                // Surface keeps inherited text/icons readable on every route.
+                Surface(Modifier.fillMaxSize(), color = OdifyPalette.background,
+                    contentColor = OdifyPalette.text) {
+                    NativeOdify()
+                }
             }
         }
     }
