@@ -9,6 +9,7 @@ import argparse,hashlib,importlib.util,json,re,sqlite3,subprocess,sys,time
 from pathlib import Path
 from urllib.parse import urlparse,parse_qs,urlencode
 from urllib.request import Request,urlopen
+from urllib.error import HTTPError
 
 MAX_BYTES=128*1024*1024
 ID=re.compile(r'[A-Za-z0-9_-]{10,150}\Z')
@@ -75,11 +76,16 @@ class Drive:
     def call(self,method,path,data=None,mime='application/json',upload=False):
         if not self.token:self.renew()
         base='https://www.googleapis.com/'+('upload/' if upload else '')+'drive/v3/'
-        req=Request(base+path,data=data,method=method,headers={'Authorization':'Bearer '+self.token,'Content-Type':mime})
-        with urlopen(req,timeout=120) as resp:
-            raw=resp.read(MAX_BYTES+1)
-            if len(raw)>MAX_BYTES:raise ValueError('Drive response exceeds size limit')
-            return raw
+        for attempt in range(2):
+            req=Request(base+path,data=data,method=method,headers={'Authorization':'Bearer '+self.token,'Content-Type':mime})
+            try:
+                with urlopen(req,timeout=120) as resp:
+                    raw=resp.read(MAX_BYTES+1)
+                    if len(raw)>MAX_BYTES:raise ValueError('Drive response exceeds size limit')
+                    return raw
+            except HTTPError as error:
+                if error.code!=401 or attempt:raise
+                self.renew()
     def json(self,method,path,body=None,upload=False):
         return json.loads(self.call(method,path,json.dumps(body).encode() if body is not None else None,upload=upload))
     def listing(self,q):

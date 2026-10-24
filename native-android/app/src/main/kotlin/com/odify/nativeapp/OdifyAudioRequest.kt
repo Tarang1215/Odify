@@ -50,7 +50,9 @@ class OdifyAudioRequests(private val context: Context) {
 
     suspend fun sync() = withContext(Dispatchers.IO) { syncLock.withLock {
         val requests = helper.readableDatabase.rawQuery(
-            "SELECT id,body,remote_id FROM requests ORDER BY created DESC LIMIT 100", null
+            """SELECT id,body,remote_id FROM requests
+               WHERE body NOT LIKE '%"status":"COMPLETED"%'
+               ORDER BY created DESC LIMIT 100""", null
         ).use { cursor -> buildList {
             while (cursor.moveToNext()) add(Triple(cursor.getString(0), JSONObject(cursor.getString(1)), cursor.getString(2)))
         } }
