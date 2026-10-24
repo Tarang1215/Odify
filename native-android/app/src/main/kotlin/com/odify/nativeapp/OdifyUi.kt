@@ -571,6 +571,10 @@ fun OdifyRoot(
                         shape = RoundedCornerShape((22f * maxOf(closed, drag)).dp)
                         clip = true
                     }
+                    .featherPlayerEdges {
+                        (1f-fullProgress.coerceIn(0f,1f))*1.3f+
+                            playerDragFraction.coerceIn(0f,.65f)*2.4f
+                    }
             ) {
                 OdifyNowPlaying(
                     song = active,

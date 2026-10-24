@@ -28,6 +28,9 @@ downward drag and blends back toward the measured mini-player origin. Closing
 keeps portrait proportions and smoothly fades the final portion, avoiding the
 opaque flattened frame that flashed against the mini-player. Artwork needs no
 remote-audio decoding.
+During a downward drag or close, a draw-only alpha mask softly feathers the
+panel's outer rim before the overall fade. Artwork and text in the center stay
+sharp. The extra offscreen mask exists only while closing/dragging.
 
 Home contains an actual artwork hero, personal mix cards, recent music and saved
 playlists. The device records a qualified listen after 30 seconds of actual playing
