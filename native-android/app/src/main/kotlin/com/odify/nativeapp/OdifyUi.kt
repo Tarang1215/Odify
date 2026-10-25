@@ -827,7 +827,9 @@ private fun OdifyMiniPlayer(
         val expandedText=titleWidth.coerceIn(56.dp,(maxWidth-245.dp).coerceAtLeast(56.dp))
         val wideWidth=(expandedText+233.dp).coerceAtMost(maxWidth-12.dp)
         val growth=fluidStage(split,0f,.60f)
-        val measuredWidth by animateDpAsState(wideWidth,tween(240),label="track-title-width")
+        // Measure the destination before the pinch starts. A second width
+        // animation can outlive the separation and resize the detached lobe.
+        val measuredWidth=wideWidth
         val separated=fluidStage(split,.84f,1f)
         val separationGap=(maxWidth-measuredWidth).coerceAtLeast(12.dp)*separated
         val width=compactWidth+(measuredWidth-compactWidth)*growth+separationGap
