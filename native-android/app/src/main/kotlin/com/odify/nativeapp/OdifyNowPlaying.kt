@@ -152,7 +152,9 @@ fun OdifyNowPlaying(
     var showInfo by remember { mutableStateOf(false) }
     var actionsOpen by remember { mutableStateOf(false) }
     var audioRequestOpen by remember(song.id) { mutableStateOf(false) }
-    if (audioRequestOpen) OdifyAudioRequestDialog(song, { audioRequestOpen = false }, onAudioRequest)
+    if (audioRequestOpen) CompositionLocalProvider(LocalOdifyModalTint provides glow) {
+        OdifyAudioRequestDialog(song, { audioRequestOpen = false }, onAudioRequest)
+    }
     val lyricsRepository=remember {OdifyLyricsRepository(context.applicationContext)}
     var availableLyrics by remember(song.id) {mutableStateOf(song.lyrics)}
     LaunchedEffect(song.id,song.lyrics) {availableLyrics=lyricsRepository.read(song)}

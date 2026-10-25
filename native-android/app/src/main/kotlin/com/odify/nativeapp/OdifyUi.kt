@@ -656,9 +656,9 @@ fun OdifyRoot(
                 onClose={youtubeOpen=false},onImported={playlistVersion++}
             )
         }
-        replacementTrack?.let {target -> OdifyAudioReplaceDialog(target,onSelect={video ->
+        replacementTrack?.let {target -> CompositionLocalProvider(LocalOdifyModalTint provides sharedGlow) {OdifyAudioReplaceDialog(target,onSelect={video ->
             replacementTrack=null;onReplaceAudio(target,video)
-        },onClose={replacementTrack=null})}
+        },onClose={replacementTrack=null})}}
         if (queueOpen) {
             OdifyQueueDialog(
                 items=remember(playback.queueIds, songIndex) { playback.queueIds.map { id ->

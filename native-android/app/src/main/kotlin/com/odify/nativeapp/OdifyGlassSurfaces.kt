@@ -1,8 +1,15 @@
 package com.odify.nativeapp
 
-import android.graphics.drawable.GradientDrawable
-import android.os.Build
-import android.view.WindowManager
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
+import android.graphics.Bitmap
+import android.graphics.drawable.ColorDrawable
+import android.os.Handler
+import android.os.Looper
+import android.view.PixelCopy
+import android.view.Window
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
@@ -11,7 +18,13 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.*
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionOnScreen
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -20,38 +33,73 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.DialogWindowProvider
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
+import kotlin.math.roundToInt
 
 internal val LocalOdifyModalTint=staticCompositionLocalOf {Color.Transparent}
 private val LocalNeutralBackdrop=staticCompositionLocalOf<OdifyBackdrop?> {null}
 
-/** Dialog windows use Android's live cross-window blur, not a screenshot of
- * another Compose owner. One bounded native blur is created only while open. */
+internal data class OdifyModalSnapshot(val image:ImageBitmap,val origin:Offset,val size:IntSize)
+
+private tailrec fun Context.modalActivity():Activity?=when(this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.modalActivity()
+    else -> null
+}
+
+/** PixelCopy scales into a bounded buffer, including hardware-rendered artwork.
+ * Copy only the source window, before opening the modal, never our own overlay. */
+internal suspend fun odifyModalSnapshot(window:Window):OdifyModalSnapshot? {
+    val view=window.decorView
+    if(view.width<=0 || view.height<=0)return null
+    val width=view.width.coerceAtMost(720)
+    val bitmap=Bitmap.createBitmap(width,(view.height.toFloat()*width/view.width).roundToInt().coerceAtLeast(1),Bitmap.Config.ARGB_8888)
+    val location=IntArray(2);view.getLocationOnScreen(location)
+    return suspendCancellableCoroutine {continuation ->
+        try {PixelCopy.request(window,bitmap,{result ->
+            if(continuation.isActive) {
+                if(result==PixelCopy.SUCCESS) continuation.resume(OdifyModalSnapshot(bitmap.asImageBitmap(),
+                    Offset(location[0].toFloat(),location[1].toFloat()),IntSize(view.width,view.height)))
+                else {bitmap.recycle();continuation.resume(null)}
+            } else bitmap.recycle()
+        },Handler(Looper.getMainLooper()))}
+        catch(_:IllegalArgumentException) {bitmap.recycle();if(continuation.isActive)continuation.resume(null)}
+    }
+}
+
+/** Modal pixels are sampled once per opening. This works on phones with system
+ * cross-window blur disabled, without continuously copying or blurring a screen. */
 @Composable internal fun OdifyGlassDialog(onDismiss:()->Unit,tint:Color=LocalOdifyModalTint.current,
     content:@Composable ColumnScope.()->Unit) {
+    val hostView=LocalView.current
+    val context=LocalContext.current
+    val sourceWindow=(hostView.parent as? DialogWindowProvider)?.window ?: context.modalActivity()?.window
+    var snapshot by remember(sourceWindow) {mutableStateOf<OdifyModalSnapshot?>(null)}
+    var captured by remember(sourceWindow) {mutableStateOf(false)}
+    LaunchedEffect(sourceWindow) {snapshot=sourceWindow?.let {odifyModalSnapshot(it)};captured=true}
+    if(!captured)return
     Dialog(onDismissRequest=onDismiss,properties=DialogProperties(usePlatformDefaultWidth=true)) {
         val view=LocalView.current
-        val context=LocalContext.current
-        val density=LocalDensity.current
-        DisposableEffect(view,tint) {
+        DisposableEffect(view) {
             val window=(view.parent as? DialogWindowProvider)?.window
-            val wm=context.getSystemService(WindowManager::class.java)
-            val enabled=Build.VERSION.SDK_INT>=31 && wm.isCrossWindowBlurEnabled
-            val glow=if(tint.alpha>0)tint else Color(0xFFCCD2DC)
-            val bg=GradientDrawable(GradientDrawable.Orientation.TL_BR,intArrayOf(
-                glow.copy(alpha=if(enabled).14f else .14f).compositeOver(Color(0xFF20232A).copy(alpha=if(enabled).52f else .96f)).toArgb(),
-                Color(0xFF14171D).copy(alpha=if(enabled).66f else .98f).toArgb()))
-            bg.cornerRadius=with(density){28.dp.toPx()};bg.setStroke(with(density){1.dp.toPx()}.toInt(),Color.White.copy(alpha=.18f).toArgb())
-            window?.setBackgroundDrawable(bg)
+            window?.setBackgroundDrawable(ColorDrawable(android.graphics.Color.TRANSPARENT))
             window?.setDimAmount(.22f)
-            if(Build.VERSION.SDK_INT>=31 && enabled) {
-                window?.setBackgroundBlurRadius(with(density){20.dp.toPx()}.toInt().coerceAtMost(90))
-                window?.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
-                window?.attributes=window?.attributes?.apply {blurBehindRadius=16}
-            }
-            onDispose {if(Build.VERSION.SDK_INT>=31)window?.setBackgroundBlurRadius(0)}
+            onDispose {}
         }
-        Column(Modifier.fillMaxWidth().heightIn(max=LocalContext.current.resources.configuration.screenHeightDp.dp*.86f)
-            .padding(21.dp),content=content)
+        val backdrop=rememberOdifyBackdrop()
+        var origin by remember {mutableStateOf(Offset.Zero)}
+        Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(28.dp)).onGloballyPositioned {origin=it.positionOnScreen()}) {
+            Canvas(Modifier.matchParentSize().recordOdifyBackdrop(backdrop)) {
+                drawRect(Color(0xFF171A21))
+                snapshot?.let {frame -> drawImage(frame.image,
+                    dstOffset=IntOffset((frame.origin.x-origin.x).roundToInt(),(frame.origin.y-origin.y).roundToInt()),
+                    dstSize=frame.size)}
+            }
+            Column(Modifier.fillMaxWidth().heightIn(max=LocalContext.current.resources.configuration.screenHeightDp.dp*.86f)
+                .odifyGlass(backdrop,RoundedCornerShape(28.dp),tint,transparencyOverride=.48f)
+                .padding(21.dp),content=content)
+        }
     }
 }
 

@@ -7,6 +7,17 @@ import java.io.File
 
 class OdifyLibraryContinuityTest {
     private val context get()=InstrumentationRegistry.getInstrumentation().targetContext
+    @Test fun repeatedBulkMetadataDoesNotInvalidateTheLibraryAgain() {
+        val name="test_bulk_"+java.util.UUID.randomUUID()
+        try {
+            val streaming=OdifyStreamingLibrary(context,name)
+            val videos=listOf(YoutubeVideo("abcdefghijk","Song","Artist",""))
+            streaming.rememberAll(videos)
+            val version=OdifyStreamingLibrary.version.value
+            streaming.rememberAll(videos)
+            assertEquals(version,OdifyStreamingLibrary.version.value)
+        } finally {context.getSharedPreferences(name,0).edit().clear().commit()}
+    }
     @Test fun mixedImportedPlaylistRetainsEveryPlayableReferenceAfterRecreation() {
         val name="test_mixed_"+java.util.UUID.randomUUID()
         val streaming=OdifyStreamingLibrary(context,name+"_streams")
