@@ -152,6 +152,7 @@ class OdifyYoutubePlaybackService:Service() {
             if(video!=null) runCatching {
                 OdifyStreamingLibrary(this).remember(video,state.duration)
                 OdifyStreamingRequests(this).enqueue(video,state.duration)
+                OdifyPhoneDownloads.schedule(this)
                 collectionQueued=true
             }.onFailure {android.util.Log.w("OdifyCollection","Could not save pending collection request",it)}
         }
@@ -189,7 +190,7 @@ class OdifyYoutubePlaybackService:Service() {
         val queue=OdifyYoutubeRuntime.session.value.following
         if(queue.isEmpty()) {command("odifyPause()");return}
         handingOff=true
-        if(queue.first().id.startsWith("youtube:")) {
+        if(queue.first().isYoutubeStream) {
             command("odifyPause()")
             OdifyYoutubeRuntime.play(this,OdifyStreamingLibrary(this).video(queue.first()),queue.drop(1))
             return

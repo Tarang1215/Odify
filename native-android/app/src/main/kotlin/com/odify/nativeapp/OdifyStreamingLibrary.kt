@@ -19,7 +19,10 @@ internal class OdifyStreamingLibrary(private val context:Context, name:String="o
         val videoId=id.removePrefix("youtube:")
         return prefs.getString(videoId,null)?.let {raw -> runCatching {
             val data=JSONObject(raw)
-            OdifySong(id,data.getString("title"),data.optString("artist"),"YouTube",placeholder().absolutePath,
+            val local=OdifyStreamingRequests(context).read().let {rows -> (0 until rows.length()).map {rows.getJSONObject(it)}
+                .firstOrNull {it.optString("video_id")==videoId && it.optString("status")=="SAVED_PHONE"}
+                ?.optString("local_path")?.takeIf {it.isNotBlank()}?.let {File(it)}?.takeIf {it.isFile}}
+            OdifySong(id,data.getString("title"),data.optString("artist"),"YouTube",(local ?: placeholder()).absolutePath,
                 File(context.cacheDir,"youtube_search_$videoId.jpg").takeIf {it.isFile}?.absolutePath,
                 durationMs=data.optLong("duration"))
         }.getOrNull()}
@@ -35,23 +38,33 @@ internal class OdifyStreamingLibrary(private val context:Context, name:String="o
         }
     }
     fun video(song:OdifySong)=YoutubeVideo(song.id.removePrefix("youtube:"),song.title,song.artist,"")
+    fun downloads():List<OdifySong> = prefs.all.keys.mapNotNull {find("youtube:"+it)}.filterNot {it.isYoutubeStream}
 }
 
 /** A portable PC collection outbox. Uploads remain deferred until explicitly resumed. */
 internal class OdifyStreamingRequests(private val context:Context) {
+    companion object {private val lock=Any()}
     private val file=File(context.filesDir,"youtube_collection_requests.json")
-    @Synchronized fun enqueue(video:YoutubeVideo,duration:Long) {
+    fun enqueue(video:YoutubeVideo,duration:Long)=synchronized(lock) {
         val rows=read()
-        if((0 until rows.length()).any {rows.getJSONObject(it).optString("video_id")==video.videoId}) return
+        if((0 until rows.length()).any {rows.getJSONObject(it).optString("video_id")==video.videoId}) return@synchronized
         rows.put(JSONObject().put("video_id",video.videoId).put("title",video.title).put("artist",video.channel)
             .put("video_url","https://www.youtube.com/watch?v=${video.videoId}").put("duration_ms",duration)
-            .put("requested_at",java.time.Instant.now().toString()).put("status","QUEUED_PC")
+            .put("requested_at",java.time.Instant.now().toString()).put("status","QUEUED_PHONE")
             .put("drive_upload",false))
+        save(rows)
+    }
+    private fun save(rows:JSONArray) {
         val temp=File(file.parentFile,file.name+".tmp")
         temp.writeText(JSONObject().put("version",1).put("requests",rows).toString(2))
         check(temp.renameTo(file)) {"보관 요청을 저장하지 못했습니다."}
     }
-    fun read():JSONArray=if(file.isFile) JSONObject(file.readText()).getJSONArray("requests") else JSONArray()
+    fun update(id:String,edit:(JSONObject)->Unit)=synchronized(lock) {
+        val rows=read()
+        for(i in 0 until rows.length()) if(rows.getJSONObject(i).optString("video_id")==id) edit(rows.getJSONObject(i))
+        save(rows)
+    }
+    fun read():JSONArray=synchronized(lock) {if(file.isFile) JSONObject(file.readText()).getJSONArray("requests") else JSONArray()}
     fun export():String=JSONObject().put("version",1).put("requests",read()).toString(2)
 }
 

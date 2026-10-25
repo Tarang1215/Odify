@@ -114,6 +114,8 @@ private fun NativeOdify() {
     var driveStatus by remember { mutableStateOf("Google Drive 계정을 연결하세요.") }
     var driveFolder by remember { mutableStateOf(driveCatalog.folderId) }
     var songs by remember { mutableStateOf<List<OdifySong>>(emptyList()) }
+    val downloadedVersion by OdifyPhoneDownloads.version.collectAsState()
+    val downloadedSongs=remember(downloadedVersion) {OdifyStreamingLibrary(context.applicationContext).downloads()}
     var controller by remember { mutableStateOf<MediaController?>(null) }
     var playback by remember { mutableStateOf(OdifyPlaybackSnapshot()) }
     var expanded by remember { mutableStateOf(false) }
@@ -619,7 +621,7 @@ private fun NativeOdify() {
             return
         }
         if (items.isEmpty() || index !in items.indices) return
-        if(items[index].id.startsWith("youtube:")) {
+        if(items[index].isYoutubeStream) {
             player.pause();expanded=true
             OdifyYoutubeRuntime.play(context,OdifyStreamingLibrary(context).video(items[index]),items.drop(index+1))
             return
@@ -644,6 +646,7 @@ private fun NativeOdify() {
     LaunchedEffect(Unit) {
         delay(430)
         startup = false
+        OdifyPhoneDownloads.schedule(context.applicationContext)
     }
 
     LaunchedEffect(expanded) {
@@ -667,7 +670,7 @@ private fun NativeOdify() {
         OdifySplash()
     } else {
         OdifyRoot(
-            songs = songs,
+            songs = songs+downloadedSongs,
             playback = visiblePlayback,
             externalSong = youtubeSong,
             onOpenExternalVideo = {youtubeVideo?.let {OdifyExternalYoutube.openVideo(context,it.videoId)}},

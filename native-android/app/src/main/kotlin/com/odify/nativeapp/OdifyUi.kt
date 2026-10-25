@@ -981,7 +981,7 @@ private fun OdifySearch(
         }
         Spacer(Modifier.height(16.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(if (query.isEmpty()) "내 음악" else "검색 결과 · ${filtered.size}",
+            Text(if (query.isEmpty()) "내 음악" else if(searchScope==OdifySearchScope.Music) "통합 검색" else "가사 검색 · ${filtered.size}",
                 fontSize = 16.sp, fontWeight = FontWeight.Bold,
                 modifier = Modifier.weight(1f))
             Text(if (showDuplicates) "중복 숨기기" else "중복 포함 보기",

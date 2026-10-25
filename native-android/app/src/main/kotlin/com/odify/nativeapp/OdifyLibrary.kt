@@ -33,9 +33,12 @@ data class OdifySong(
     val chartId: String = "",
     val chartAliases: List<String> = emptyList()
 ) {
+    val isYoutubeStream:Boolean get()=id.startsWith("youtube:") &&
+        (filePath.endsWith("youtube_queue_marker.wav") || filePath.isBlank() &&
+            (sourceUri.isNullOrBlank() || sourceUri.endsWith("youtube_queue_marker.wav")))
     val isCloud: Boolean get() = id.startsWith("gdrive:") || sourceUri?.startsWith("https://") == true && !id.startsWith("localfolder:")
     val isPhoneFolder: Boolean get() = id.startsWith("localfolder:")
-    val isOfflineSaved: Boolean get() = !id.startsWith("youtube:") && !isCloud && (
+    val isOfflineSaved: Boolean get() = !isYoutubeStream && !isCloud && (
         sourceUri.isNullOrBlank() && filePath.isNotBlank() ||
             (sourceUri?.startsWith("content://com.android.externalstorage.documents/") == true ||
                 sourceUri?.startsWith("content://com.android.providers.media.documents/") == true)
@@ -54,6 +57,7 @@ data class OdifySong(
                         putString("odify.queueEntry", java.util.UUID.randomUUID().toString())
                         putString("odify.contentMd5",contentMd5)
                         putLong("odify.duration",durationMs)
+                        putBoolean("odify.youtubeStream",isYoutubeStream)
                     })
                 .apply {
                     if (!artworkPath.isNullOrBlank()) {

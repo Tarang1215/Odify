@@ -17,8 +17,9 @@ android {
         applicationId = "com.odify.music.nativepreview.v11"
         minSdk = 26
         targetSdk = 35
-        versionCode = 39
-        versionName = "1.0.0-preview12.27"
+        versionCode = 40
+        versionName = "1.0.0-preview12.28"
+        ndk {abiFilters += listOf("arm64-v8a","x86_64")}
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     // Always use the one permanent signing certificate restored by CI.
@@ -46,7 +47,10 @@ android {
     }
     kotlinOptions { jvmTarget = "17" }
     buildFeatures { compose = true }
-    packaging { resources { excludes += "/META-INF/{AL2.0,LGPL2.1}" } }
+    packaging {
+        resources { excludes += "/META-INF/{AL2.0,LGPL2.1}" }
+        jniLibs {useLegacyPackaging=true}
+    }
 }
 
 dependencies {
@@ -65,6 +69,9 @@ dependencies {
     implementation("androidx.media3:media3-database:1.9.4")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
     implementation("com.google.android.gms:play-services-auth:21.5.0")
+    implementation("androidx.work:work-runtime-ktx:2.9.1")
+    implementation("io.github.junkfood02.youtubedl-android:library:0.18.1")
+    implementation("io.github.junkfood02.youtubedl-android:ffmpeg:0.18.1")
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test:runner:1.6.2")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
