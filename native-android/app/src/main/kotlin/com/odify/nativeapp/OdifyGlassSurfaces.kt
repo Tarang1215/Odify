@@ -109,7 +109,8 @@ internal suspend fun odifyModalSnapshot(window:Window):OdifyModalSnapshot? {
     shape:Shape=RoundedCornerShape(28.dp),containerColor:Color=Color.Transparent) {
     OdifyGlassDialog(onDismissRequest) {
         Column(modifier,verticalArrangement=Arrangement.spacedBy(15.dp)) {
-            icon?.invoke();title?.invoke();text?.invoke()
+            icon?.invoke();title?.invoke()
+            text?.let {body -> Box(Modifier.weight(1f,fill=false)) {body()}}
             Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.End) {
                 dismissButton?.invoke();Spacer(Modifier.width(8.dp));confirmButton()
             }
