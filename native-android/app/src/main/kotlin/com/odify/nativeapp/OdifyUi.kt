@@ -23,6 +23,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.*
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.gestures.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -489,7 +490,7 @@ fun OdifyRoot(
                     searchScope = searchScope, onScopeChange = { searchScope = it },
                     youtubeConnected = youtubeConnected, onConnectYoutube = onConnectYoutube,
                     onExternalYoutubeStarted = onExternalYoutubeStarted,
-                    onPlayYoutubeVideo = onPlayYoutubeVideo)
+                    onPlayYoutubeVideo = onPlayYoutubeVideo, onAddSong = { playlistDialogTrack=it })
                 OdifyTab.Library -> OdifyLibraryScreen(
                     songs = songs, liked = liked, onPlay = ::playList,
                     onImport = onImport, onRemove = onRemove, onEdit = onEdit,
@@ -803,7 +804,7 @@ private fun OdifyMiniPlayer(
     val titleWidth=with(LocalDensity.current){measured.size.width.toDp()}
     val measuredArtist=remember(song.artist,titleMeasurer,artistStyle){titleMeasurer.measure(song.artist,style=artistStyle,maxLines=1,softWrap=false)}
     val artistWidth=with(LocalDensity.current){measuredArtist.size.width.toDp()}
-    val split by animateFloatAsState(if(compact)0f else 1f,tween(560,easing=LinearEasing),label="droplet-split")
+    val split by animateFloatAsState(if(compact)0f else 1f,tween(440,easing=FastOutSlowInEasing),label="droplet-split")
     val lifecycle=androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
     var visible by remember {mutableStateOf(lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED))}
     DisposableEffect(lifecycle) {
@@ -822,14 +823,14 @@ private fun OdifyMiniPlayer(
     // delaying the whole player behind the finger with a slow spring.
     fun pulseSurface() {
         scope.launch {tension.snapTo(1f);tension.animateTo(0f,keyframes {
-            durationMillis=340;1f at 0;-.6f at 125;.22f at 225;0f at 340
+            durationMillis=240;1f at 0;-.35f at 85;.12f at 155;0f at 240
         })}
     }
     BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal=11.dp,vertical=5.dp),contentAlignment=Alignment.Center) {
         val compactWidth=(titleWidth+99.dp).coerceIn(168.dp,216.dp).coerceAtMost(maxWidth)
         val expandedText=maxOf(titleWidth,artistWidth).coerceIn(56.dp,(maxWidth-245.dp).coerceAtLeast(56.dp))
         val wideWidth=(expandedText+233.dp).coerceAtMost(maxWidth-12.dp)
-        val growth=fluidStage(split,0f,.60f)
+        val growth=fluidStage(split,0f,.80f)
         // Measure the destination before the pinch starts. A second width
         // animation can outlive the separation and resize the detached lobe.
         val measuredWidth=wideWidth
@@ -850,6 +851,11 @@ private fun OdifyMiniPlayer(
             .graphicsLayer {scaleX=1f+wobble.value*.012f+tension.value*.018f;scaleY=1f-wobble.value*.018f-tension.value*.024f}
             .shadow(9.dp,shape,ambientColor=glow.copy(alpha=.25f),spotColor=glow.copy(alpha=.22f))
             .odifyGlass(backdrop,shape,glow,split,controlsWidth,gap)
+            .drawBehind {
+                // Press highlight follows the same deforming silhouette. A
+                // rectangular Material ripple must never cover the neck/gap.
+                drawRect(Color.White.copy(alpha=(wobble.value*.045f).coerceIn(0f,.045f)))
+            }
             .pointerInput(Unit) {
                 awaitEachGesture {
                     awaitFirstDown(requireUnconsumed=false,pass=PointerEventPass.Initial)
@@ -858,7 +864,8 @@ private fun OdifyMiniPlayer(
                     scope.launch {wobble.animateTo(0f,spring(dampingRatio=.82f,stiffness=1250f))}
                 }
             }
-            .combinedClickable(onClick={onCompactChange(!compact);pulseSurface()},onLongClick={pulseSurface()})
+            .combinedClickable(interactionSource=remember {MutableInteractionSource()},indication=null,
+                onClick={onCompactChange(!compact);pulseSurface()},onLongClick={pulseSurface()})
             .pointerInput(Unit) {
                 var drag=0f
                 detectVerticalDragGestures(onDragStart={drag=0f},onDragCancel={drag=0f},
@@ -868,7 +875,7 @@ private fun OdifyMiniPlayer(
             // Fixed lobe containers prevent the Row's weighted text from pushing
             // the transport controls off the center of the right-hand droplet.
             Row(Modifier.width(leftWidth).fillMaxHeight().align(Alignment.CenterStart).padding(start=8.dp,end=(8.dp*growth)),verticalAlignment=Alignment.CenterVertically) {
-                AlbumArt(song,Modifier.size(artSize).clickable(onClickLabel="전체 재생 화면 열기") {
+                AlbumArt(song,Modifier.size(artSize).clickable(interactionSource=remember {MutableInteractionSource()},indication=null,onClickLabel="전체 재생 화면 열기") {
                     expandAction(coordinates?.takeIf{it.isAttached}?.boundsInRoot())
                 }.semantics{contentDescription="전체 재생 화면 열기"},radius=CircleShape,fallbackKey=song.id.hashCode())
                 Spacer(Modifier.width(9.dp))
@@ -882,19 +889,23 @@ private fun OdifyMiniPlayer(
                 }
                 if(growth>.01f) {
                     Spacer(Modifier.width(6.dp*growth))
-                    IconButton(onClick=onLike,modifier=Modifier.width(32.dp*growth).height(40.dp).graphicsLayer{alpha=growth}) {
+                    Box(modifier=Modifier.width(32.dp*growth).height(40.dp).graphicsLayer{alpha=growth}
+                        .clickable(interactionSource=remember {MutableInteractionSource()},indication=null,role=Role.Button,onClick=onLike),contentAlignment=Alignment.Center) {
                         Icon(if(liked)Icons.Default.Favorite else Icons.Default.FavoriteBorder,"좋아요",tint=ink,modifier=Modifier.size(18.dp))
                     }
                 }
             }
             Row(Modifier.width(controlsWidth).fillMaxHeight().align(Alignment.CenterEnd),horizontalArrangement=Arrangement.Center,verticalAlignment=Alignment.CenterVertically) {
-                if(growth>.01f) IconButton(onClick=onPrevious,modifier=Modifier.width(38.dp*growth).height(40.dp).graphicsLayer{alpha=growth}) {
+                if(growth>.01f) Box(modifier=Modifier.width(38.dp*growth).height(40.dp).graphicsLayer{alpha=growth}
+                    .clickable(interactionSource=remember {MutableInteractionSource()},indication=null,role=Role.Button,onClick=onPrevious),contentAlignment=Alignment.Center) {
                     Icon(Icons.Default.SkipPrevious,"이전 곡",tint=ink,modifier=Modifier.size(21.dp))
                 }
-                Box(Modifier.size(29.dp+7.dp*growth).clip(CircleShape).background(ink).clickable(onClick=onToggle),contentAlignment=Alignment.Center) {
+                Box(Modifier.size(artSize).clip(CircleShape).background(ink)
+                    .clickable(interactionSource=remember {MutableInteractionSource()},indication=null,role=Role.Button,onClick=onToggle),contentAlignment=Alignment.Center) {
                     Icon(if(playing)Icons.Default.Pause else Icons.Default.PlayArrow,"재생·일시정지",tint=white,modifier=Modifier.size(21.dp+2.dp*growth))
                 }
-                if(growth>.01f) IconButton(onClick=onNext,modifier=Modifier.width(38.dp*growth).height(40.dp).graphicsLayer{alpha=growth}) {
+                if(growth>.01f) Box(modifier=Modifier.width(38.dp*growth).height(40.dp).graphicsLayer{alpha=growth}
+                    .clickable(interactionSource=remember {MutableInteractionSource()},indication=null,role=Role.Button,onClick=onNext),contentAlignment=Alignment.Center) {
                     Icon(Icons.Default.SkipNext,"다음 곡",tint=ink,modifier=Modifier.size(21.dp))
                 }
             }
@@ -915,9 +926,8 @@ private fun OdifySearch(
     searchScope: OdifySearchScope,
     onScopeChange: (OdifySearchScope) -> Unit,
     youtubeConnected: Boolean, onConnectYoutube: () -> Unit, onExternalYoutubeStarted: () -> Unit,
-    onPlayYoutubeVideo: (List<YoutubeVideo>, Int) -> Unit
+    onPlayYoutubeVideo: (List<YoutubeVideo>, Int) -> Unit, onAddSong:(OdifySong)->Unit
 ) {
-    var youtubeMode by rememberSaveable { mutableStateOf(false) }
     var showDuplicates by rememberSaveable { mutableStateOf(false) }
     val genres = remember(songs) {
         listOf("All") + songs.map { it.genre.substringBefore(" / ").trim() }
@@ -928,7 +938,7 @@ private fun OdifySearch(
             (genre == "All" || it.genre.startsWith(genre, ignoreCase = true)) &&
             OdifySearchMatching.matches(it, query, searchScope)
         }
-        OdifySongPresentation.visible(matches, showDuplicates)
+        OdifySongPresentation.visible(matches, showDuplicates).sortedBy { if(it.id.startsWith("gdrive:"))0 else 1 }
     }
     Column(Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
         Spacer(Modifier.height(12.dp))
@@ -958,16 +968,11 @@ private fun OdifySearch(
         Spacer(Modifier.height(14.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf(OdifySearchScope.Music to "곡·아티스트", OdifySearchScope.Lyrics to "가사").forEach { (scope, label) ->
-                val selected = !youtubeMode && searchScope == scope
-                OdifyPill(label,selected) {youtubeMode=false;onScopeChange(scope)}
+                val selected = searchScope == scope
+                OdifyPill(label,selected) {onScopeChange(scope)}
             }
-            OdifyPill("YouTube", youtubeMode) { youtubeMode=true }
         }
         Spacer(Modifier.height(12.dp))
-        if (youtubeMode) {
-            OdifyYoutubeSearch(query, youtubeConnected, onConnectYoutube, onExternalYoutubeStarted,onPlayYoutubeVideo)
-            return@Column
-        }
         LazyRow(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
             items(genres) { option ->
                 val selected = genre == option
@@ -985,18 +990,9 @@ private fun OdifySearch(
                     .padding(horizontal = 6.dp, vertical = 8.dp))
         }
         Spacer(Modifier.height(11.dp))
-        if (filtered.isEmpty()) {
-            Text(if(query.isBlank()) "설정에서 Drive나 휴대폰 음악을 연결해 주세요." else "일치하는 음악이 없어요. 다른 제목이나 아티스트로 찾아보세요.",
-                fontSize=13.sp,color=grey,modifier=Modifier.padding(vertical=24.dp))
-        } else {
-            LazyColumn(contentPadding = PaddingValues(bottom = 155.dp)) {
-                items(filtered, key = { it.id }) { song ->
-                    OdifySongRow(song, onClick = {
-                        onPlay(filtered, filtered.indexOf(song))
-                    })
-                }
-            }
-        }
+        OdifyYoutubeSearch(query, youtubeConnected, onConnectYoutube, onExternalYoutubeStarted,onPlayYoutubeVideo,
+            localSongs=filtered,onPlayLocal=onPlay,onAddSong=onAddSong,includeYoutube=searchScope==OdifySearchScope.Music)
+
     }
 }
 
@@ -1282,6 +1278,8 @@ private fun OdifyProfile(
         }
         Spacer(Modifier.height(24.dp))
         OdifyGlassSettingsCard()
+        Spacer(Modifier.height(16.dp))
+        OdifyStreamingRequestsCard()
         Spacer(Modifier.height(28.dp))
         Text("음악 소스 및 연결", color = ink, fontSize = 14.sp,
             fontWeight = FontWeight.SemiBold)

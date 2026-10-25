@@ -48,6 +48,8 @@ class OdifyYoutubePlaybackService:Service() {
     private var handingOff=false
     private var lastNotificationState=""
     private var nativeController:MediaController?=null
+    private var listenClock=OdifyListenClock()
+    private var collectionQueued=false
     private val wake by lazy {(getSystemService(POWER_SERVICE) as PowerManager).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK,"Odify:YoutubeAudio").apply {setReferenceCounted(false)}}
     private val noisy=object:BroadcastReceiver(){override fun onReceive(c:Context?,i:Intent?){command("odifyPause()")}}
     override fun onBind(intent:Intent?):IBinder?=null
@@ -85,6 +87,8 @@ class OdifyYoutubePlaybackService:Service() {
     private fun load() {
         val video=OdifyYoutubeRuntime.session.value.video ?: return
         generation++;val request=generation;activeId=video.videoId;consumedEnd=false;handingOff=false
+        listenClock=OdifyListenClock();collectionQueued=false
+        OdifyStreamingLibrary(this).remember(video)
         val web=browser ?: object:WebView(applicationContext) {
             // Preserve the playback document while the owning foreground service
             // handles lock-screen/background audio. No Activity is retained.
@@ -142,6 +146,15 @@ class OdifyYoutubePlaybackService:Service() {
         val value=OdifyYoutubeRuntime.session.value
         if(value.video?.videoId!=activeId) return
         OdifyYoutubeRuntime.session.value=value.copy(playback=state)
+        val listened=listenClock.observe(activeId.orEmpty(),SystemClock.elapsedRealtime(),state.playing)
+        if(!collectionQueued && listened>=20_000 && state.duration>0) {
+            val video=value.video
+            if(video!=null) runCatching {
+                OdifyStreamingLibrary(this).remember(video,state.duration)
+                OdifyStreamingRequests(this).enqueue(video,state.duration)
+                collectionQueued=true
+            }.onFailure {android.util.Log.w("OdifyCollection","Could not save pending collection request",it)}
+        }
         if(state.playing) {if(!wake.isHeld) wake.acquire(6*60*60*1000L)} else if(wake.isHeld) wake.release()
         media?.setPlaybackState(PlaybackState.Builder().setActions(PlaybackState.ACTION_PLAY or PlaybackState.ACTION_PAUSE or
             PlaybackState.ACTION_SEEK_TO or PlaybackState.ACTION_SKIP_TO_NEXT or PlaybackState.ACTION_SKIP_TO_PREVIOUS or PlaybackState.ACTION_STOP)
@@ -176,6 +189,11 @@ class OdifyYoutubePlaybackService:Service() {
         val queue=OdifyYoutubeRuntime.session.value.following
         if(queue.isEmpty()) {command("odifyPause()");return}
         handingOff=true
+        if(queue.first().id.startsWith("youtube:")) {
+            command("odifyPause()")
+            OdifyYoutubeRuntime.play(this,OdifyStreamingLibrary(this).video(queue.first()),queue.drop(1))
+            return
+        }
         val future=MediaController.Builder(this,SessionToken(this,ComponentName(this,OdifyPlaybackService::class.java))).buildAsync()
         future.addListener({runCatching {
             val player=future.get();nativeController=player
@@ -183,7 +201,7 @@ class OdifyYoutubePlaybackService:Service() {
             player.setMediaItems(queue.map {it.mediaItem()},0,0L);player.prepare();player.play()
             player.shuffleModeEnabled=OdifyYoutubeRuntime.session.value.shuffle
             OdifyYoutubeRuntime.session.value=YoutubeSessionState()
-            handler.postDelayed({stopSelf()},2000)
+            handler.postDelayed({if(OdifyYoutubeRuntime.session.value.video==null)stopSelf()},2000)
         }.onFailure {handingOff=false;publish(OdifyYoutubeRuntime.session.value.playback.copy(error="Drive 다음 곡을 연결하지 못했습니다."))}},ContextCompat.getMainExecutor(this))
     }
     override fun onDestroy() {

@@ -586,6 +586,7 @@ private fun NativeOdify() {
     var externalLookupJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     fun playYoutubeVideo(queue: List<YoutubeVideo>, index: Int) {
         if(index !in queue.indices) return
+        OdifyStreamingLibrary(context.applicationContext).remember(queue[index])
         controller?.pause()
         expanded=true
         val drive=songs.filter {it.id.startsWith("gdrive:")}.distinctBy {it.id}
@@ -618,6 +619,11 @@ private fun NativeOdify() {
             return
         }
         if (items.isEmpty() || index !in items.indices) return
+        if(items[index].id.startsWith("youtube:")) {
+            player.pause();expanded=true
+            OdifyYoutubeRuntime.play(context,OdifyStreamingLibrary(context).video(items[index]),items.drop(index+1))
+            return
+        }
         if(youtubeVideo!=null) OdifyYoutubeRuntime.stop(context)
         player.setMediaItems(items.map(OdifySong::mediaItem), index, 0L)
         player.prepare()

@@ -146,7 +146,12 @@ def source_paused(history):
     if not path.exists():return False
     health=history/'source_access.json'
     acknowledged=set(json.loads(health.read_text('utf-8')).get('acknowledged_errors',[])) if health.exists() else set()
+    def transient_transport(error):
+        value=error.casefold()
+        return 'unexpected_eof_while_reading' in value and not any(
+            marker in value for marker in ('not a bot','captcha','sign in','403','429','forbidden','too many requests'))
     return any(m.hashlib.sha256((r.get('id','')+'|'+r.get('error','')).encode()).hexdigest() not in acknowledged
+               and not transient_transport(r.get('error',''))
                and m.w.access_blocked(r.get('error','')) and not m.w.age_restricted(r.get('error',''))
                for r in json.loads(path.read_text('utf-8'))['tracks'])
 
@@ -191,7 +196,11 @@ def run(args):
         # Bounded retry of cataloged album pages; no new unrelated artist crawl.
         result=subprocess.run([sys.executable,'-u','scripts/odify_recent_albums.py','--db',str(args.db),'--catalog-only','--retry-incomplete'],cwd=m.ROOT)
         if result.returncode:print('Metadata retry deferred; using preserved catalog',result.returncode,flush=True)
-    with m.w.single_instance(args.root):rows=prepare(args.db,args.root,args.cutoff)
+    with m.w.single_instance(args.root):
+        if args.resume and (args.root/'chart_status.json').exists():
+            rows=json.loads((args.root/'chart_status.json').read_text('utf-8'))['tracks']
+            apply_album_runtimes(args.root,rows)
+        else:rows=prepare(args.db,args.root,args.cutoff)
     if args.prepare_only:return
     if args.wait_pid:
         spec=importlib.util.spec_from_file_location('album_wait',Path(__file__).with_name('history_background.py'))
@@ -235,6 +244,7 @@ def main():
     p.add_argument('--prepare-only',action='store_true');p.add_argument('--expand-db',action='store_true')
     p.add_argument('--enrich-runtimes',action='store_true')
     p.add_argument('--metadata-only',action='store_true',help='Produce runtime metadata without locking or replacing the audio queue')
+    p.add_argument('--resume',action='store_true',help='Continue the saved album queue without rebuilding all manifests')
     args=p.parse_args();date.fromisoformat(args.cutoff)
     import os
     kernel=None

@@ -35,7 +35,7 @@ data class OdifySong(
 ) {
     val isCloud: Boolean get() = id.startsWith("gdrive:") || sourceUri?.startsWith("https://") == true && !id.startsWith("localfolder:")
     val isPhoneFolder: Boolean get() = id.startsWith("localfolder:")
-    val isOfflineSaved: Boolean get() = !isCloud && (
+    val isOfflineSaved: Boolean get() = !id.startsWith("youtube:") && !isCloud && (
         sourceUri.isNullOrBlank() && filePath.isNotBlank() ||
             (sourceUri?.startsWith("content://com.android.externalstorage.documents/") == true ||
                 sourceUri?.startsWith("content://com.android.providers.media.documents/") == true)
@@ -52,6 +52,8 @@ data class OdifySong(
                 .setAlbumTitle(album)
                     .setExtras(android.os.Bundle().apply {
                         putString("odify.queueEntry", java.util.UUID.randomUUID().toString())
+                        putString("odify.contentMd5",contentMd5)
+                        putLong("odify.duration",durationMs)
                     })
                 .apply {
                     if (!artworkPath.isNullOrBlank()) {

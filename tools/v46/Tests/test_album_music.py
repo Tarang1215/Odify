@@ -56,8 +56,12 @@ class AlbumMusicTests(unittest.TestCase):
             root=Path(tmp);p=root/'chart_status.json'
             p.write_text(json.dumps(dict(tracks=[dict(error='Sign in to confirm your age')])))
             self.assertFalse(m.source_paused(root))
+            p.write_text(json.dumps(dict(tracks=[dict(error='[SSL: UNEXPECTED_EOF_WHILE_READING] Sign in to confirm you are not a bot')])))
+            self.assertTrue(m.source_paused(root))
             p.write_text(json.dumps(dict(tracks=[dict(error="Sign in to confirm you're not a bot")])))
             self.assertTrue(m.source_paused(root))
+            p.write_text(json.dumps(dict(tracks=[dict(error='[SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol')])))
+            self.assertFalse(m.source_paused(root))
 
     def test_cached_link_work_never_calls_source(self):
         with tempfile.TemporaryDirectory() as tmp:

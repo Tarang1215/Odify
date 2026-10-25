@@ -87,6 +87,12 @@ class OdifyPlaybackService : MediaSessionService() {
             override fun onMediaItemTransition(item: MediaItem?, reason: Int) {
                 listeningJob?.cancel()
                 if (item == null) return
+                if(item.mediaId.startsWith("youtube:")) {
+                    player.pause()
+                    val following=(player.currentMediaItemIndex+1 until player.mediaItemCount).map {queueSong(player.getMediaItemAt(it))}
+                    OdifyYoutubeRuntime.play(applicationContext,OdifyStreamingLibrary(applicationContext).video(queueSong(item)),following)
+                    return
+                }
                 val entry = java.util.UUID.randomUUID().toString()
                 // Count actual playing time; seeking to 30 seconds cannot fabricate a listen.
                 listeningJob = listeningScope.launch {

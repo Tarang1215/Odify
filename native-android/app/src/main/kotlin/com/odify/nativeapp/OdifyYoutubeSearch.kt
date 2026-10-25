@@ -30,77 +30,68 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 @Composable
-internal fun OdifyYoutubeSearch(query: String, connected: Boolean, onConnect: () -> Unit,
-    onExternalStarted: () -> Unit, onPlayVideo: (List<YoutubeVideo>,Int) -> Unit) {
-    val context = LocalContext.current
-    val repo = remember { OdifyYoutubeLibrary(context.applicationContext) }
-    var videos by remember { mutableStateOf<List<YoutubeVideo>>(emptyList()) }
-    var loading by remember { mutableStateOf(false) }
-    var error by remember { mutableStateOf("") }
-    val scope = rememberCoroutineScope()
-    var quickJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
-    var retry by remember { mutableIntStateOf(0) }
-    fun opened(success: Boolean) {
-        if (success) onExternalStarted() else error = "YouTube 링크를 열 수 있는 앱이 없습니다."
+internal fun OdifyYoutubeSearch(query:String,connected:Boolean,onConnect:()->Unit,
+    onExternalStarted:()->Unit,onPlayVideo:(List<YoutubeVideo>,Int)->Unit,
+    localSongs:List<OdifySong>,onPlayLocal:(List<OdifySong>,Int)->Unit,onAddSong:(OdifySong)->Unit,
+    includeYoutube:Boolean=true) {
+    val context=LocalContext.current
+    val repo=remember {OdifyYoutubeLibrary(context.applicationContext)}
+    val streaming=remember {OdifyStreamingLibrary(context.applicationContext)}
+    var videos by remember {mutableStateOf<List<YoutubeVideo>>(emptyList())}
+    var loading by remember {mutableStateOf(false)}
+    var error by remember {mutableStateOf("")}
+    var retry by remember {mutableIntStateOf(0)}
+    LaunchedEffect(query.trim(),connected,retry,includeYoutube) {
+        videos=emptyList();error="";loading=false
+        if(!includeYoutube || !connected || query.trim().length<2) return@LaunchedEffect
+        delay(500);loading=true
+        try {videos=repo.search(query.trim().take(160))}
+        catch(cancel:CancellationException){throw cancel}
+        catch(failure:Exception){error=failure.message ?: "YouTube 검색 연결을 확인해 주세요."}
+        finally {loading=false}
     }
-    LaunchedEffect(query.trim(), connected, retry) {
-        quickJob?.cancel()
-        videos = emptyList(); error = ""; loading = false
-        if (!connected || query.trim().length < 2) return@LaunchedEffect
-        delay(900)
-        loading = true
-        try { videos = repo.search(query.trim().take(160)) }
-        catch (cancel: CancellationException) { throw cancel }
-        catch (failure: Exception) { error = failure.message ?: "검색을 불러오지 못했어요. YouTube 앱에서 검색해 주세요." }
-        finally { loading = false }
-    }
-    Column(Modifier.fillMaxSize()) {
-        Text("Odify 안에서 YouTube 재생", style = MaterialTheme.typography.bodySmall,
-            color = OdifyPalette.muted)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (!connected) TextButton(onClick = onConnect) { Text("YouTube 연결") }
-            if (connected && query.trim().length >= 2) TextButton(enabled = !loading, onClick = {
-                quickJob = scope.launch {
-                    loading = true; error = ""
-                    try {
-                        val results = repo.search(OdifyYoutubeQuickPlay.query("", query.trim()))
-                        videos = results
-                        val chosen = OdifyYoutubeQuickPlay.first(results)
-                        if (chosen != null) onPlayVideo(listOf(chosen),0)
-                        else error = "재생할 후보가 없어요. 검색 결과에서 직접 선택해 주세요."
-                    } catch (cancel: CancellationException) { throw cancel }
-                    catch (failure: Exception) { error = failure.message ?: "빠른 재생 검색을 불러오지 못했어요." }
-                    finally { loading = false }
-                }
-            }) { Text("가사 영상 바로 재생") }
-            if (query.isNotBlank()) TextButton(onClick = {
-                opened(OdifyExternalYoutube.openSearch(context, query.take(160)))
-            }) { Text("YouTube 앱에서 검색") }
+    LazyColumn(contentPadding=PaddingValues(bottom=155.dp)) {
+        items(localSongs,key={it.id}) {song ->
+            ListItem(headlineContent={Text(song.title,maxLines=1,overflow=TextOverflow.Ellipsis,color=OdifyPalette.text)},
+                supportingContent={Text((if(song.id.startsWith("gdrive:")) "Drive · " else "내 음악 · ")+song.artist,
+                    maxLines=1,overflow=TextOverflow.Ellipsis,color=OdifyPalette.muted)},
+                leadingContent={AlbumArt(song,Modifier.size(52.dp),radius=RoundedCornerShape(12.dp),fallbackKey=song.id.hashCode())},
+                trailingContent={IconButton(onClick={onAddSong(song)}) {Icon(Icons.Default.PlaylistAdd,"플레이리스트에 추가",tint=OdifyPalette.muted)}},
+                colors=ListItemDefaults.colors(containerColor=OdifyPalette.background),
+                modifier=Modifier.clip(RoundedCornerShape(14.dp)).clickable {onPlayLocal(localSongs,localSongs.indexOf(song))})
         }
-        if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
-        if (error.isNotBlank()) {
-            Text(error, style = MaterialTheme.typography.bodySmall, color = OdifyPalette.muted)
-            TextButton(onClick={retry++}) {Text("다시 검색")}
-        }
-        if (query.trim().length < 2) Text("노래나 아티스트를 입력해 주세요.", color = OdifyPalette.muted)
-        else if (!loading && connected && videos.isEmpty() && error.isBlank()) Text("검색 결과가 없습니다.", color = OdifyPalette.muted)
-        LazyColumn(contentPadding = PaddingValues(bottom = 155.dp)) {
-            items(videos, key = { it.videoId }) { video ->
-                Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable {
-                    onPlayVideo(listOf(video),0)
-                }.padding(vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
-                    YoutubeSearchCover(video.videoId, Modifier.size(64.dp))
-                    Spacer(Modifier.width(12.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(video.title, maxLines = 2, overflow = TextOverflow.Ellipsis, color = OdifyPalette.text)
-                        Text(video.channel, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                            style = MaterialTheme.typography.bodySmall, color = OdifyPalette.muted)
-                    }
-                    IconButton(onClick={opened(OdifyExternalYoutube.openVideo(context,video.videoId))}) {
-                        Icon(Icons.Default.OpenInNew, "YouTube 앱에서 열기", tint = OdifyPalette.muted,modifier=Modifier.size(18.dp))
-                    }
+        if(includeYoutube && query.trim().length>=2) {
+            item {
+                Spacer(Modifier.height(12.dp))
+                Text("YouTube",style=MaterialTheme.typography.titleSmall,color=OdifyPalette.text)
+                if(!connected) TextButton(onClick=onConnect){Text("연결해서 함께 검색")}
+                if(loading) LinearProgressIndicator(Modifier.fillMaxWidth().padding(vertical=8.dp))
+                if(error.isNotBlank()) {
+                    Text(error,color=OdifyPalette.muted,style=MaterialTheme.typography.bodySmall)
+                    TextButton(onClick={retry++}){Text("다시 검색")}
                 }
             }
+            items(videos,key={"youtube:"+it.videoId}) {video ->
+                Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable {
+                    streaming.remember(video);onPlayVideo(listOf(video),0)
+                }.padding(vertical=9.dp),verticalAlignment=Alignment.CenterVertically) {
+                    YoutubeSearchCover(video.videoId,Modifier.size(52.dp))
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(video.title,maxLines=2,overflow=TextOverflow.Ellipsis,color=OdifyPalette.text)
+                        Text(video.channel,maxLines=1,overflow=TextOverflow.Ellipsis,
+                            style=MaterialTheme.typography.bodySmall,color=OdifyPalette.muted)
+                    }
+                    IconButton(onClick={
+                        streaming.remember(video)
+                        streaming.find("youtube:"+video.videoId)?.let(onAddSong)
+                    }) {Icon(Icons.Default.PlaylistAdd,"플레이리스트에 추가",tint=OdifyPalette.muted)}
+                }
+            }
+        }
+        if(localSongs.isEmpty() && videos.isEmpty() && !loading && error.isBlank()) item {
+            Text(if(query.isBlank()) "노래나 아티스트를 검색해 주세요." else "일치하는 검색 결과가 없습니다.",
+                color=OdifyPalette.muted,modifier=Modifier.padding(vertical=24.dp))
         }
     }
 }

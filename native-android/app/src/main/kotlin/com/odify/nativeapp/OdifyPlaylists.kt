@@ -10,6 +10,7 @@ data class OdifyPlaylist(val id: String, val name: String, val songIds: List<Str
 
 /** Single-user local playlist catalog; never confuses Drive/phone-folder origins. */
 class OdifyPlaylists(context: Context) {
+    private val streaming=OdifyStreamingLibrary(context.applicationContext)
     private val prefs = context.getSharedPreferences("odify_playlists_v1", Context.MODE_PRIVATE)
     private val key = "playlists"
 
@@ -91,6 +92,6 @@ class OdifyPlaylists(context: Context) {
     }
 
     fun resolved(playlist: OdifyPlaylist, songs: List<OdifySong>): List<OdifySong> {
-        return OdifySongPresentation.visible(playlist.songIds.mapNotNull {OdifyChartMatching.storedReference(it,songs)})
+        return OdifySongPresentation.visible(playlist.songIds.mapNotNull {OdifyChartMatching.storedReference(it,songs) ?: streaming.find(it)})
     }
 }

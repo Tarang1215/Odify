@@ -127,14 +127,20 @@ internal object OdifyGlassLens {
             return length(max(q,0.0))+min(max(q.x,q.y),0.0)-r;
         }
         float distanceToSurface(float2 p) {
-            if(split<0.02) return capsule(p,bounds*0.5,bounds*0.5,corner);
+            float whole=capsule(p,bounds*0.5,bounds*0.5,corner);
+            if(split<=0.2) return whole;
             float right=min(rightWidth,bounds.x*0.6);
             float left=bounds.x-right-gap;
             float a=capsule(p,float2(left*0.5,bounds.y*0.5),float2(left*0.5,bounds.y*0.5),bounds.y*0.5);
             float b=capsule(p,float2(bounds.x-right*0.5,bounds.y*0.5),float2(right*0.5,bounds.y*0.5),min(right,bounds.y)*0.5);
-            float k=bounds.y*0.34*(1.0-smoothstep(0.2,0.84,split));
-            float blend=max(k-abs(a-b),0.0)/max(k,0.001);
-            return min(a,b)-blend*blend*k*0.25;
+            float t=smoothstep(0.2,0.84,split);
+            float neck=bounds.y*0.5*(1.0-t);
+            // The optical surface has a bridge too. Using two disconnected
+            // capsules while the outline is joined creates a false inner rim.
+            float bridge=capsule(p,float2(left+gap*0.5,bounds.y*0.5),
+                float2(gap*0.5+bounds.y*0.5,neck),max(0.001,neck));
+            float joined=min(min(a,b),bridge);
+            return mix(whole,joined,t);
         }
         half4 main(float2 coord) {
             float2 p=coord-origin;
