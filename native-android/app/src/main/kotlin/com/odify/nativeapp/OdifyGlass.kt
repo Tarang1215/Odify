@@ -45,12 +45,14 @@ fun Modifier.recordOdifyBackdrop(backdrop: OdifyBackdrop): Modifier =
     }
 
 /** Replays the real page region through a bounded blur layer; foreground stays sharp. */
-fun Modifier.odifyGlass(backdrop: OdifyBackdrop, shape: Shape,glow:Color=Color.Transparent): Modifier = composed {
+fun Modifier.odifyGlass(backdrop: OdifyBackdrop, shape: Shape,glow:Color=Color.Transparent,split:Float=0f): Modifier = composed {
     var coordinates by remember {mutableStateOf<LayoutCoordinates?>(null)}
     val crop=rememberGraphicsLayer()
     val radius=with(LocalDensity.current) {24.dp.toPx()}
     val bleed=ceil(radius*2).toInt()
     val effect=remember(radius) {BlurEffect(radius,radius,TileMode.Clamp)}
+    val lens=remember {if(Build.VERSION.SDK_INT>=33) runCatching {android.graphics.RuntimeShader(OdifyGlassLens.source)}.getOrNull() else null}
+    val lensCache=remember {OdifyLensCache()}
     clip(shape).onGloballyPositioned {coordinates=it}.drawWithContent {
         @Suppress("UNUSED_VARIABLE") val frame=backdrop.frame
         val target=coordinates?.takeIf {it.isAttached}
@@ -59,7 +61,25 @@ fun Modifier.odifyGlass(backdrop: OdifyBackdrop, shape: Shape,glow:Color=Color.T
             // Convert the live coordinates, including ancestor translations.
             // Clipped boundsInRoot() loses the offscreen part during a spring.
             val offset=source.localPositionOf(target,Offset.Zero)
-            crop.renderEffect=effect
+            if(Build.VERSION.SDK_INT>=33 && lens!=null) {
+                val outline=shape.createOutline(size,layoutDirection,this)
+                val corner=(outline as? Outline.Rounded)?.roundRect?.topLeftCornerRadius?.x ?: size.height/2
+                if(lensCache.size!=size || lensCache.corner!=corner || lensCache.split!=split) {
+                lens.setFloatUniform("origin",bleed.toFloat(),bleed.toFloat())
+                lens.setFloatUniform("bounds",size.width,size.height)
+                lens.setFloatUniform("corner",corner.coerceAtMost(size.height/2))
+                lens.setFloatUniform("depth",10.dp.toPx())
+                lens.setFloatUniform("strength",7.dp.toPx())
+                lens.setFloatUniform("split",split.coerceIn(0f,1f))
+                lens.setFloatUniform("rightWidth",120.dp.toPx())
+                lens.setFloatUniform("gap",8.dp.toPx())
+                lensCache.effect=android.graphics.RenderEffect.createChainEffect(
+                    android.graphics.RenderEffect.createRuntimeShaderEffect(lens,"content"),
+                    android.graphics.RenderEffect.createBlurEffect(radius,radius,android.graphics.Shader.TileMode.CLAMP)).asComposeRenderEffect()
+                lensCache.size=size;lensCache.corner=corner;lensCache.split=split
+                }
+                crop.renderEffect=lensCache.effect
+            } else crop.renderEffect=effect
             crop.record(size=IntSize(ceil(size.width).toInt()+bleed*2,
                 ceil(size.height).toInt()+bleed*2)) {
                 // The snapshot must be opaque. Blurring transparent glyphs
@@ -72,9 +92,9 @@ fun Modifier.odifyGlass(backdrop: OdifyBackdrop, shape: Shape,glow:Color=Color.T
             translate(-bleed.toFloat(),-bleed.toFloat()) {drawLayer(crop)}
         } else drawRect(Color(0xE82B2E35))
         // A mild neutral tint preserves the blurred artwork's actual colors.
-        drawRect(Color.Black.copy(alpha=.18f))
-        drawRect(Brush.linearGradient(listOf(Color.White.copy(alpha=.17f),
-            Color.White.copy(alpha=.025f),Color.White.copy(alpha=.08f)),
+        drawRect(Color.Black.copy(alpha=.12f))
+        drawRect(Brush.linearGradient(listOf(Color.White.copy(alpha=.14f),
+            Color.White.copy(alpha=.015f),Color.White.copy(alpha=.07f)),
             start=Offset.Zero,end=Offset(size.width,size.height)))
         if(glow.alpha>0f) drawRect(Brush.radialGradient(listOf(glow.copy(alpha=.28f),
             glow.copy(alpha=.09f),Color.Transparent),
@@ -82,4 +102,53 @@ fun Modifier.odifyGlass(backdrop: OdifyBackdrop, shape: Shape,glow:Color=Color.T
         drawContent()
     }.border(.7.dp,Brush.verticalGradient(listOf(Color.White.copy(alpha=.34f),
         Color.White.copy(alpha=.08f),Color.White.copy(alpha=.19f))),shape)
+}
+
+/** Original AGSL lens: the sampled page bends at the surface edge, text stays sharp. */
+internal object OdifyGlassLens {
+    const val source="""
+        uniform shader content;
+        uniform float2 origin;
+        uniform float2 bounds;
+        uniform float corner;
+        uniform float depth;
+        uniform float strength;
+        uniform float split;
+        uniform float rightWidth;
+        uniform float gap;
+        float capsule(float2 p,float2 center,float2 halfSize,float r) {
+            float2 q=abs(p-center)-halfSize+r;
+            return length(max(q,0.0))+min(max(q.x,q.y),0.0)-r;
+        }
+        float distanceToSurface(float2 p) {
+            if(split<0.02) return capsule(p,bounds*0.5,bounds*0.5,corner);
+            float right=min(rightWidth*split,bounds.x*0.44);
+            float left=bounds.x-right-gap*split;
+            float a=capsule(p,float2(left*0.5,bounds.y*0.5),float2(left*0.5,bounds.y*0.5),bounds.y*0.5);
+            float b=capsule(p,float2(bounds.x-right*0.5,bounds.y*0.5),float2(right*0.5,bounds.y*0.5),min(right,bounds.y)*0.5);
+            return min(a,b);
+        }
+        half4 main(float2 coord) {
+            float2 p=coord-origin;
+            float d=distanceToSurface(p);
+            float rim=pow(clamp(1.0+d/max(depth,1.0),0.0,1.0),2.0);
+            float2 normal=float2(distanceToSurface(p+float2(0.5,0.0))-distanceToSurface(p-float2(0.5,0.0)),
+                distanceToSurface(p+float2(0.0,0.5))-distanceToSurface(p-float2(0.0,0.5)));
+            normal=normal/max(length(normal),0.001);
+            float2 bend=normal*strength*rim;
+            half4 c=content.eval(coord+bend);
+            c.r=content.eval(coord+bend*1.035).r;
+            c.b=content.eval(coord+bend*0.965).b;
+            float shine=pow(max(dot(normal,normalize(float2(-0.6,-0.8))),0.0),3.0)*rim;
+            c.rgb+=half3(shine*0.11);
+            return c;
+        }
+    """
+}
+
+private class OdifyLensCache {
+    var size=androidx.compose.ui.geometry.Size.Zero
+    var corner=Float.NaN
+    var split=Float.NaN
+    var effect:RenderEffect?=null
 }

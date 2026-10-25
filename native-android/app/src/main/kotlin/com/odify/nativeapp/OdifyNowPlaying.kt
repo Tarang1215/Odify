@@ -95,7 +95,9 @@ fun OdifyNowPlaying(
     onAddToPlaylist: () -> Unit,
     onSaveDevice: () -> Unit,
     onAudioRequest: (String, String, String) -> Unit,
-    onDragProgress: (Float) -> Unit = {}
+    onDragProgress: (Float) -> Unit = {},
+    externalPlayback: Boolean = false,
+    onOpenExternal: () -> Unit = {}
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -247,6 +249,10 @@ fun OdifyNowPlaying(
                             expanded = actionsOpen,
                             onDismissRequest = { actionsOpen = false }
                         ) {
+                            if(externalPlayback) DropdownMenuItem(
+                                text={Text("YouTube 앱에서 열기")},leadingIcon={Icon(Icons.Default.OpenInNew,null)},
+                                onClick={actionsOpen=false;onOpenExternal()})
+                            if(!externalPlayback) {
                             DropdownMenuItem(
                                 text = { Text("플레이리스트에 추가") },
                                 leadingIcon = { Icon(Icons.Default.PlaylistAdd, null) },
@@ -262,6 +268,7 @@ fun OdifyNowPlaying(
                                 leadingIcon = { Icon(Icons.Default.ReportProblem, null) },
                                 onClick = { actionsOpen = false; audioRequestOpen = true }
                             )
+                            }
                             DropdownMenuItem(
                                 text = { Text("곡 정보") },
                                 leadingIcon = { Icon(Icons.Default.Info, null) },
@@ -497,7 +504,7 @@ fun OdifyNowPlaying(
                     Text("제목: ${song.title}")
                     Text("아티스트: ${song.artist.ifBlank { "정보 없음" }}")
                     Text("앨범: ${song.album.ifBlank { "정보 없음" }}")
-                    Text("재생 위치: " + if (song.isCloud) "Google Drive"
+                    Text("재생 위치: " + if (externalPlayback) "YouTube" else if (song.isCloud) "Google Drive"
                         else if (song.isPhoneFolder) "휴대폰 폴더" else "오프라인 보관함")
                 }
             },

@@ -12,6 +12,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.unit.dp
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.darkColorScheme
@@ -114,8 +117,24 @@ private fun NativeOdify() {
     var controller by remember { mutableStateOf<MediaController?>(null) }
     var playback by remember { mutableStateOf(OdifyPlaybackSnapshot()) }
     var expanded by remember { mutableStateOf(false) }
-    var youtubeQueue by remember { mutableStateOf<List<YoutubeVideo>>(emptyList()) }
-    var youtubeQueueIndex by remember { mutableIntStateOf(0) }
+    val youtubeSession by OdifyYoutubeRuntime.session.collectAsState()
+    val youtubeVideo=youtubeSession.video
+    val youtubeState=youtubeSession.playback
+    fun webCommand(js:String) {OdifyYoutubeRuntime.command(js)}
+    val youtubeCover by produceState<String?>(null,youtubeVideo?.videoId) {
+        value=null
+        youtubeVideo?.let {value=youtubeArtwork(context.applicationContext,it.videoId)}
+    }
+    val youtubeSong=youtubeVideo?.let {OdifySong("youtube:${it.videoId}",it.title,it.channel,"YouTube","",
+        artworkPath=youtubeCover,durationMs=youtubeState.duration)}
+    val visiblePlayback=if(youtubeSong==null) playback else OdifyPlaybackSnapshot(
+        mediaId=youtubeSong.id,isPlaying=youtubeState.playing,position=youtubeState.position,duration=youtubeState.duration,
+        queueIds=listOf(youtubeSong.id)+youtubeSession.following.map {it.id},currentQueueIndex=0,
+        nextMediaId=youtubeSession.following.firstOrNull()?.id,
+        shuffleEnabled=youtubeSession.shuffle,repeatOne=youtubeSession.repeat)
+    LaunchedEffect(youtubeState.error) {
+        if(youtubeState.error.isNotBlank()) Toast.makeText(context,youtubeState.error,Toast.LENGTH_LONG).show()
+    }
     var importing by remember { mutableStateOf(false) }
     var uploadingToDrive by remember { mutableStateOf(false) }
     var uploadStatus by remember { mutableStateOf("선택한 음악만 Drive에 저장합니다.") }
@@ -568,9 +587,12 @@ private fun NativeOdify() {
     fun playYoutubeVideo(queue: List<YoutubeVideo>, index: Int) {
         if(index !in queue.indices) return
         controller?.pause()
-        expanded=false
-        youtubeQueueIndex=index
-        youtubeQueue=queue
+        expanded=true
+        val drive=songs.filter {it.id.startsWith("gdrive:")}.distinctBy {it.id}
+        val likes=context.getSharedPreferences("odify_native_ui",0).getStringSet("likes",emptySet()).orEmpty()
+        val following=OdifyRecommendations.mixes(drive,likes,OdifyListeningStore(context.applicationContext).signals())
+            .firstOrNull()?.songs?.take(20).orEmpty().ifEmpty {drive.take(20)}
+        OdifyYoutubeRuntime.play(context,queue[index],following)
     }
     fun playExternalTrack(artist: String, title: String) {
         externalLookupJob?.cancel()
@@ -596,6 +618,7 @@ private fun NativeOdify() {
             return
         }
         if (items.isEmpty() || index !in items.indices) return
+        if(youtubeVideo!=null) OdifyYoutubeRuntime.stop(context)
         player.setMediaItems(items.map(OdifySong::mediaItem), index, 0L)
         player.prepare()
         player.play()
@@ -632,12 +655,16 @@ private fun NativeOdify() {
         insets.isAppearanceLightNavigationBars = false
     }
 
+    Box(Modifier.fillMaxSize()) {
+    if(youtubeVideo!=null) OdifyYoutubeWebHost(Modifier.size(240.dp))
     if (startup) {
         OdifySplash()
     } else {
         OdifyRoot(
             songs = songs,
-            playback = playback,
+            playback = visiblePlayback,
+            externalSong = youtubeSong,
+            onOpenExternalVideo = {youtubeVideo?.let {OdifyExternalYoutube.openVideo(context,it.videoId)}},
             driveConnected = driveConnected,
             driveBusy = driveBusy,
             driveStatus = driveStatus,
@@ -704,7 +731,11 @@ private fun NativeOdify() {
             },
             onPlay = { list, index -> playFrom(list, index) },
             onMoveQueue = { from, to ->
-                controller?.let { player ->
+                if(youtubeVideo!=null && from>0 && to>0 && from<=youtubeSession.following.size && to<=youtubeSession.following.size) {
+                    val list=youtubeSession.following.toMutableList();list.add(to-1,list.removeAt(from-1))
+                    OdifyYoutubeRuntime.session.value=youtubeSession.copy(following=list)
+                }
+                if(youtubeVideo==null) controller?.let { player ->
                     if (from in 0 until player.mediaItemCount &&
                         to in 0 until player.mediaItemCount && from != to) {
                         // A manually sorted Media3 queue must be the actual
@@ -722,22 +753,23 @@ private fun NativeOdify() {
             },
             onPlayYoutubeMatched = { matchedQueue,index -> playFrom(matchedQueue,index) },
             onSelectQueue = { index ->
-                controller?.let { player ->
+                if(youtubeVideo!=null) {if(index==0) webCommand("odifySeek(0);odifyPlay()") else if(index-1 in youtubeSession.following.indices) playFrom(youtubeSession.following,index-1)}
+                else controller?.let { player ->
                     if (index in 0 until player.mediaItemCount) {
                         player.seekToDefaultPosition(index)
                         player.play()
                     }
                 }
             },
-            onTogglePlayback = { toggle() },
-            onPrevious = { controller?.seekToPreviousMediaItem() },
-            onNext = { controller?.seekToNextMediaItem() },
-            onSeek = { progress -> controller?.seekTo(progress) },
+            onTogglePlayback = { if(youtubeVideo!=null) webCommand(if(youtubeState.playing) "odifyPause()" else "odifyPlay()") else toggle() },
+            onPrevious = { if(youtubeVideo!=null) webCommand("odifySeek(0)") else controller?.seekToPreviousMediaItem() },
+            onNext = { if(youtubeVideo!=null) {if(youtubeSession.following.isNotEmpty()) playFrom(youtubeSession.following,0)} else controller?.seekToNextMediaItem() },
+            onSeek = { progress -> if(youtubeVideo!=null) webCommand("odifySeek(${progress.coerceAtLeast(0)/1000.0})") else controller?.seekTo(progress) },
             onShuffle = {
-                controller?.shuffleModeEnabled = !(controller?.shuffleModeEnabled ?: false)
+                if(youtubeVideo!=null) OdifyYoutubeRuntime.session.value=youtubeSession.copy(shuffle=!youtubeSession.shuffle) else controller?.shuffleModeEnabled = !(controller?.shuffleModeEnabled ?: false)
             },
             onRepeat = {
-                controller?.repeatMode =
+                if(youtubeVideo!=null) OdifyYoutubeRuntime.session.value=youtubeSession.copy(repeat=!youtubeSession.repeat) else controller?.repeatMode =
                     if (controller?.repeatMode == androidx.media3.common.Player.REPEAT_MODE_ONE)
                         androidx.media3.common.Player.REPEAT_MODE_OFF
                     else androidx.media3.common.Player.REPEAT_MODE_ONE
@@ -821,7 +853,6 @@ private fun NativeOdify() {
                 }
             }
         )
-        if(youtubeQueue.isNotEmpty()) OdifyYoutubeWebPlayer(youtubeQueue,youtubeQueueIndex,
-            onDismiss={youtubeQueue=emptyList()},onPlaybackStarted={controller?.pause()})
+    }
     }
 }

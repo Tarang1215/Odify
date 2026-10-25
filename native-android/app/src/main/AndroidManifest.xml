@@ -33,6 +33,10 @@
             </intent-filter>
         </activity>
         <service
+            android:name=".OdifyYoutubePlaybackService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
+        <service
             android:name=".OdifyPlaybackService"
             android:exported="true"
             android:foregroundServiceType="mediaPlayback">

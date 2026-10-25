@@ -210,6 +210,8 @@ fun AlbumArt(
 fun OdifyRoot(
     songs: List<OdifySong>,
     playback: OdifyPlaybackSnapshot,
+    externalSong: OdifySong? = null,
+    onOpenExternalVideo: () -> Unit = {},
     driveConnected: Boolean,
     driveBusy: Boolean,
     driveStatus: String,
@@ -329,7 +331,7 @@ fun OdifyRoot(
     }
     // Navigation state is gesture-driven and the mini-player is a separate surface.
 
-    val songIndex = remember(songs) { songs.associateBy(OdifySong::id) }
+    val songIndex = remember(songs,externalSong) { (songs+listOfNotNull(externalSong)).associateBy(OdifySong::id) }
     val active = songIndex[playback.mediaId]
     val artworkPalette=rememberArtworkPalette(active?.artworkPath)
     val artworkGlow=artworkPalette.first()
@@ -545,7 +547,7 @@ fun OdifyRoot(
                         onExpandedChange(true)
                     },
                     onToggle = onTogglePlayback,
-                    onLike = { toggleLike(active.id) })
+                    onLike = { toggleLike(active.id) },onPrevious=onPrevious,onNext=onNext)
             }
         }
 
@@ -628,6 +630,8 @@ fun OdifyRoot(
                     onAddToPlaylist = { playlistDialogTrack = active },
                     onSaveDevice = { onSaveDevice(active) },
                     onAudioRequest = { kind, link, reason -> onAudioRequest(active, kind, link, reason) },
+                    externalPlayback=active.id.startsWith("youtube:"),
+                    onOpenExternal=onOpenExternalVideo,
                     onDragProgress = { playerDragFraction = it }
                 )
             }
@@ -782,97 +786,78 @@ private fun OdifyPageHeader(
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun OdifyMiniPlayer(
-    song: OdifySong,
-    playing: Boolean,
-    liked: Boolean,
-    backdrop: OdifyBackdrop,
-    glow:Color,
-    compact: Boolean,
-    onCompactChange: (Boolean) -> Unit,
-    onExpand: (Rect?) -> Unit,
-    onToggle: () -> Unit,
-    onLike: () -> Unit
+    song: OdifySong, playing: Boolean, liked: Boolean, backdrop: OdifyBackdrop, glow:Color,
+    compact: Boolean, onCompactChange: (Boolean) -> Unit, onExpand: (Rect?) -> Unit,
+    onToggle: () -> Unit, onLike: () -> Unit, onPrevious: () -> Unit, onNext: () -> Unit
 ) {
-    var coordinates by remember { mutableStateOf<androidx.compose.ui.layout.LayoutCoordinates?>(null) }
+    var coordinates by remember {mutableStateOf<androidx.compose.ui.layout.LayoutCoordinates?>(null)}
     val expandAction by rememberUpdatedState(onExpand)
     val wobble=remember {Animatable(0f)}
-    val wobbleScope=rememberCoroutineScope()
+    val scope=rememberCoroutineScope()
     val titleStyle=TextStyle(fontSize=12.sp,fontWeight=FontWeight.SemiBold)
     val titleMeasurer=rememberTextMeasurer()
-    val measuredTitle=titleMeasurer.measure(song.title,style=titleStyle,maxLines=1,softWrap=false)
-    val titleWidth=with(LocalDensity.current) {measuredTitle.size.width.toDp()}
+    val measured=titleMeasurer.measure(song.title,style=titleStyle,maxLines=1,softWrap=false)
+    val titleWidth=with(LocalDensity.current){measured.size.width.toDp()}
+    val split by animateFloatAsState(if(compact)0f else 1f,spring(dampingRatio=.82f,stiffness=650f),label="droplet-split")
     BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal=11.dp,vertical=5.dp),contentAlignment=Alignment.Center) {
-    // Bounded organic sizing: short titles avoid a hollow center; long titles
-    // retain breathing room and marquee instead of creating a screen-wide pill.
-    val compactWidth=(titleWidth+110.dp).coerceIn(168.dp,216.dp).coerceAtMost(maxWidth)
-    val width by animateDpAsState(if(compact) compactWidth else maxWidth,spring(dampingRatio=.88f,stiffness=420f),label="island-width")
-    val height by animateDpAsState(if(compact) 43.dp else 56.dp,spring(dampingRatio=.88f,stiffness=420f),label="island-height")
-    Row(
-        Modifier.width(width).height(height)
-            .onGloballyPositioned { coordinates = it }
-            .graphicsLayer {
-                scaleX=1f+wobble.value*.012f
-                scaleY=1f-wobble.value*.018f
-                rotationZ=wobble.value*.12f
-            }
-            .shadow(10.dp, RoundedCornerShape(22.dp),ambientColor=glow.copy(alpha=.28f),spotColor=glow.copy(alpha=.24f))
-            .odifyGlass(backdrop,RoundedCornerShape(22.dp),glow)
-            // Initial-pass down is immediate, unlike delayed clickable press
-            // interactions inside a scroll container or release-time onClick.
+        val compactWidth=(titleWidth+110.dp).coerceIn(168.dp,216.dp).coerceAtMost(maxWidth)
+        val width by animateDpAsState(if(compact)compactWidth else maxWidth,spring(dampingRatio=.86f,stiffness=650f),label="island-width")
+        val height by animateDpAsState(if(compact)43.dp else 56.dp,spring(dampingRatio=.86f,stiffness=650f),label="island-height")
+        val shape=remember(split){OdifyDropletShape(split)}
+        Box(Modifier.width(width).height(height).onGloballyPositioned{coordinates=it}
+            .graphicsLayer {scaleX=1f+wobble.value*.010f;scaleY=1f-wobble.value*.017f;rotationZ=wobble.value*.10f}
+            .shadow(9.dp,shape,ambientColor=glow.copy(alpha=.25f),spotColor=glow.copy(alpha=.22f))
+            .odifyGlass(backdrop,shape,glow,split)
             .pointerInput(Unit) {
                 awaitEachGesture {
                     awaitFirstDown(requireUnconsumed=false,pass=PointerEventPass.Initial)
-                    wobbleScope.launch {wobble.snapTo(1f)}
-                    do {
-                        val event=awaitPointerEvent(PointerEventPass.Initial)
-                    } while(event.changes.any {it.pressed})
-                    wobbleScope.launch {wobble.animateTo(0f,spring(dampingRatio=.8f,stiffness=1100f))}
+                    scope.launch {wobble.snapTo(1f)}
+                    do {val event=awaitPointerEvent(PointerEventPass.Initial)} while(event.changes.any{it.pressed})
+                    scope.launch {wobble.animateTo(0f,spring(dampingRatio=.82f,stiffness=1250f))}
                 }
             }
             .combinedClickable(onClick={onCompactChange(!compact)},onLongClick={})
             .pointerInput(Unit) {
                 var drag=0f
                 detectVerticalDragGestures(onDragStart={drag=0f},onDragCancel={drag=0f},
-                    onDragEnd={if(drag < -28.dp.toPx()) {
-                        expandAction(coordinates?.takeIf {it.isAttached}?.boundsInRoot())
-                    }},onVerticalDrag={change,delta -> change.consume();drag+=delta})
+                    onDragEnd={if(drag< -28.dp.toPx())expandAction(coordinates?.takeIf{it.isAttached}?.boundsInRoot())},
+                    onVerticalDrag={change,delta->change.consume();drag+=delta})
+            },contentAlignment=Alignment.Center) {
+            Row(Modifier.fillMaxSize().padding(horizontal=8.dp),verticalAlignment=Alignment.CenterVertically) {
+                AlbumArt(song,Modifier.size(if(compact)29.dp else 40.dp).clickable(onClickLabel="전체 재생 화면 열기") {
+                    expandAction(coordinates?.takeIf{it.isAttached}?.boundsInRoot())
+                }.semantics{contentDescription="전체 재생 화면 열기"},radius=CircleShape,fallbackKey=song.id.hashCode())
+                Spacer(Modifier.width(9.dp))
+                if(compact) {
+                    Text(song.title,modifier=Modifier.weight(1f).basicMarquee(iterations=Int.MAX_VALUE,
+                        initialDelayMillis=2200,repeatDelayMillis=1800,spacing=MarqueeSpacing(24.dp),velocity=24.dp),
+                        maxLines=1,fontSize=12.sp,color=ink,fontWeight=FontWeight.SemiBold)
+                    Spacer(Modifier.width(8.dp))
+                    Box(Modifier.size(37.dp).clickable(onClick=onToggle),contentAlignment=Alignment.Center) {
+                        Box(Modifier.size(29.dp).clip(CircleShape).background(ink),contentAlignment=Alignment.Center) {
+                            Icon(if(playing)Icons.Default.Pause else Icons.Default.PlayArrow,"재생·일시정지",tint=white,modifier=Modifier.size(21.dp))
+                        }
+                    }
+                } else {
+                    Column(Modifier.weight(1f)) {
+                        Text(song.title,modifier=Modifier.basicMarquee(iterations=Int.MAX_VALUE,initialDelayMillis=2200,repeatDelayMillis=1800,velocity=24.dp),
+                            maxLines=1,fontSize=12.sp,color=ink,fontWeight=FontWeight.SemiBold)
+                        if(song.artist.isNotBlank())Text(song.artist,fontSize=10.sp,maxLines=1,overflow=TextOverflow.Ellipsis,color=ink.copy(alpha=.69f))
+                    }
+                    IconButton(onClick=onLike,modifier=Modifier.size(31.dp)) {
+                        Icon(if(liked)Icons.Default.Favorite else Icons.Default.FavoriteBorder,"좋아요",tint=ink,modifier=Modifier.size(18.dp))
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    Row(Modifier.width(112.dp).graphicsLayer {alpha=split.coerceIn(0f,1f)},horizontalArrangement=Arrangement.SpaceEvenly,verticalAlignment=Alignment.CenterVertically) {
+                        IconButton(onClick=onPrevious,modifier=Modifier.size(33.dp)){Icon(Icons.Default.SkipPrevious,"이전 곡",tint=ink,modifier=Modifier.size(21.dp))}
+                        Box(Modifier.size(36.dp).clip(CircleShape).background(ink).clickable(onClick=onToggle),contentAlignment=Alignment.Center) {
+                            Icon(if(playing)Icons.Default.Pause else Icons.Default.PlayArrow,"재생·일시정지",tint=white,modifier=Modifier.size(23.dp))
+                        }
+                        IconButton(onClick=onNext,modifier=Modifier.size(33.dp)){Icon(Icons.Default.SkipNext,"다음 곡",tint=ink,modifier=Modifier.size(21.dp))}
+                    }
+                }
             }
-            .padding(horizontal = 8.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        AlbumArt(song, Modifier.size(if(compact) 29.dp else 41.dp)
-            .clickable(onClickLabel="전체 재생 화면 열기") {
-                expandAction(coordinates?.takeIf {it.isAttached}?.boundsInRoot())
-            }.semantics {contentDescription="전체 재생 화면 열기"},
-            radius = if(compact) CircleShape else RoundedCornerShape(10.dp),
-            fallbackKey = song.id.hashCode())
-        Spacer(Modifier.width(10.dp))
-        if(compact) {
-            Text(song.title,modifier=Modifier.weight(1f).basicMarquee(
-                iterations=Int.MAX_VALUE,initialDelayMillis=2200,repeatDelayMillis=1800,
-                spacing=MarqueeSpacing(24.dp),velocity=24.dp),
-                maxLines=1,fontSize=12.sp,color=ink,fontWeight=FontWeight.SemiBold)
-            Spacer(Modifier.width(8.dp))
-        } else Column(Modifier.weight(1f)) {
-            Text(song.title, modifier=Modifier.basicMarquee(iterations=Int.MAX_VALUE,
-                initialDelayMillis=2200,repeatDelayMillis=1800,velocity=24.dp),maxLines = 1,
-                fontSize = 12.sp, color = ink, fontWeight = FontWeight.SemiBold)
-            if (song.artist.isNotBlank()) Text(song.artist, fontSize = 10.sp,
-                maxLines = 1, overflow = TextOverflow.Ellipsis,
-                color = ink.copy(alpha = .69f))
         }
-        if(!compact) IconButton(onClick = onLike, modifier = Modifier.size(37.dp)) {
-            Icon(if (liked) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                "좋아요", tint = ink, modifier = Modifier.size(19.dp))
-        }
-        Box(Modifier.size(37.dp).clickable(onClick = onToggle),contentAlignment=Alignment.Center) {
-        Box(Modifier.size(if(compact) 29.dp else 37.dp)
-            .clip(if(compact) CircleShape else RoundedCornerShape(13.dp)).background(ink), contentAlignment = Alignment.Center) {
-            Icon(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow,
-                "재생·일시정지", tint = white, modifier = Modifier.size(23.dp))
-        }
-        }
-    }
     }
 }
 
