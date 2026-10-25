@@ -36,12 +36,17 @@ class OdifyGlassFrameTest {
         var window:Window?=null
         var prior:android.view.WindowManager.LayoutParams?=null
         var refresh=0f
+        var activityRef:MainActivity?=null
+        fun onMain(action:(MainActivity)->Unit) {
+            test.runOnMainSync {action(checkNotNull(activityRef))}
+        }
         val listener=Window.OnFrameMetricsAvailableListener {_,metrics,_ ->
             timings.add(Triple(phase.get(),metrics.getMetric(FrameMetrics.TOTAL_DURATION),
                 metrics.getMetric(FrameMetrics.INTENDED_VSYNC_TIMESTAMP)))
         }
         try {
             scenario.onActivity {activity ->
+                activityRef=activity
                 window=activity.window
                 prior=android.view.WindowManager.LayoutParams().apply {copyFrom(activity.window.attributes)}
                 @Suppress("DEPRECATION") val display=activity.windowManager.defaultDisplay
@@ -79,13 +84,13 @@ class OdifyGlassFrameTest {
                 }
             }
             Thread.sleep(2500)
-            scenario.onActivity {activity ->
+            onMain {activity ->
                 @Suppress("DEPRECATION") val display=activity.windowManager.defaultDisplay
                 refresh=display.refreshRate
             }
             phase.set("idle");Thread.sleep(1800)
             phase.set("transition")
-            repeat(12) {scenario.onActivity {compact.value=!compact.value};Thread.sleep(1000)}
+            repeat(12) {onMain {compact.value=!compact.value};Thread.sleep(1000)}
             phase.set("settled");Thread.sleep(1800)
             val rows=synchronized(timings){timings.toList()}
             fun summary(name:String):JSONObject {
@@ -100,8 +105,9 @@ class OdifyGlassFrameTest {
             File(test.targetContext.filesDir,"glass_frame_test.json").writeText(report.toString(2))
             assertTrue("Expected rendered transition frames",rows.count {it.first=="transition"}>100)
         } finally {
-            scenario.onActivity {activity ->window?.removeOnFrameMetricsAvailableListener(listener)
-                prior?.let {activity.window.attributes=it};activity.window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)}
+            onMain {activity ->window?.removeOnFrameMetricsAvailableListener(listener)
+                prior?.let {activity.window.attributes=it};activity.window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                activity.finish()}
             scenario.close();thread.quitSafely()
         }
     }
