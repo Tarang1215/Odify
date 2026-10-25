@@ -40,14 +40,17 @@ class OdifyPhoneDownloadWorker(context:Context,params:WorkerParameters):Coroutin
     override suspend fun doWork():Result=withContext(Dispatchers.IO) {
         val requests=OdifyStreamingRequests(applicationContext)
         try {
+            val entries=requests.read()
+            val pending=setOf("QUEUED_PC","QUEUED_PHONE","DOWNLOADING_PHONE")
+            if(!inputData.getBoolean("update",false) && (0 until entries.length()).none {entries.getJSONObject(it).optString("status") in pending})
+                return@withContext Result.success()
             setForeground(getForegroundInfo())
             YoutubeDL.init(applicationContext);FFmpeg.init(applicationContext)
             if(inputData.getBoolean("update",false)) YoutubeDL.updateYoutubeDL(applicationContext)
-            val entries=requests.read()
             for(i in 0 until entries.length()) {
                 if(isStopped) return@withContext Result.success()
                 val row=entries.getJSONObject(i)
-                if(row.optString("status") !in setOf("QUEUED_PC","QUEUED_PHONE","DOWNLOADING_PHONE")) continue
+                if(row.optString("status") !in pending) continue
                 val id=row.getString("video_id")
                 require(Regex("[A-Za-z0-9_-]{11}").matches(id))
                 val month=java.time.Instant.parse(row.getString("requested_at")).atZone(java.time.ZoneId.systemDefault())
