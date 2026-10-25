@@ -1,22 +1,28 @@
 # Latest device and archive verification — 2026-10-25
 
-Native version 42 (`1.0.0-preview12.30`) is installed with the permanent package
+Native version 46 (`1.0.0-preview12.34`) is installed with the permanent package
 and signing certificate. Its APK SHA-256 is
-`3eacbc6deee5aef791748a89ef8e4e5c4169fca372569b0a49a4a31959519fe2`.
+`d995d9ebb6870c3ab7c6297cede310f7545efbc94f8dea1bfcb1c4d3161031c5`.
 The APK, signed test APK and hash-pinned update installer are archived under
-`D:\Odify\Android\Odify-v42`.
+`D:\Odify\Android\Odify-v46`.
 
-Twelve real-device instrumentation cases passed: four liquid-surface/optical
-cases, three streaming-playlist/download-runtime cases, and five existing
-playback/storage cases. CI compilation/JVM validation passed. The V4.6 Python
+Fourteen real-device instrumentation cases passed: a production-glass frame
+benchmark, five liquid-surface/pulse/optical cases, three streaming-playlist/download-runtime
+cases, and five existing playback/storage cases. CI compilation/JVM validation passed. The V4.6 Python
 suite passed 58 cases, including cooperative pause/resume without rewriting
 completed evidence. These checks do not establish that the visual result matches
-the user's taste. An attempted controlled visual capture was interrupted by
-changing phone state; the final version-42 capture remains pending an unlocked,
-stable phone. No successful final visual review is claimed.
+the user's taste. Version-44 screenshots and a separate real-device recording
+show the compact/expanded player, aligned controls and live artwork/text behind
+the glass while scrolling. Version 46 additionally passed a real playing-scroll
+touch check with a confirmed Drive track. Earlier recordings remain labeled with
+their actual build. Same-device transition median total duration fell from 28.0
+to 13.4 ms. Playing-scroll janky frames fell from 4.52% to 0.25% on Home and from
+5.68% to 1.03% on Explore, comparing version 44 with 46 in single scripted runs.
+Long frames remain; fixed 120 fps is not claimed. Method, tails and limits are in
+`docs/V46_RENDERING_PERFORMANCE.md`.
 
 After installation, all 1,716 baseline Drive track IDs remain (1,723 currently),
-both baseline playlists are unchanged, and both original MASTER SHA-256 values
+both baseline playlists are unchanged (three playlists currently exist), and both original MASTER SHA-256 values
 match their earlier protected values. Databases/WAL and playlist snapshots were
 copied privately for this check; no user files were replaced.
 
@@ -35,7 +41,7 @@ version command ran, which does not prove successful downloading. The user
 explicitly deferred this repair while prioritizing liquid glass. Earlier YouTube
 background playback followed by Drive handoff passed in an isolated version-38
 test; an initial autoplay timeout remains recorded. That network test was not
-rerun as part of version 42's twelve cases.
+rerun as part of version 46's fourteen cases.
 
 Implementation/reference scope is documented in
 `native-android/YOUTUBE_EXTERNAL_PLAYBACK.md`; archive scope and controls are in
