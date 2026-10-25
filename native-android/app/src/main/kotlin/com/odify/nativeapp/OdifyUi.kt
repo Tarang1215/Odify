@@ -849,7 +849,11 @@ internal fun OdifyMiniPlayer(
         val density=LocalDensity.current
         val rightPx=with(density){controlsWidth.toPx()};val gapPx=with(density){gap.toPx()}
         val motionPx=with(density){(1.1.dp*morphStrength*(1f-fluidStage(split,0f,.20f)+fluidStage(split,.84f,1f))).toPx()}
-        val shape=remember(split,rightPx,gapPx,morph.value,motionPx){OdifyDropletShape(split,rightPx,gapPx,morph.value,motionPx)}
+        // At the joined endpoint the outline is a whole capsule, independent
+        // of the left-lobe pulse. Avoid recomposing controls for that unused
+        // phase; the expanded lobe still morphs while music plays.
+        val surfacePhase=if(split<=0f)0f else morph.value
+        val shape=remember(split,rightPx,gapPx,surfacePhase,motionPx){OdifyDropletShape(split,rightPx,gapPx,surfacePhase,motionPx)}
         Box(Modifier.width(width).height(height).onGloballyPositioned{coordinates=it}
             .graphicsLayer {scaleX=1f+wobble.value*.006f+tension.value*.008f;scaleY=1f-wobble.value*.010f-tension.value*.012f}
             .shadow(9.dp,shape,ambientColor=glow.copy(alpha=.25f),spotColor=glow.copy(alpha=.22f))

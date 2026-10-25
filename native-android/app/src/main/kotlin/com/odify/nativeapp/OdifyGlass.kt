@@ -119,7 +119,7 @@ fun Modifier.odifyGlass(backdrop: OdifyBackdrop, shape: Shape,glow:Color=Color.T
                 val outline=shape.createOutline(size,layoutDirection,this)
                 val corner=(outline as? Outline.Rounded)?.roundRect?.topLeftCornerRadius?.x ?: size.height/2
                 val rightPx=rightWidth.toPx();val gapPx=gap.toPx()
-                val leftCorner=(shape as? OdifyDropletShape)?.leftRadius(size.height) ?: corner
+                val leftCorner=if(split<=0f) corner else (shape as? OdifyDropletShape)?.leftRadius(size.height) ?: corner
                 if(lensCache.size!=size || lensCache.corner!=corner || lensCache.split!=split || lensCache.right!=rightPx || lensCache.gap!=gapPx || lensCache.leftCorner!=leftCorner || lensCache.radius!=radius) {
                 fun configure(shader:android.graphics.RuntimeShader,edgePass:Float) {
                     shader.setFloatUniform("origin",bleed.toFloat(),bleed.toFloat())
@@ -201,6 +201,14 @@ internal object OdifyGlassLens {
             float2 q=abs(p-center)-halfSize+r;
             return length(max(q,0.0))+min(max(q.x,q.y),0.0)-r;
         }
+        float2 wholeNormal(float2 p) {
+            float2 delta=p-bounds*0.5;
+            float2 q=abs(delta)-bounds*0.5+corner;
+            float2 outside=max(q,0.0);
+            float2 n=outside/max(length(outside),0.001);
+            if(max(q.x,q.y)<=0.0) n=q.x>q.y?float2(1.0,0.0):float2(0.0,1.0);
+            return n*sign(delta);
+        }
         float stage(float p,float a,float b) {return smoothstep(a,b,p);}
         float distanceToSurface(float2 p) {
             float whole=capsule(p,bounds*0.5,bounds*0.5,corner);
@@ -218,9 +226,19 @@ internal object OdifyGlassLens {
         half4 main(float2 coord) {
             float2 p=coord-origin;
             float d=distanceToSurface(p);
+            // Effects render the rectangular crop (including its blur bleed).
+            // Pixels outside the actual surface never contribute to its clip.
+            if(d>0.0) return half4(0.0);
             float inward=max(-d,0.0);
+            // The sharp pass is only a rim. Skip normals and texture samples
+            // over its transparent center; retain the real unblurred edge.
+            if(edgePass>0.5 && inward>=depth) return half4(0.0);
+            if(edgePass<0.5 && inward>=depth*1.8) return content.eval(coord);
             float rim=clamp(1.0-inward/max(depth,1.0),0.0,1.0);
-            float2 n=float2(distanceToSurface(p+float2(0.5,0.0))-distanceToSurface(p-float2(0.5,0.0)),
+            // Joined capsules (including nav) have an analytic normal. Only
+            // the changing liquid neck needs four more distance evaluations.
+            float2 n=split<=0.0?wholeNormal(p):float2(
+                distanceToSurface(p+float2(0.5,0.0))-distanceToSurface(p-float2(0.5,0.0)),
                 distanceToSurface(p+float2(0.0,0.5))-distanceToSurface(p-float2(0.0,0.5)));
             n=n/max(length(n),0.001);
             // Surface slope bends the sampled page instead of painting a tint.
