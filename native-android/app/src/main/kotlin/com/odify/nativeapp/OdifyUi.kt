@@ -824,15 +824,17 @@ private fun OdifyMiniPlayer(
     }
     BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal=11.dp,vertical=5.dp),contentAlignment=Alignment.Center) {
         val compactWidth=(titleWidth+99.dp).coerceIn(168.dp,216.dp).coerceAtMost(maxWidth)
-        val expandedText=titleWidth.coerceIn(56.dp,(maxWidth-233.dp).coerceAtLeast(56.dp))
-        val wideWidth=(expandedText+233.dp).coerceAtMost(maxWidth)
+        val expandedText=titleWidth.coerceIn(56.dp,(maxWidth-245.dp).coerceAtLeast(56.dp))
+        val wideWidth=(expandedText+233.dp).coerceAtMost(maxWidth-12.dp)
         val growth=fluidStage(split,0f,.60f)
         val measuredWidth by animateDpAsState(wideWidth,tween(240),label="track-title-width")
-        val width=compactWidth+(measuredWidth-compactWidth)*growth
+        val separated=fluidStage(split,.84f,1f)
+        val separationGap=(maxWidth-measuredWidth).coerceAtLeast(12.dp)*separated
+        val width=compactWidth+(measuredWidth-compactWidth)*growth+separationGap
         val height=43.dp+13.dp*growth
         val artSize=29.dp+11.dp*growth
         val controlsWidth=43.dp+77.dp*growth
-        val gap=10.dp*fluidStage(split,.84f,1f)
+        val gap=separationGap
         val leftWidth=width-controlsWidth-gap
         val density=LocalDensity.current
         val rightPx=with(density){controlsWidth.toPx()};val gapPx=with(density){gap.toPx()}
@@ -864,7 +866,7 @@ private fun OdifyMiniPlayer(
                     expandAction(coordinates?.takeIf{it.isAttached}?.boundsInRoot())
                 }.semantics{contentDescription="전체 재생 화면 열기"},radius=CircleShape,fallbackKey=song.id.hashCode())
                 Spacer(Modifier.width(9.dp))
-                Column(Modifier.weight(1f)) {
+                Column(Modifier.weight(1f).clipToBounds()) {
                     Text(song.title,modifier=Modifier.fillMaxWidth().basicMarquee(iterations=Int.MAX_VALUE,
                         initialDelayMillis=2200,repeatDelayMillis=1800,spacing=MarqueeSpacing(24.dp),velocity=24.dp),
                         maxLines=1,fontSize=12.sp,color=ink,fontWeight=FontWeight.SemiBold)
