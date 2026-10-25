@@ -6,73 +6,67 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.LayoutDirection
-import kotlin.math.PI
-import kotlin.math.sin
-import kotlin.math.cos
+import kotlin.math.*
 
 internal fun fluidStage(value:Float,start:Float,end:Float):Float {
     val t=((value-start)/(end-start)).coerceIn(0f,1f)
     return t*t*(3f-2f*t)
 }
 
-/** The lobes move apart with a stretching neck that reaches zero. Content and glass
- * share lobe boundaries, and no visible contour is abruptly removed. */
+/** Same signed distance field as the optical shader: silhouette, blur mask and
+ * reflections pinch together. Polynomial smooth union adapted from Liquid Glass
+ * Studio (Charles Yin, MIT); see licenses/Liquid-Glass-Studio-MIT.txt. */
+internal object OdifyLiquidSurface {
+    fun capsule(x:Float,y:Float,cx:Float,cy:Float,halfWidth:Float,halfHeight:Float,radius:Float):Float {
+        val qx=abs(x-cx)-halfWidth+radius;val qy=abs(y-cy)-halfHeight+radius
+        return hypot(max(qx,0f),max(qy,0f))+min(max(qx,qy),0f)-radius
+    }
+    fun distance(x:Float,y:Float,w:Float,h:Float,progress:Float,rightWidth:Float,gap:Float,leftRadius:Float=h/2):Float {
+        val r=h/2;val whole=capsule(x,y,w/2,r,w/2,r,r)
+        if(progress<=0f) return whole
+        val right=rightWidth.coerceIn(r,w*.6f);val left=w-right-gap
+        val a=capsule(x,y,left/2,r,left/2,r,leftRadius)
+        val b=capsule(x,y,w-right/2,r,right/2,r,r)
+        val k=h*.72f*(1f-fluidStage(progress,.15f,.94f))
+        val blend=(.5f+.5f*(b-a)/max(k,.001f)).coerceIn(0f,1f)
+        val merged=b+(a-b)*blend-k*blend*(1f-blend)
+        val t=fluidStage(progress,0f,.94f)
+        return max(whole,whole+(merged-whole)*t)
+    }
+}
+
 internal class OdifyDropletShape(
-    private val progress:Float, private val rightWidthPx:Float,
-    private val gapPx:Float, private val phase:Float=0f, private val motion:Float=0f
+    private val progress:Float,private val rightWidthPx:Float,
+    private val gapPx:Float,private val phase:Float=0f,private val motion:Float=0f
 ):Shape {
+    private var cachedSize=Size.Unspecified
+    private var cached:Outline?=null
+    fun leftRadius(height:Float)=(height/2-abs(sin(phase*2f*PI).toFloat())*motion).coerceAtLeast(height*.4f)
     override fun createOutline(size:Size,layoutDirection:LayoutDirection,density:Density):Outline {
-        val w=size.width;val h=size.height;val cy=h/2f;val r=cy
-        val right=rightWidthPx.coerceIn(r,w*.6f)
-        val left=w-right-gapPx
-        val neck=r*(1f-fluidStage(progress,.20f,.84f))
-        // Small asymmetric edge motion; labels and controls remain still.
-        val breath=sin(phase*2f*PI).toFloat()*motion
-        val curl=cos(phase*2f*PI).toFloat()*motion
-        val outerTop=r+breath*1.6f;val outerBottom=r-breath*1.6f
-        val innerTop=r+curl*1.4f;val innerBottom=r-curl*1.4f
-        val top=0f;val bottom=h
-        val ry=(bottom-top)/2f;val center=(top+bottom)/2f
-        val k=.55228475f
-        val path=Path()
-        fun leftOuterBottom() {
-            path.lineTo(outerBottom,bottom)
-            path.cubicTo(outerBottom*(1f-k),bottom,0f,center+ry*k,0f,center)
-            path.cubicTo(0f,center-ry*k,outerTop*(1f-k),top,outerTop,top)
+        if(size==cachedSize) cached?.let {return it}
+        val w=size.width;val h=size.height;val cy=h/2;val radius=leftRadius(h)
+        val count=ceil(w/max(.75f*density.density,1f)).toInt().coerceAtLeast(64)
+        val path=Path();val upper=ArrayList<Pair<Float,Float>>()
+        fun closeLobe() {
+            if(upper.isEmpty()) return
+            path.moveTo(upper.first().first,cy)
+            for((x,y) in upper) path.lineTo(x,y)
+            path.lineTo(upper.last().first,cy)
+            for((x,y) in upper.asReversed()) path.lineTo(x,h-y)
+            path.close();upper.clear()
         }
-        if(progress>=.84f) {
-            // At the touching point this is the limit of the connected path.
-            path.moveTo(outerTop,top);path.lineTo(left-innerTop,top)
-            path.cubicTo(left-innerTop*(1f-k),top,left,center-ry*k,left,center)
-            path.cubicTo(left,center+ry*k,left-innerBottom*(1f-k),bottom,left-innerBottom,bottom)
-            leftOuterBottom();path.close()
-            val start=left+gapPx
-            path.moveTo(start+r,0f);path.lineTo(w-r,0f)
-            path.cubicTo(w-r+r*k,0f,w,cy-r*k,w,cy)
-            path.cubicTo(w,cy+r*k,w-r+r*k,h,w-r,h)
-            path.lineTo(start+r,h)
-            path.cubicTo(start+r-r*k,h,start,cy+r*k,start,cy)
-            path.cubicTo(start,cy-r*k,start+r-r*k,0f,start+r,0f);path.close()
-        } else {
-            val rightStart=left+gapPx
-            val roundness=(1f-neck/r).coerceIn(0f,1f)
-            // A zero-width curved bridge retraces a vertical segment. Its fill
-            // is invisible but the glass border strokes that segment as a seam.
-            val bridgeControl=neck*(1f-.45f*(gapPx/r).coerceIn(0f,1f))
-            val innerLeft=left-r;val innerRight=left+gapPx+r
-            path.moveTo(outerTop,top);path.lineTo(innerLeft,top)
-            path.cubicTo(innerLeft+r*k,top,left,cy-neck-r*k*roundness,left,cy-neck)
-            path.cubicTo(left+gapPx*.33f,cy-bridgeControl,rightStart-gapPx*.33f,cy-bridgeControl,rightStart,cy-neck)
-            path.cubicTo(rightStart,cy-neck-r*k*roundness,innerRight-r*k,0f,innerRight,0f)
-            path.lineTo(w-r,0f)
-            path.cubicTo(w-r+r*k,0f,w,cy-r*k,w,cy)
-            path.cubicTo(w,cy+r*k,w-r+r*k,h,w-r,h)
-            path.lineTo(innerRight,h)
-            path.cubicTo(innerRight-r*k,h,rightStart,cy+neck+r*k*roundness,rightStart,cy+neck)
-            path.cubicTo(rightStart-gapPx*.33f,cy+bridgeControl,left+gapPx*.33f,cy+bridgeControl,left,cy+neck)
-            path.cubicTo(left,cy+neck+r*k*roundness,innerLeft+r*k,bottom,innerLeft,bottom)
-            leftOuterBottom();path.close()
+        for(i in 0..count) {
+            val x=w*i/count
+            fun d(y:Float)=OdifyLiquidSurface.distance(x,y,w,h,progress,rightWidthPx,gapPx,radius)
+            if(d(cy)>.001f) {closeLobe();continue}
+            var low=0f;var high=cy
+            if(d(0f)<0f) high=0f else repeat(12) {
+                val middle=(low+high)/2
+                if(d(middle)>0f) low=middle else high=middle
+            }
+            upper.add(x to high)
         }
-        return Outline.Generic(path)
+        closeLobe()
+        return Outline.Generic(path).also {cachedSize=size;cached=it}
     }
 }

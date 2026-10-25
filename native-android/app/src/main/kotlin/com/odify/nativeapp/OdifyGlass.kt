@@ -53,7 +53,7 @@ fun Modifier.odifyGlass(backdrop: OdifyBackdrop, shape: Shape,glow:Color=Color.T
     val shade=(.035f+1.08f*(1f-transparency)*(1f-transparency)).coerceAtMost(.88f)
     var coordinates by remember {mutableStateOf<LayoutCoordinates?>(null)}
     val crop=rememberGraphicsLayer()
-    val radius=with(LocalDensity.current) {24.dp.toPx()}
+    val radius=with(LocalDensity.current) {(if(navigation)18.dp else 14.dp).toPx()}
     val bleed=ceil(radius*2).toInt()
     val effect=remember(radius) {BlurEffect(radius,radius,TileMode.Clamp)}
     val lens=remember {if(Build.VERSION.SDK_INT>=33) runCatching {android.graphics.RuntimeShader(OdifyGlassLens.source)}.getOrNull() else null}
@@ -70,19 +70,21 @@ fun Modifier.odifyGlass(backdrop: OdifyBackdrop, shape: Shape,glow:Color=Color.T
                 val outline=shape.createOutline(size,layoutDirection,this)
                 val corner=(outline as? Outline.Rounded)?.roundRect?.topLeftCornerRadius?.x ?: size.height/2
                 val rightPx=rightWidth.toPx();val gapPx=gap.toPx()
-                if(lensCache.size!=size || lensCache.corner!=corner || lensCache.split!=split || lensCache.right!=rightPx || lensCache.gap!=gapPx) {
+                val leftCorner=(shape as? OdifyDropletShape)?.leftRadius(size.height) ?: corner
+                if(lensCache.size!=size || lensCache.corner!=corner || lensCache.split!=split || lensCache.right!=rightPx || lensCache.gap!=gapPx || lensCache.leftCorner!=leftCorner) {
                 lens.setFloatUniform("origin",bleed.toFloat(),bleed.toFloat())
                 lens.setFloatUniform("bounds",size.width,size.height)
                 lens.setFloatUniform("corner",corner.coerceAtMost(size.height/2))
-                lens.setFloatUniform("depth",10.dp.toPx())
-                lens.setFloatUniform("strength",7.dp.toPx())
+                lens.setFloatUniform("depth",11.dp.toPx())
+                lens.setFloatUniform("leftCorner",leftCorner)
+                lens.setFloatUniform("strength",8.dp.toPx())
                 lens.setFloatUniform("split",split.coerceIn(0f,1f))
                 lens.setFloatUniform("rightWidth",rightPx)
                 lens.setFloatUniform("gap",gapPx)
                 lensCache.effect=android.graphics.RenderEffect.createChainEffect(
                     android.graphics.RenderEffect.createRuntimeShaderEffect(lens,"content"),
                     android.graphics.RenderEffect.createBlurEffect(radius,radius,android.graphics.Shader.TileMode.CLAMP)).asComposeRenderEffect()
-                lensCache.size=size;lensCache.corner=corner;lensCache.split=split;lensCache.right=rightPx;lensCache.gap=gapPx
+                lensCache.size=size;lensCache.corner=corner;lensCache.split=split;lensCache.right=rightPx;lensCache.gap=gapPx;lensCache.leftCorner=leftCorner
                 }
                 crop.renderEffect=lensCache.effect
             } else crop.renderEffect=effect
@@ -99,24 +101,26 @@ fun Modifier.odifyGlass(backdrop: OdifyBackdrop, shape: Shape,glow:Color=Color.T
         } else drawRect(Color(0xE82B2E35))
         // A mild neutral tint preserves the blurred artwork's actual colors.
         drawRect(Color.Black.copy(alpha=shade))
-        drawRect(Brush.linearGradient(listOf(Color.White.copy(alpha=.14f+(.72f-transparency)*.08f),
-            Color.White.copy(alpha=.015f),Color.White.copy(alpha=.07f)),
+        drawRect(Brush.linearGradient(listOf(Color.White.copy(alpha=.045f+(.72f-transparency)*.04f),
+            Color.White.copy(alpha=.015f),Color.White.copy(alpha=.025f)),
             start=Offset.Zero,end=Offset(size.width,size.height)))
         if(glow.alpha>0f) drawRect(Brush.radialGradient(listOf(glow.copy(alpha=.28f),
             glow.copy(alpha=.09f),Color.Transparent),
             center=Offset(size.width*.22f,size.height*.8f),radius=size.width*.85f))
         drawContent()
-    }.border(.7.dp,Brush.verticalGradient(listOf(Color.White.copy(alpha=.34f),
-        Color.White.copy(alpha=.08f),Color.White.copy(alpha=.19f))),shape)
+    }.border(.45.dp,Brush.verticalGradient(listOf(Color.White.copy(alpha=.22f),
+        Color.White.copy(alpha=.035f),Color.White.copy(alpha=.14f))),shape)
 }
 
-/** Original AGSL lens: the sampled page bends at the surface edge, text stays sharp. */
+/** AGSL adaptation of Liquid Glass Studio's smooth SDF union, Snell refraction,
+ * dispersion and directional Fresnel/glare. MIT attribution is bundled in licenses/. */
 internal object OdifyGlassLens {
     const val source="""
         uniform shader content;
         uniform float2 origin;
         uniform float2 bounds;
         uniform float corner;
+        uniform float leftCorner;
         uniform float depth;
         uniform float strength;
         uniform float split;
@@ -126,35 +130,42 @@ internal object OdifyGlassLens {
             float2 q=abs(p-center)-halfSize+r;
             return length(max(q,0.0))+min(max(q.x,q.y),0.0)-r;
         }
+        float stage(float p,float a,float b) {return smoothstep(a,b,p);}
         float distanceToSurface(float2 p) {
             float whole=capsule(p,bounds*0.5,bounds*0.5,corner);
-            if(split<=0.2) return whole;
-            float right=min(rightWidth,bounds.x*0.6);
+            if(split<=0.0) return whole;
+            float r=bounds.y*0.5;
+            float right=clamp(rightWidth,r,bounds.x*0.6);
             float left=bounds.x-right-gap;
-            float a=capsule(p,float2(left*0.5,bounds.y*0.5),float2(left*0.5,bounds.y*0.5),bounds.y*0.5);
-            float b=capsule(p,float2(bounds.x-right*0.5,bounds.y*0.5),float2(right*0.5,bounds.y*0.5),min(right,bounds.y)*0.5);
-            float t=smoothstep(0.2,0.84,split);
-            float neck=bounds.y*0.5*(1.0-t);
-            // The optical surface has a bridge too. Using two disconnected
-            // capsules while the outline is joined creates a false inner rim.
-            float bridge=capsule(p,float2(left+gap*0.5,bounds.y*0.5),
-                float2(gap*0.5+bounds.y*0.5,neck),max(0.001,neck));
-            float joined=min(min(a,b),bridge);
-            return mix(whole,joined,t);
+            float a=capsule(p,float2(left*0.5,r),float2(left*0.5,r),leftCorner);
+            float b=capsule(p,float2(bounds.x-right*0.5,r),float2(right*0.5,r),r);
+            float k=bounds.y*0.72*(1.0-stage(split,0.15,0.94));
+            float blend=clamp(0.5+0.5*(b-a)/max(k,0.001),0.0,1.0);
+            float merged=mix(b,a,blend)-k*blend*(1.0-blend);
+            return max(whole,mix(whole,merged,stage(split,0.0,0.94)));
         }
         half4 main(float2 coord) {
             float2 p=coord-origin;
             float d=distanceToSurface(p);
-            float rim=pow(clamp(1.0+d/max(depth,1.0),0.0,1.0),2.0);
-            float2 normal=float2(distanceToSurface(p+float2(0.5,0.0))-distanceToSurface(p-float2(0.5,0.0)),
+            float inward=max(-d,0.0);
+            float rim=clamp(1.0-inward/max(depth,1.0),0.0,1.0);
+            float2 n=float2(distanceToSurface(p+float2(0.5,0.0))-distanceToSurface(p-float2(0.5,0.0)),
                 distanceToSurface(p+float2(0.0,0.5))-distanceToSurface(p-float2(0.0,0.5)));
-            normal=normal/max(length(normal),0.001);
-            float2 bend=normal*strength*rim;
+            n=n/max(length(n),0.001);
+            // Surface slope bends the sampled page instead of painting a tint.
+            float thetaI=asin(clamp(rim*rim,0.0,0.999));
+            float thetaT=asin(sin(thetaI)/1.45);
+            float edge=clamp(tan(thetaI-thetaT),0.0,1.3);
+            float2 bend=-n*strength*edge;
             half4 c=content.eval(coord+bend);
-            c.r=content.eval(coord+bend*1.035).r;
-            c.b=content.eval(coord+bend*0.965).b;
-            float shine=pow(max(dot(normal,normalize(float2(-0.6,-0.8))),0.0),3.0)*rim;
-            c.rgb+=half3(shine*0.11);
+            c.r=content.eval(coord+bend*0.98).r;
+            c.b=content.eval(coord+bend*1.02).b;
+            float fresnel=pow(clamp(1.0-inward/(depth*1.8),0.0,1.0),5.0);
+            float facing=dot(n,normalize(float2(-0.65,-0.76)));
+            float glare=pow(max(facing,0.0),3.0)*0.27+pow(max(-facing,0.0),4.0)*0.09;
+            half3 reflected=content.eval(coord+n*strength*rim*0.65).rgb;
+            c.rgb=mix(c.rgb,reflected,half(rim*rim*0.14));
+            c.rgb=mix(c.rgb,half3(0.94,0.97,1.0),half(fresnel*0.12+pow(rim,2.0)*glare));
             return c;
         }
     """
@@ -163,6 +174,7 @@ internal object OdifyGlassLens {
 private class OdifyLensCache {
     var size=androidx.compose.ui.geometry.Size.Zero
     var corner=Float.NaN
+    var leftCorner=Float.NaN
     var split=Float.NaN
     var right=Float.NaN
     var gap=Float.NaN

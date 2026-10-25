@@ -804,7 +804,9 @@ private fun OdifyMiniPlayer(
     val titleWidth=with(LocalDensity.current){measured.size.width.toDp()}
     val measuredArtist=remember(song.artist,titleMeasurer,artistStyle){titleMeasurer.measure(song.artist,style=artistStyle,maxLines=1,softWrap=false)}
     val artistWidth=with(LocalDensity.current){measuredArtist.size.width.toDp()}
-    val split by animateFloatAsState(if(compact)0f else 1f,tween(440,easing=FastOutSlowInEasing),label="droplet-split")
+    val surfaceProgress by animateFloatAsState(if(compact)0f else 1f,
+        spring(dampingRatio=.88f,stiffness=650f,visibilityThreshold=.001f),label="droplet-split")
+    val split=surfaceProgress.coerceIn(0f,1f)
     val lifecycle=androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
     var visible by remember {mutableStateOf(lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED))}
     DisposableEffect(lifecycle) {
@@ -830,7 +832,7 @@ private fun OdifyMiniPlayer(
         val compactWidth=(titleWidth+99.dp).coerceIn(168.dp,216.dp).coerceAtMost(maxWidth)
         val expandedText=maxOf(titleWidth,artistWidth).coerceIn(56.dp,(maxWidth-245.dp).coerceAtLeast(56.dp))
         val wideWidth=(expandedText+233.dp).coerceAtMost(maxWidth-12.dp)
-        val growth=fluidStage(split,0f,.80f)
+        val growth=fluidStage(split,0f,.64f)
         // Measure the destination before the pinch starts. A second width
         // animation can outlive the separation and resize the detached lobe.
         val measuredWidth=wideWidth

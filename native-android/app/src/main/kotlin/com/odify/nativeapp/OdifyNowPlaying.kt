@@ -189,9 +189,9 @@ fun OdifyNowPlaying(
         Box(Modifier.fillMaxSize().recordOdifyBackdrop(playerBackdrop)) {
         AlbumArt(song, Modifier.fillMaxSize()
             .graphicsLayer { scaleX = 1.18f; scaleY = 1.18f;alpha=.94f }
-            .blur(36.dp), radius = RoundedCornerShape(0.dp),
+            .blur(28.dp), radius = RoundedCornerShape(0.dp),
             fallbackKey = song.id.hashCode(),muted=false,
-            contentScale = androidx.compose.ui.layout.ContentScale.FillBounds)
+            contentScale = androidx.compose.ui.layout.ContentScale.Crop)
         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(
             Color(0xFF101216).copy(alpha=(.14f+glassShade).coerceIn(.04f,.70f)),
             Color(0xFF101216).copy(alpha=(.27f+glassShade).coerceIn(.08f,.78f)),

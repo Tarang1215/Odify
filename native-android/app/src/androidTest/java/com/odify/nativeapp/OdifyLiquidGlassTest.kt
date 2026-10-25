@@ -18,6 +18,20 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class OdifyLiquidGlassTest {
+    @Test fun contourAndOpticalDistanceFieldAgreeThroughoutMerge() {
+        for(gap in listOf(12f,80f)) for(progress in listOf(0f,.2f,.4f,.6f,.8f,1f)) {
+            val outline=OdifyDropletShape(progress,120f,gap).createOutline(Size(360f,56f),LayoutDirection.Ltr,Density(1f)) as Outline.Generic
+            val bitmap=Bitmap.createBitmap(360,56,Bitmap.Config.ARGB_8888)
+            Canvas(bitmap).drawPath(outline.path.asAndroidPath(),Paint().apply {color=android.graphics.Color.WHITE})
+            try {
+                for(x in 2..357 step 3) for(y in 2..53 step 3) {
+                    val distance=OdifyLiquidSurface.distance(x+.5f,y+.5f,360f,56f,progress,120f,gap)
+                    if(kotlin.math.abs(distance)>2f) assertEquals("Contour/SDF mismatch p=$progress gap=$gap x=$x y=$y",
+                        distance<0f,bitmap.getPixel(x,y)!=0)
+                }
+            } finally {bitmap.recycle()}
+        }
+    }
     @Test fun compactBorderHasNoRetracedInteriorSeam() {
         val outline=OdifyDropletShape(0f,43f,0f).createOutline(Size(320f,43f),LayoutDirection.Ltr,Density(1f)) as Outline.Generic
         val bitmap=Bitmap.createBitmap(320,43,Bitmap.Config.ARGB_8888)
@@ -61,6 +75,7 @@ class OdifyLiquidGlassTest {
         val shader=RuntimeShader(OdifyGlassLens.source)
         shader.setFloatUniform("origin",48f,48f);shader.setFloatUniform("bounds",380f,56f)
         shader.setFloatUniform("corner",28f);shader.setFloatUniform("depth",10f)
+        shader.setFloatUniform("leftCorner",28f)
         shader.setFloatUniform("strength",7f);shader.setFloatUniform("rightWidth",120f)
         shader.setFloatUniform("gap",8f)
         for(split in listOf(0f,.5f,1f)) {
