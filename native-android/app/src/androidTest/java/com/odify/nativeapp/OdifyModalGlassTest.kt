@@ -45,8 +45,9 @@ class OdifyModalGlassTest {
             assertTrue(android.graphics.Color.blue(right)>android.graphics.Color.red(right)+100)
             test.runOnMainSync {open.value=true}
             test.waitForIdleSync();Thread.sleep(500)
-            val windows=test.uiAutomation.windows
-            assertTrue(windows.count {it.root?.packageName?.toString()==contextPackage}>=2)
+            val root=test.uiAutomation.rootInActiveWindow
+            assertEquals(contextPackage,root?.packageName?.toString())
+            assertTrue(root?.findAccessibilityNodeInfosByText("Glass fixture")?.isNotEmpty()==true)
             test.runOnMainSync {open.value=false};test.waitForIdleSync()
         }
     }
