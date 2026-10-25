@@ -56,17 +56,20 @@ internal class OdifyDropletShape(
         } else {
             val rightStart=left+gapPx
             val roundness=(1f-neck/r).coerceIn(0f,1f)
+            // A zero-width curved bridge retraces a vertical segment. Its fill
+            // is invisible but the glass border strokes that segment as a seam.
+            val bridgeControl=neck*(1f-.45f*(gapPx/r).coerceIn(0f,1f))
             val innerLeft=left-r;val innerRight=left+gapPx+r
             path.moveTo(outerTop,top);path.lineTo(innerLeft,top)
             path.cubicTo(innerLeft+r*k,top,left,cy-neck-r*k*roundness,left,cy-neck)
-            path.cubicTo(left+gapPx*.33f,cy-neck*.55f,rightStart-gapPx*.33f,cy-neck*.55f,rightStart,cy-neck)
+            path.cubicTo(left+gapPx*.33f,cy-bridgeControl,rightStart-gapPx*.33f,cy-bridgeControl,rightStart,cy-neck)
             path.cubicTo(rightStart,cy-neck-r*k*roundness,innerRight-r*k,0f,innerRight,0f)
             path.lineTo(w-r,0f)
             path.cubicTo(w-r+r*k,0f,w,cy-r*k,w,cy)
             path.cubicTo(w,cy+r*k,w-r+r*k,h,w-r,h)
             path.lineTo(innerRight,h)
             path.cubicTo(innerRight-r*k,h,rightStart,cy+neck+r*k*roundness,rightStart,cy+neck)
-            path.cubicTo(rightStart-gapPx*.33f,cy+neck*.55f,left+gapPx*.33f,cy+neck*.55f,left,cy+neck)
+            path.cubicTo(rightStart-gapPx*.33f,cy+bridgeControl,left+gapPx*.33f,cy+bridgeControl,left,cy+neck)
             path.cubicTo(left,cy+neck+r*k*roundness,innerLeft+r*k,bottom,innerLeft,bottom)
             leftOuterBottom();path.close()
         }

@@ -18,6 +18,15 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class OdifyLiquidGlassTest {
+    @Test fun compactBorderHasNoRetracedInteriorSeam() {
+        val outline=OdifyDropletShape(0f,43f,0f).createOutline(Size(320f,43f),LayoutDirection.Ltr,Density(1f)) as Outline.Generic
+        val bitmap=Bitmap.createBitmap(320,43,Bitmap.Config.ARGB_8888)
+        Canvas(bitmap).drawPath(outline.path.asAndroidPath(),Paint().apply {
+            color=android.graphics.Color.WHITE;style=Paint.Style.STROKE;strokeWidth=1f
+        })
+        try {for(y in 3..39) assertEquals("No internal stroke at old neck, y=$y",0,bitmap.getPixel(277,y))}
+        finally {bitmap.recycle()}
+    }
     @Test fun separationDoesNotDropAVisibleBridgeInOneFrame() {
         fun mask(progress:Float,gap:Float=10f):IntArray {
             val outline=OdifyDropletShape(progress,120f,gap)
