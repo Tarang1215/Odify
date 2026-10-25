@@ -852,11 +852,14 @@ internal fun OdifyMiniPlayer(
         // At the joined endpoint the outline is a whole capsule, independent
         // of the left-lobe pulse. Avoid recomposing controls for that unused
         // phase; the expanded lobe still morphs while music plays.
-        val surfacePhase=if(split<=0f)0f else morph.value
-        val shape=remember(split,rightPx,gapPx,surfacePhase,motionPx){OdifyDropletShape(split,rightPx,gapPx,surfacePhase,motionPx)}
+        val shape=remember(split,rightPx,gapPx,motionPx){OdifyDropletShape(split,rightPx,gapPx,motion=motionPx,
+            phaseProvider=if(split<=0f)null else {{morph.value}})}
         Box(Modifier.width(width).height(height).onGloballyPositioned{coordinates=it}
             .graphicsLayer {scaleX=1f+wobble.value*.006f+tension.value*.008f;scaleY=1f-wobble.value*.010f-tension.value*.012f}
-            .shadow(9.dp,shape,ambientColor=glow.copy(alpha=.25f),spotColor=glow.copy(alpha=.22f))
+            .graphicsLayer {
+                shadowElevation=9.dp.toPx();this.shape=shape.frameShape()
+                ambientShadowColor=glow.copy(alpha=.25f);spotShadowColor=glow.copy(alpha=.22f)
+            }
             .odifyGlass(backdrop,shape,glow,split,controlsWidth,gap)
             .drawBehind {
                 // Press highlight follows the same deforming silhouette. A

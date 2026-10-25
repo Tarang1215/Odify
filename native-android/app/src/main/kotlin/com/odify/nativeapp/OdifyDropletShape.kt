@@ -41,13 +41,21 @@ internal object OdifyLiquidSurface {
 
 internal class OdifyDropletShape(
     private val progress:Float,private val rightWidthPx:Float,
-    private val gapPx:Float,private val phase:Float=0f,private val motion:Float=0f
+    private val gapPx:Float,private val phase:Float=0f,private val motion:Float=0f,
+    private val phaseProvider:(()->Float)?=null
 ):Shape {
     private var cachedSize=Size.Unspecified
+    private var cachedPhase=Float.NaN
     private var cached:Outline?=null
-    fun leftRadius(height:Float)=(height/2-abs(sin(phase*2f*PI).toFloat())*motion).coerceAtLeast(height*.4f)
+    private fun currentPhase()=phaseProvider?.invoke() ?: phase
+    // Called from a graphicsLayer block, so a pulse invalidates the render
+    // layer rather than recomposing and measuring all song text/buttons.
+    fun frameShape():OdifyDropletShape=if(phaseProvider==null)this else
+        OdifyDropletShape(progress,rightWidthPx,gapPx,currentPhase(),motion)
+    fun leftRadius(height:Float)=(height/2-abs(sin(currentPhase()*2f*PI).toFloat())*motion).coerceAtLeast(height*.4f)
     override fun createOutline(size:Size,layoutDirection:LayoutDirection,density:Density):Outline {
-        if(size==cachedSize) cached?.let {return it}
+        val framePhase=currentPhase()
+        if(size==cachedSize && framePhase==cachedPhase) cached?.let {return it}
         val w=size.width;val h=size.height;val cy=h/2;val radius=leftRadius(h)
         val path=Path()
         // At both settled ends the exact field is an ordinary capsule pair.
@@ -85,7 +93,7 @@ internal class OdifyDropletShape(
             }
             closeLobe()
         }
-        return Outline.Generic(path).also {cachedSize=size;cached=it}
+        return Outline.Generic(path).also {cachedSize=size;cachedPhase=framePhase;cached=it}
     }
 }
 

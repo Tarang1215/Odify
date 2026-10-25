@@ -18,6 +18,23 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class OdifyLiquidGlassTest {
+    @Test fun pulseChangesDrawOutlineWithoutReplacingTheComposedShape() {
+        val phase=androidx.compose.runtime.mutableFloatStateOf(0f)
+        val shape=OdifyDropletShape(1f,120f,12f,motion=2f,phaseProvider={phase.floatValue})
+        fun draw():Bitmap {
+            val outline=shape.createOutline(Size(360f,56f),LayoutDirection.Ltr,Density(1f)) as Outline.Generic
+            return Bitmap.createBitmap(360,56,Bitmap.Config.ARGB_8888).also {
+                Canvas(it).drawPath(outline.path.asAndroidPath(),Paint().apply {color=android.graphics.Color.WHITE})
+            }
+        }
+        val before=draw()
+        phase.floatValue=.25f
+        val after=draw()
+        try {
+            assertEquals(26f,shape.frameShape().leftRadius(56f),.001f)
+            assertFalse("The stable shape must invalidate its cached pulse contour",before.sameAs(after))
+        } finally {before.recycle();after.recycle()}
+    }
     @Test fun contourAndOpticalDistanceFieldAgreeThroughoutMerge() {
         for(gap in listOf(12f,80f)) for(progress in listOf(0f,.2f,.4f,.6f,.8f,1f)) {
             val outline=OdifyDropletShape(progress,120f,gap).createOutline(Size(360f,56f),LayoutDirection.Ltr,Density(1f)) as Outline.Generic

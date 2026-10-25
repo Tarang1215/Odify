@@ -107,7 +107,10 @@ fun Modifier.odifyGlass(backdrop: OdifyBackdrop, shape: Shape,glow:Color=Color.T
     val lens=remember {if(Build.VERSION.SDK_INT>=33) runCatching {android.graphics.RuntimeShader(OdifyGlassLens.source)}.getOrNull() else null}
     val sharpLens=remember {if(Build.VERSION.SDK_INT>=33) runCatching {android.graphics.RuntimeShader(OdifyGlassLens.source)}.getOrNull() else null}
     val lensCache=remember {OdifyLensCache()}
-    clip(shape).onGloballyPositioned {coordinates=it}.drawWithContent {
+    graphicsLayer {
+        this.shape=(shape as? OdifyDropletShape)?.frameShape() ?: shape
+        clip=true
+    }.onGloballyPositioned {coordinates=it}.drawWithContent {
         val frame=backdrop.frame
         val target=coordinates?.takeIf {it.isAttached}
         val source=backdrop.coordinates?.takeIf {it.isAttached}
