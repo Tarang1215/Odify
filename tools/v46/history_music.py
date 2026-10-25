@@ -230,6 +230,10 @@ def run_download(root,rows,limit,workers=8):
         w.snapshot=original
 
 def main():
+    # Windows' legacy Korean code page cannot encode many Japanese chart titles.
+    # The persisted logs and manifests use UTF-8 too; never fail a transfer on print.
+    for stream in (sys.stdout,sys.stderr):
+        if hasattr(stream,'reconfigure'):stream.reconfigure(encoding='utf-8',errors='backslashreplace')
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('command',choices=['prepare','refresh','runtimes','cache-runtimes','download'])
     p.add_argument('--db',type=Path,default=ROOT/'.local/odify_catalog.sqlite3')
     p.add_argument('--root',type=Path,default=Path(r'D:\Odify\History'))

@@ -37,7 +37,9 @@ class OdifyYoutubeBackgroundTest {
             val results=runBlocking {OdifyYoutubeLibrary(context).search("NewJeans Hype Boy lyrics")}
             val video=results.firstOrNull {it.channel.contains("Jaeguchi",true)} ?: OdifyYoutubeQuickPlay.first(results)
                 ?: error("No playback candidate")
-            val drive=DriveCatalog(context).tracks().firstOrNull {it.id.startsWith("gdrive:") && it.durationMs>60_000}
+            // DriveCatalog resolves duration only after opening the media; a
+            // valid catalog entry therefore commonly has durationMs == 0.
+            val drive=DriveCatalog(context).tracks().firstOrNull {it.id.startsWith("gdrive:")}
                 ?: error("Existing owned Drive song required")
             proof.put("videoId",video.videoId).put("driveId",drive.id)
             scenario.onActivity {OdifyYoutubeRuntime.play(it,video,listOf(drive))}

@@ -1,6 +1,6 @@
 """One-shot local supervisor for the authorized history collection (not a schedule)."""
 from __future__ import annotations
-import argparse,collections,ctypes,importlib.util,json,subprocess,sys,time,traceback
+import argparse,collections,ctypes,importlib.util,json,os,subprocess,sys,time,traceback
 from datetime import datetime,timezone
 from pathlib import Path
 
@@ -19,7 +19,8 @@ def run_child(args,root,phase,command):
     update(root,phase,command=Path(command[1]).name)
     log=root/(phase+'.log')
     with log.open('a',encoding='utf-8') as stream:
-        child=subprocess.Popen(command,cwd=m.ROOT,stdout=stream,stderr=subprocess.STDOUT)
+        child_env=os.environ.copy();child_env['PYTHONUTF8']='1';child_env['PYTHONIOENCODING']='utf-8'
+        child=subprocess.Popen(command,cwd=m.ROOT,stdout=stream,stderr=subprocess.STDOUT,env=child_env)
         while child.poll() is None:
             update(root,phase,child_pid=child.pid);time.sleep(30)
     if child.returncode:raise RuntimeError(phase+' failed, see '+str(log))
