@@ -853,7 +853,7 @@ internal fun OdifyMiniPlayer(
         // of the left-lobe pulse. Avoid recomposing controls for that unused
         // phase; the expanded lobe still morphs while music plays.
         val shape=remember(split,rightPx,gapPx,motionPx){OdifyDropletShape(split,rightPx,gapPx,motion=motionPx,
-            phaseProvider=if(split<=0f)null else {{morph.value}})}
+            phaseProvider=if(split<=0f || motionPx<=0f)null else {{morph.value}})}
         Box(Modifier.width(width).height(height).onGloballyPositioned{coordinates=it}
             .graphicsLayer {scaleX=1f+wobble.value*.006f+tension.value*.008f;scaleY=1f-wobble.value*.010f-tension.value*.012f}
             .graphicsLayer {

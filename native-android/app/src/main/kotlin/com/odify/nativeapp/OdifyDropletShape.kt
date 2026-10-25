@@ -47,13 +47,25 @@ internal class OdifyDropletShape(
     private var cachedSize=Size.Unspecified
     private var cachedPhase=Float.NaN
     private var cached:Outline?=null
+    private var sampledPhase=Float.NaN
+    private var sampledShape:OdifyDropletShape?=null
     private fun currentPhase()=phaseProvider?.invoke() ?: phase
     // Called from a graphicsLayer block, so a pulse invalidates the render
     // layer rather than recomposing and measuring all song text/buttons.
-    fun frameShape():OdifyDropletShape=if(phaseProvider==null)this else
-        OdifyDropletShape(progress,rightWidthPx,gapPx,currentPhase(),motion)
+    fun frameShape():OdifyDropletShape {
+        if(phaseProvider==null) return this
+        val value=currentPhase()
+        if(value==sampledPhase) sampledShape?.let {return it}
+        // Clip, shadow, border and optical draw all consume one contour for
+        // this phase. Separate per-layer snapshots would solve the same neck
+        // several times during a transition.
+        return OdifyDropletShape(progress,rightWidthPx,gapPx,value,motion).also {
+            sampledPhase=value;sampledShape=it
+        }
+    }
     fun leftRadius(height:Float)=(height/2-abs(sin(currentPhase()*2f*PI).toFloat())*motion).coerceAtLeast(height*.4f)
     override fun createOutline(size:Size,layoutDirection:LayoutDirection,density:Density):Outline {
+        if(phaseProvider!=null) return frameShape().createOutline(size,layoutDirection,density)
         val framePhase=currentPhase()
         if(size==cachedSize && framePhase==cachedPhase) cached?.let {return it}
         val w=size.width;val h=size.height;val cy=h/2;val radius=leftRadius(h)

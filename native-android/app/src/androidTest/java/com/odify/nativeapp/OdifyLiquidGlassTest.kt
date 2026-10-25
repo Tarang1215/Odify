@@ -31,6 +31,7 @@ class OdifyLiquidGlassTest {
         phase.floatValue=.25f
         val after=draw()
         try {
+            assertSame("All render layers share one contour per pulse",shape.frameShape(),shape.frameShape())
             assertEquals(26f,shape.frameShape().leftRadius(56f),.001f)
             assertFalse("The stable shape must invalidate its cached pulse contour",before.sameAs(after))
         } finally {before.recycle();after.recycle()}
