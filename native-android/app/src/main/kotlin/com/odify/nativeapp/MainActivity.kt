@@ -36,6 +36,11 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, false)
+        // Per-window preference only: preserve the user's display resolution,
+        // system motion settings and power policy. Android chooses the mode.
+        @Suppress("DEPRECATION")
+        val smoothRate=windowManager.defaultDisplay.supportedModes.maxOfOrNull {it.refreshRate}?.coerceAtMost(120f)
+        if(smoothRate!=null) window.attributes=window.attributes.apply {preferredRefreshRate=smoothRate}
         // Do not let Samsung/Android draw a contrasting grey scrim below the
         // dark rounded Odify navigation surface and the system gesture bar.
         @Suppress("DEPRECATION")

@@ -15,33 +15,80 @@ import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlin.math.ceil
 
+@Stable
 class OdifyBackdrop(val layer: GraphicsLayer) {
     var coordinates: LayoutCoordinates? = null
     // Read only in the glass draw pass. Recomposition/layout are not needed
     // when scrolling children or ancestor render layers move independently.
     var frame by mutableLongStateOf(0L)
+    private var sequence=0L
+    private var refreshUntil=0L
+    private var lastOrigin=Offset.Unspecified
+    private var lastSize=IntSize.Zero
+    // Keep the source's draw pass out of the observed frame state. Reading and
+    // writing that same state there would create a self-invalidating draw loop.
+    fun changed(){frame=++sequence}
+    fun moving(){refreshUntil=android.os.SystemClock.uptimeMillis()+1600L}
+    fun needsMotionFrame()=android.os.SystemClock.uptimeMillis()<refreshUntil
+    fun placed(value:LayoutCoordinates) {
+        val origin=value.positionInRoot()
+        if(origin!=lastOrigin || value.size!=lastSize) {moving();lastOrigin=origin;lastSize=value.size}
+        coordinates=value
+    }
+    val scrolling=object:NestedScrollConnection {
+        override fun onPostScroll(consumed:Offset,available:Offset,source:NestedScrollSource):Offset {
+            if(consumed!=Offset.Zero || available!=Offset.Zero) moving()
+            return Offset.Zero
+        }
+    }
 }
 
 @Composable fun rememberOdifyBackdrop(): OdifyBackdrop {
     val layer=rememberGraphicsLayer()
     val backdrop=remember(layer) {OdifyBackdrop(layer)}
-    LaunchedEffect(backdrop) {
-        while(isActive) withFrameNanos {backdrop.frame=it}
+    val lifecycle=androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
+    var resumed by remember {mutableStateOf(lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED))}
+    DisposableEffect(lifecycle) {
+        val observer=androidx.lifecycle.LifecycleEventObserver {_,_->resumed=lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)}
+        lifecycle.addObserver(observer);onDispose {lifecycle.removeObserver(observer)}
+    }
+    LaunchedEffect(backdrop,resumed) {
+        if(resumed) while(isActive) {
+            if(backdrop.needsMotionFrame()) withFrameNanos {backdrop.changed()} else delay(32)
+        }
     }
     return backdrop
 }
 
 /** Records only the page, excluding the overlays, so there is no feedback loop. */
 fun Modifier.recordOdifyBackdrop(backdrop: OdifyBackdrop): Modifier =
-    onGloballyPositioned {backdrop.coordinates=it}.drawWithContent {
+    nestedScroll(backdrop.scrolling).pointerInput(backdrop) {
+        awaitEachGesture {
+            awaitFirstDown(requireUnconsumed=false,pass=PointerEventPass.Initial)
+            do {
+                backdrop.moving()
+                val event=awaitPointerEvent(PointerEventPass.Initial)
+            } while(event.changes.any {it.pressed})
+        }
+    }.onGloballyPositioned {backdrop.placed(it)}.drawWithContent {
         backdrop.layer.record {this@drawWithContent.drawContent()}
+        backdrop.changed()
         drawLayer(backdrop.layer)
     }
 
@@ -61,7 +108,7 @@ fun Modifier.odifyGlass(backdrop: OdifyBackdrop, shape: Shape,glow:Color=Color.T
     val sharpLens=remember {if(Build.VERSION.SDK_INT>=33) runCatching {android.graphics.RuntimeShader(OdifyGlassLens.source)}.getOrNull() else null}
     val lensCache=remember {OdifyLensCache()}
     clip(shape).onGloballyPositioned {coordinates=it}.drawWithContent {
-        @Suppress("UNUSED_VARIABLE") val frame=backdrop.frame
+        val frame=backdrop.frame
         val target=coordinates?.takeIf {it.isAttached}
         val source=backdrop.coordinates?.takeIf {it.isAttached}
         if(Build.VERSION.SDK_INT>=31 && target!=null && source!=null) {
@@ -99,8 +146,9 @@ fun Modifier.odifyGlass(backdrop: OdifyBackdrop, shape: Shape,glow:Color=Color.T
                 }
                 crop.renderEffect=lensCache.effect
             } else crop.renderEffect=effect
-            crop.record(size=IntSize(ceil(size.width).toInt()+bleed*2,
-                ceil(size.height).toInt()+bleed*2)) {
+            val captureSize=IntSize(ceil(size.width).toInt()+bleed*2,ceil(size.height).toInt()+bleed*2)
+            val refreshCapture=lensCache.captureFrame!=frame || lensCache.captureOffset!=offset || lensCache.captureSize!=captureSize
+            if(refreshCapture) crop.record(size=captureSize) {
                 // The snapshot must be opaque. Blurring transparent glyphs
                 // over the original page leaves the original text sharp.
                 drawRect(OdifyPalette.background)
@@ -113,13 +161,13 @@ fun Modifier.odifyGlass(backdrop: OdifyBackdrop, shape: Shape,glow:Color=Color.T
             // Refracting only the blurred input erases the details that reveal glass.
             if(Build.VERSION.SDK_INT>=33 && lensCache.sharpEffect!=null) {
                 sharpCrop.renderEffect=lensCache.sharpEffect
-                sharpCrop.record(size=IntSize(ceil(size.width).toInt()+bleed*2,
-                    ceil(size.height).toInt()+bleed*2)) {
+                if(refreshCapture) sharpCrop.record(size=captureSize) {
                     drawRect(OdifyPalette.background)
                     clipRect {translate(bleed-offset.x,bleed-offset.y) {drawLayer(backdrop.layer)}}
                 }
                 translate(-bleed.toFloat(),-bleed.toFloat()) {drawLayer(sharpCrop)}
             }
+            lensCache.captureFrame=frame;lensCache.captureOffset=offset;lensCache.captureSize=captureSize
         } else drawRect(Color(0xE82B2E35))
         // A mild neutral tint preserves the blurred artwork's actual colors.
         drawRect(Color.Black.copy(alpha=shade))
@@ -199,6 +247,9 @@ internal object OdifyGlassLens {
 }
 
 private class OdifyLensCache {
+    var captureFrame=-1L
+    var captureOffset=Offset.Unspecified
+    var captureSize=IntSize.Zero
     var size=androidx.compose.ui.geometry.Size.Zero
     var corner=Float.NaN
     var leftCorner=Float.NaN
