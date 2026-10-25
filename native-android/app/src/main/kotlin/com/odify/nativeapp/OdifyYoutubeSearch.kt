@@ -97,7 +97,7 @@ internal fun OdifyYoutubeSearch(query:String,connected:Boolean,onConnect:()->Uni
 }
 
 @Composable
-private fun YoutubeSearchCover(id: String, modifier: Modifier) {
+internal fun YoutubeSearchCover(id: String, modifier: Modifier) {
     val context = LocalContext.current
     // key() resets the image immediately when a recycled row changes video.
     key(id) {

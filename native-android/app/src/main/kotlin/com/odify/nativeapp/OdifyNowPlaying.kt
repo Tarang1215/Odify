@@ -95,6 +95,7 @@ fun OdifyNowPlaying(
     onAddToPlaylist: () -> Unit,
     onSaveDevice: () -> Unit,
     onAudioRequest: (String, String, String) -> Unit,
+    onReplaceAudio: ()->Unit,
     onDragProgress: (Float) -> Unit = {},
     externalPlayback: Boolean = false,
     onOpenExternal: () -> Unit = {}
@@ -102,6 +103,7 @@ fun OdifyNowPlaying(
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val playerBackdrop=rememberOdifyBackdrop()
+    val densityForLyrics=LocalDensity.current
     val glassTransparency=LocalOdifyGlassPreferences.current?.player ?: .72f
     val glassShade=(.72f-glassTransparency)*.36f
     var dragOffset by remember { mutableFloatStateOf(0f) }
@@ -155,6 +157,8 @@ fun OdifyNowPlaying(
     var availableLyrics by remember(song.id) {mutableStateOf(song.lyrics)}
     LaunchedEffect(song.id,song.lyrics) {availableLyrics=lyricsRepository.read(song)}
     var showLyrics by remember(song.id) { mutableStateOf(false) }
+    val lyricsProgress by animateFloatAsState(if(showLyrics)1f else 0f,
+        tween(380,easing=FastOutSlowInEasing),label="lyrics-cover-morph")
     var lyricsMenu by remember(song.id) {mutableStateOf(false)}
     var lyricsEditor by remember(song.id) {mutableStateOf(false)}
     var albumSlide by remember(song.id) { mutableFloatStateOf(0f) }
@@ -173,6 +177,7 @@ fun OdifyNowPlaying(
         updateDrag(dragOffset + delta)
     }
 
+    CompositionLocalProvider(LocalOdifyModalTint provides glow) {
     Box(
         Modifier.fillMaxSize()
             .background(playerBg)
@@ -249,14 +254,13 @@ fun OdifyNowPlaying(
                             Icon(Icons.Default.MoreVert, "곡 옵션 열기",
                                 tint = playerWhite)
                         }
-                        DropdownMenu(
+                        OdifyGlassMenu(
                             expanded = actionsOpen,
                             onDismissRequest = { actionsOpen = false }
                         ) {
                             if(externalPlayback) DropdownMenuItem(
                                 text={Text("YouTube 앱에서 열기")},leadingIcon={Icon(Icons.Default.OpenInNew,null)},
                                 onClick={actionsOpen=false;onOpenExternal()})
-                            if(!externalPlayback) {
                             DropdownMenuItem(
                                 text = { Text("플레이리스트에 추가") },
                                 leadingIcon = { Icon(Icons.Default.PlaylistAdd, null) },
@@ -268,11 +272,13 @@ fun OdifyNowPlaying(
                                 onClick = { actionsOpen = false; onSaveDevice() }
                             )
                             DropdownMenuItem(
+                                text = {Text("음원 교체하기")},leadingIcon={Icon(Icons.Default.SwapHoriz,null)},
+                                onClick={actionsOpen=false;onReplaceAudio()})
+                            if(!externalPlayback) DropdownMenuItem(
                                 text = { Text("오디오 변경 요청") },
                                 leadingIcon = { Icon(Icons.Default.ReportProblem, null) },
                                 onClick = { actionsOpen = false; audioRequestOpen = true }
                             )
-                            }
                             DropdownMenuItem(
                                 text = { Text("곡 정보") },
                                 leadingIcon = { Icon(Icons.Default.Info, null) },
@@ -287,12 +293,15 @@ fun OdifyNowPlaying(
                 val artGapPx = with(LocalDensity.current) { 12.dp.toPx() }
                 // Three covers share one clipped viewport. As the user swipes,
                 // the next cover enters continuously instead of popping in.
-                if (showLyrics) {
-                    OdifyLyricsPanel(song.copy(lyrics=availableLyrics), position, onSeek,
-                        Modifier.fillMaxWidth().height(lyricsHeight),immersive=true,
-                        editRequested=lyricsEditor,onEditorClosed={lyricsEditor=false},
-                        onLyricsChanged={availableLyrics=it})
-                } else Box(
+                // One stable viewport for cover+metadata and lyrics. The seek,
+                // transport and queue bar below never relayout on this toggle.
+                Box(Modifier.fillMaxWidth().height(artSize+90.dp)) {
+                    if(lyricsProgress<.999f || !showLyrics) Column(
+                        Modifier.fillMaxSize().graphicsLayer {
+                            alpha=1f-lyricsProgress;scaleX=1f-.07f*lyricsProgress;scaleY=1f-.07f*lyricsProgress
+                            translationY=-with(densityForLyrics){12.dp.toPx()}*lyricsProgress
+                        },horizontalAlignment=Alignment.CenterHorizontally) {
+Box(
                     Modifier.size(artSize)
                         .clip(RoundedCornerShape(22.dp))
                         .border(.7.dp, Color.White.copy(alpha = .22f), RoundedCornerShape(22.dp))
@@ -377,7 +386,6 @@ fun OdifyNowPlaying(
                         fallbackKey = song.id.hashCode()
                     )
                 }
-                if(!showLyrics) {
                 Spacer(Modifier.height(22.dp))
 
                 Row(
@@ -399,7 +407,17 @@ fun OdifyNowPlaying(
                             "좋아요", tint = playerWhite, modifier = Modifier.size(25.dp))
                     }
                 }
+                    }
+                    if(availableLyrics.isNotBlank() && (showLyrics || lyricsProgress>.001f)) {
+                        Box(Modifier.fillMaxSize().graphicsLayer {
+                            alpha=lyricsProgress;translationY=with(densityForLyrics){14.dp.toPx()}*(1f-lyricsProgress)
+                        }) {
+                            OdifyLyricsPanel(song.copy(lyrics=availableLyrics),position,onSeek,Modifier.fillMaxSize(),immersive=true,
+                                editRequested=lyricsEditor,onEditorClosed={lyricsEditor=false},onLyricsChanged={availableLyrics=it})
+                        }
+                    }
                 }
+
 
                 Spacer(Modifier.height(19.dp))
                 // Waveform scrubber replaces a bulky default slider.
@@ -469,7 +487,7 @@ fun OdifyNowPlaying(
                             tint = if (showLyrics) Color.White else playerSecondary,
                             modifier = Modifier.size(22.dp))
                     }
-                    DropdownMenu(expanded=lyricsMenu,onDismissRequest={lyricsMenu=false},
+                    OdifyGlassMenu(expanded=lyricsMenu,onDismissRequest={lyricsMenu=false},
                         shape=RoundedCornerShape(18.dp),containerColor=Color(0xF022252C)) {
                         DropdownMenuItem(text={Text("가사 수정")},leadingIcon={Icon(Icons.Default.Edit,null)},
                             onClick={lyricsMenu=false;lyricsEditor=true})
@@ -500,7 +518,7 @@ fun OdifyNowPlaying(
     if(lyricsEditor && !showLyrics) OdifyLyricsPanel(song.copy(lyrics=availableLyrics),position,onSeek,
         editRequested=true,visible=false,onEditorClosed={lyricsEditor=false},onLyricsChanged={availableLyrics=it})
     if (showInfo) {
-        AlertDialog(
+        OdifyGlassAlertDialog(
             onDismissRequest = { showInfo = false },
             title = { Text("곡 정보") },
             text = {
@@ -517,6 +535,7 @@ fun OdifyNowPlaying(
             }
         )
     }
+}
 }
 
 private fun timecode(milliseconds: Long): String {

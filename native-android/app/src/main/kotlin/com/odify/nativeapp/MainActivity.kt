@@ -120,7 +120,11 @@ private fun NativeOdify() {
     var driveFolder by remember { mutableStateOf(driveCatalog.folderId) }
     var songs by remember { mutableStateOf<List<OdifySong>>(emptyList()) }
     val downloadedVersion by OdifyPhoneDownloads.version.collectAsState()
-    val downloadedSongs=remember(downloadedVersion) {OdifyStreamingLibrary(context.applicationContext).downloads()}
+    val streamingVersion by OdifyStreamingLibrary.version.collectAsState()
+    val downloadedSongs by produceState<List<OdifySong>>(emptyList(),downloadedVersion,streamingVersion) {
+        value=withContext(Dispatchers.IO){OdifyStreamingLibrary(context.applicationContext).all()}
+    }
+    val audioOverrides=remember {OdifyAudioOverrides(context.applicationContext)}
     var controller by remember { mutableStateOf<MediaController?>(null) }
     var playback by remember { mutableStateOf(OdifyPlaybackSnapshot()) }
     var expanded by remember { mutableStateOf(false) }
@@ -578,16 +582,19 @@ private fun NativeOdify() {
     var externalLookupJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     fun playYoutubeVideo(queue: List<YoutubeVideo>, index: Int) {
         if(index !in queue.indices) return
-        OdifyStreamingLibrary(context.applicationContext).remember(queue[index])
+        val streaming=OdifyStreamingLibrary(context.applicationContext)
+        streaming.rememberAll(queue)
         controller?.pause()
         expanded=true
         val drive=songs.filter {it.id.startsWith("gdrive:")}.distinctBy {it.id}
         val likes=context.getSharedPreferences("odify_native_ui",0).getStringSet("likes",emptySet()).orEmpty()
-        val following=OdifyRecommendations.mixes(drive,likes,OdifyListeningStore(context.applicationContext).signals())
+        val suggested=OdifyRecommendations.mixes(drive,likes,OdifyListeningStore(context.applicationContext).signals())
             .firstOrNull()?.songs?.take(20).orEmpty().ifEmpty {drive.take(20)}
+        val following=queue.drop(index+1).mapNotNull {streaming.find("youtube:"+it.videoId)}.ifEmpty {suggested}
         OdifyYoutubeRuntime.play(context,queue[index],following)
     }
-    fun playExternalTrack(artist: String, title: String) {
+    fun playExternalTrack(artist: String, title: String,chartId:String="") {
+        Toast.makeText(context,"재생할 음원을 찾고 있어요…",Toast.LENGTH_SHORT).show()
         externalLookupJob?.cancel()
         externalLookupJob = scope.launch {
             val query = OdifyYoutubeQuickPlay.query(artist, title)
@@ -595,16 +602,22 @@ private fun NativeOdify() {
                 OdifyYoutubeQuickPlay.first(OdifyYoutubeLibrary(context.applicationContext).search(query))
             }.getOrNull() else null
             if (!kotlinx.coroutines.currentCoroutineContext().isActive) return@launch
-            if(selected!=null) {playYoutubeVideo(listOf(selected),0);return@launch}
-            val opened = OdifyExternalYoutube.openSearch(context, query)
-            if (opened) {
-                controller?.pause()
-                Toast.makeText(context, selected?.title ?: "YouTube에서 가사 영상 검색", Toast.LENGTH_SHORT).show()
-            } else Toast.makeText(context, "YouTube 앱을 열지 못했습니다.", Toast.LENGTH_SHORT).show()
+            if(selected!=null) {
+                val store=OdifyStreamingLibrary(context);store.remember(selected)
+                if(chartId.isNotBlank()) {
+                    store.associateChart(selected.videoId,chartId)
+                    OdifyStreamingRequests(context).enqueue(selected,0,"chart_tap")
+                    OdifyPhoneDownloads.schedule(context)
+                }
+                playYoutubeVideo(listOf(selected),0);return@launch
+            }
+            Toast.makeText(context,if(youtubeConnected) "재생할 영상을 찾지 못했어요. 검색에서 다른 영상을 선택해 주세요." else "설정에서 YouTube 계정을 연결해 주세요.",Toast.LENGTH_LONG).show()
+
         }
     }
 
-    fun playFrom(items: List<OdifySong>, index: Int) {
+    fun playFrom(originalItems: List<OdifySong>, index: Int) {
+        val items=originalItems.map(audioOverrides::resolve)
         val player = controller
         if (player == null) {
             Toast.makeText(context, "플레이어를 연결 중입니다.", Toast.LENGTH_SHORT).show()
@@ -637,6 +650,7 @@ private fun NativeOdify() {
         delay(430)
         startup = false
         OdifyPhoneDownloads.schedule(context.applicationContext)
+        OdifyChartAutomation.schedule(context.applicationContext)
     }
 
     LaunchedEffect(expanded) {
@@ -688,7 +702,7 @@ private fun NativeOdify() {
             onConnectYoutube = { connectYoutube() },
             onExternalYoutubeStarted = { controller?.pause() },
             onPlayYoutubeVideo = { queue,index -> playYoutubeVideo(queue,index) },
-            onExternalTrack = { artist, title -> playExternalTrack(artist, title) },
+            onExternalTrack = { artist, title,chartId -> playExternalTrack(artist, title,chartId) },
             phoneFolderStatus = phoneFolderStatus,
             onChoosePhoneFolder = { phoneFolderPicker.launch(null) },
             onRefreshPhoneFolder = {
@@ -773,6 +787,16 @@ private fun NativeOdify() {
                         androidx.media3.common.Player.REPEAT_MODE_OFF
                     else androidx.media3.common.Player.REPEAT_MODE_ONE
             },
+            onReplaceAudio = {song,video ->
+                audioOverrides.choose(song,video)
+                OdifyStreamingRequests(context).enqueue(video,0,"audio_replacement",retry=true)
+                OdifyPhoneDownloads.schedule(context)
+                if(song.id.startsWith("gdrive:")) audioRequests.enqueue(song,"paste_link","https://www.youtube.com/watch?v=${video.videoId}","앱에서 대체 음원 선택")
+                val following=if(youtubeVideo!=null)youtubeSession.following else controller?.let {player ->
+                    (player.currentMediaItemIndex+1 until player.mediaItemCount).map {queueSong(player.getMediaItemAt(it))}
+                }.orEmpty()
+                controller?.pause();expanded=true;OdifyYoutubeRuntime.play(context,video,following)
+            },
             onAudioRequest = { track, kind, link, reason ->
                 scope.launch {
                     runCatching { withContext(Dispatchers.IO) {
@@ -788,7 +812,11 @@ private fun NativeOdify() {
                 }
             },
             onSaveDevice = { track ->
-                if (savingDeviceSong) {
+                if(track.isYoutubeStream) {
+                    OdifyStreamingRequests(context).enqueue(OdifyStreamingLibrary(context).video(track),track.durationMs,"manual",retry=true)
+                    OdifyPhoneDownloads.schedule(context)
+                    Toast.makeText(context,"휴대폰 저장을 시작합니다. 설정에서 진행 상황을 확인할 수 있어요.",Toast.LENGTH_LONG).show()
+                } else if (savingDeviceSong) {
                     Toast.makeText(context, "이전 곡을 저장 중입니다.",
                         Toast.LENGTH_SHORT).show()
                 } else {

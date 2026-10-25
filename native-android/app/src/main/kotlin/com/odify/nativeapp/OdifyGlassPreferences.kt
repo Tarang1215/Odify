@@ -38,7 +38,7 @@ internal fun OdifyGlassPreferencesProvider(content:@Composable ()->Unit) {
 internal fun OdifyGlassSettingsCard() {
     val values=LocalOdifyGlassPreferences.current ?: return
     Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp))
-        .background(OdifyPalette.surface).padding(18.dp)) {
+        .odifyNeutralPanel().padding(18.dp)) {
         Text("Liquid Glass",fontSize=16.sp,fontWeight=FontWeight.SemiBold,color=OdifyPalette.text)
         Spacer(Modifier.height(6.dp))
         Text("앨범 색과 배경 블러를 유지하며 유리의 투명도를 조절해요.",

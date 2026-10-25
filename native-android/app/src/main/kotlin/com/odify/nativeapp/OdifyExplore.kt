@@ -105,7 +105,8 @@ class OdifyExploreRepository(private val context:Context) {
         val existing=cached(country)
         if(!force && existing!=null && System.currentTimeMillis()-existing.fetchedAt < 6L*60*60*1000) return@withContext existing
         try {
-            val raw=if(country=="kr") publicPlaylist(country,existing) else try {
+            val raw=if(country=="kr") try {publicPlaylist(country,existing)} catch(cancel:CancellationException){throw cancel}
+                catch(_:Exception){melonChart()} else try {
                 request("https://rss.applemarketingtools.com/api/v2/$country/music/most-played/100/songs.json",2_000_000)
             } catch(cancel:CancellationException) {throw cancel}
             catch(_:Exception) {publicPlaylist(country,existing)}
@@ -117,6 +118,23 @@ class OdifyExploreRepository(private val context:Context) {
             result
         } catch(cancel:CancellationException) {throw cancel}
         catch(failure:Exception) {existing ?: throw failure}
+    }
+
+    private fun melonChart():String {
+        val html=request("https://www.melon.com/chart/index.htm",2_000_000)
+        val results=org.json.JSONArray()
+        val options=setOf(RegexOption.DOT_MATCHES_ALL,RegexOption.IGNORE_CASE)
+        fun clean(value:String)=android.text.Html.fromHtml(value,android.text.Html.FROM_HTML_MODE_LEGACY).toString().trim()
+        Regex("""<tr[^>]*data-song-no="([0-9]+)"[^>]*>(.*?)</tr>""",options).findAll(html).forEach {match ->
+            val row=match.groupValues[2]
+            val title=Regex("""class="ellipsis rank01"[^>]*>.*?<a[^>]*>(.*?)</a>""",options).find(row)?.groupValues?.get(1)
+            val artist=Regex("""class="ellipsis rank02"[^>]*>(.*?)</div>""",options).find(row)?.groupValues?.get(1)?.substringBefore("<span")
+            val artwork=Regex("""<img[^>]*src="([^"]+)""",options).find(row)?.groupValues?.get(1).orEmpty()
+            if(!title.isNullOrBlank() && !artist.isNullOrBlank())results.put(JSONObject().put("id","melon-"+match.groupValues[1])
+                .put("name",clean(title)).put("artistName",clean(artist)).put("artworkUrl100",artwork).put("genres",org.json.JSONArray()))
+        }
+        require(results.length()==100){"멜론 Top 100을 확인하지 못했습니다."}
+        return JSONObject().put("feed",JSONObject().put("updated",java.time.Instant.now().toString()).put("results",results)).toString()
     }
 }
 
@@ -134,7 +152,7 @@ private fun ExploreCover(track:ExploreTrack,modifier:Modifier) {
         value=withContext(Dispatchers.IO) {
             runCatching {
                 val url=URL(track.artwork)
-                require(url.protocol=="https" && url.host.endsWith(".mzstatic.com"))
+                require(url.protocol=="https" && (url.host.endsWith(".mzstatic.com") || url.host=="cdnimg.melon.co.kr"))
                 val key=java.security.MessageDigest.getInstance("SHA-256").digest(track.artwork.toByteArray()).take(12).joinToString("") {"%02x".format(it)}
                 val file=File(context.cacheDir,"explore_art_$key.jpg")
                 val bytes=if(file.exists()) file.readBytes() else {

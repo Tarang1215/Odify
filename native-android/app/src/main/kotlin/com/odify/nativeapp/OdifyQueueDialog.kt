@@ -49,7 +49,7 @@ private fun queueInstances(items: List<OdifySong>, keys: List<String>): List<Que
 fun OdifyQueueDialog(
     items: List<OdifySong>, currentIndex: Int,
     onMove: (Int, Int) -> Unit, onSelect: (Int) -> Unit,
-    onClose: () -> Unit, entryKeys: List<String> = emptyList()
+    onClose: () -> Unit, entryKeys: List<String> = emptyList(),glow:Color=Color.Transparent
 ) {
     val incoming = remember(items, entryKeys) { queueInstances(items, entryKeys) }
     var ordered by remember { mutableStateOf(incoming) }
@@ -60,13 +60,8 @@ fun OdifyQueueDialog(
     var displacement by remember { mutableFloatStateOf(0f) }
     val rowHeight = with(LocalDensity.current) { 71.dp.toPx() }
     val latestOnMove by rememberUpdatedState(onMove)
-    Dialog(onDismissRequest=onClose,
-        properties=DialogProperties(usePlatformDefaultWidth=false)) {
-        Surface(
-            Modifier.fillMaxWidth().fillMaxHeight(0.86f).padding(horizontal=12.dp),
-            shape=RoundedCornerShape(26.dp),color=Color(0xFF191B20)
-        ) {
-            Column(Modifier.fillMaxSize().padding(horizontal=15.dp, vertical=10.dp)) {
+    OdifyGlassDialog(onClose,tint=glow) {
+            Column(Modifier.fillMaxWidth().heightIn(max=560.dp)) {
                 Row(verticalAlignment=Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text("다음 재생목록",color=Color.White,fontWeight=FontWeight.Bold,
@@ -90,9 +85,9 @@ fun OdifyQueueDialog(
                         Row(
                             Modifier.fillMaxWidth()
                                 .background(
-                                    if (selected) Color(0xFF303D42)
+                                    if (selected) glow.copy(alpha=.16f)
                                     else if (dragging==queued.key) Color(0xFF3F434A)
-                                    else Color(0xFF25272D),
+                                    else Color.White.copy(alpha=.035f),
                                     RoundedCornerShape(14.dp)
                                 )
                                 .height(68.dp)
@@ -100,9 +95,7 @@ fun OdifyQueueDialog(
                                 .padding(start=11.dp,end=7.dp),
                             verticalAlignment=Alignment.CenterVertically
                         ) {
-                            Icon(Icons.Default.MusicNote,null,
-                                tint=if(selected) Color(0xFF8FE0BC) else Color.LightGray,
-                                modifier=Modifier.size(24.dp))
+                            AlbumArt(song,Modifier.size(42.dp),radius=RoundedCornerShape(11.dp))
                             Spacer(Modifier.width(11.dp))
                             Column(Modifier.weight(1f)) {
                                 Text(song.title,
@@ -159,6 +152,5 @@ fun OdifyQueueDialog(
                     }
                 }
             }
-        }
     }
 }

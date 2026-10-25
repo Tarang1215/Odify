@@ -27,7 +27,10 @@ fun OdifyPersonalHome(
     onSaveMix: (OdifyMix) -> Unit, onPlaylistPlay: (OdifyPlaylist) -> Unit
 ) {
     var selectedMix by remember { mutableStateOf<OdifyMix?>(null) }
-    val hero = mixes.firstOrNull()
+    var category by remember {mutableStateOf("daily")}
+    val hero = mixes.firstOrNull {it.key==category} ?: mixes.firstOrNull()
+    val artists=remember(recent,mixes) {(recent+mixes.flatMap {it.songs}).filter {it.artist.isNotBlank() && (it.id.startsWith("gdrive:") || it.id.startsWith("youtube:"))}
+        .groupBy {it.artist}.entries.take(8)}
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(22.dp, 14.dp, 22.dp, 160.dp)) {
         item {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -42,9 +45,10 @@ fun OdifyPersonalHome(
                 }
             }
             Spacer(Modifier.height(18.dp))
-            Row(horizontalArrangement=Arrangement.spacedBy(7.dp)) {
-                listOf("For you" to { hero?.let {selectedMix=it}; Unit },"Explore" to onExplore,"Search" to onSearch).forEachIndexed {index,(label,action) ->
-                    OdifyPill(label,index==0,action)
+            Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(7.dp)) {
+                listOf("For you" to "daily","On repeat" to "repeat","Discover" to "unheard","Offline" to "offline")
+                    .filter {it.second=="daily" || mixes.any {mix -> mix.key==it.second}}.forEach {(label,key) ->
+                    OdifyPill(label,category==key) {category=key}
                 }
             }
             Spacer(Modifier.height(12.dp))
@@ -94,6 +98,18 @@ fun OdifyPersonalHome(
             }
             Text("들을수록 가까워지는 취향",fontSize=11.sp,color=homeGrey,modifier=Modifier.padding(top=4.dp,bottom=14.dp))
         }
+        if(artists.isNotEmpty()) item {
+            Text("More from your artists",fontSize=20.sp,fontWeight=FontWeight.Bold,color=homeInk,modifier=Modifier.padding(top=24.dp,bottom=13.dp))
+            LazyRow(horizontalArrangement=Arrangement.spacedBy(16.dp)) {
+                items(artists,key={it.key}) {entry ->
+                    Column(Modifier.width(90.dp).clickable {selectedMix=OdifyMix("artist:${entry.key}",entry.key,"내 음악에서 이어 듣는 아티스트 컬렉션",entry.value.distinctBy {it.id})},
+                        horizontalAlignment=Alignment.CenterHorizontally) {
+                        AlbumArt(entry.value.first(),Modifier.size(82.dp),radius=androidx.compose.foundation.shape.CircleShape)
+                        Text(entry.key,fontSize=11.sp,color=homeInk,maxLines=1,overflow=TextOverflow.Ellipsis,modifier=Modifier.padding(top=8.dp))
+                    }
+                }
+            }
+        }
         if (mixes.isNotEmpty()) item {
             LazyRow(horizontalArrangement=Arrangement.spacedBy(13.dp)) {
                 items(mixes,key={it.key}) { mix ->
@@ -140,7 +156,7 @@ fun OdifyPersonalHome(
         }
     }
     selectedMix?.let { mix ->
-        ModalBottomSheet(onDismissRequest={selectedMix=null},containerColor=OdifyPalette.surface) {
+        OdifyGlassDialog(onDismiss={selectedMix=null}) {
             Column(Modifier.fillMaxWidth().padding(horizontal=22.dp)) {
                 Text(mix.name,fontSize=26.sp,fontWeight=FontWeight.Bold,color=homeInk)
                 Text(mix.reason,fontSize=12.sp,color=homeGrey,modifier=Modifier.padding(top=6.dp,bottom=14.dp))

@@ -88,7 +88,7 @@ class PersonalMusicTest {
     @Test fun noListeningHistoryDoesNotInventPersonalization() {
         val songs=listOf(song("gdrive:one"),song("gdrive:two"))
         val mixes=OdifyRecommendations.mixes(songs,emptySet(),emptyMap(),1000)
-        assertEquals(listOf("start"),mixes.map {it.key})
+        assertTrue(mixes.any {it.key=="unheard"})
         assertTrue(mixes.flatMap {it.songs}.all {it in songs})
         assertTrue(OdifyRecommendations.mixes(emptyList(),emptySet(),emptyMap()).isEmpty())
     }

@@ -17,6 +17,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 
@@ -31,7 +34,7 @@ fun OdifyPlaylistPicker(
 ) {
     var name by remember { mutableStateOf("") }
     var message by remember { mutableStateOf("") }
-    AlertDialog(
+    OdifyGlassAlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("플레이리스트에 추가") },
         text = {
@@ -97,7 +100,7 @@ fun OdifyPlaylistLibrary(
     onPlay: (List<OdifySong>, Int) -> Unit,
     onCreate: (String) -> String,
     onDelete: (String) -> Unit,
-    onRemoveSong: (String, String) -> Unit
+    onRemoveSong: (String, String) -> Unit, currentSongId:String?=null
 ) {
     var selectedId by remember { mutableStateOf<String?>(null) }
     BackHandler(enabled = selectedId != null) { selectedId = null }
@@ -108,8 +111,15 @@ fun OdifyPlaylistLibrary(
     var songMenu by remember { mutableStateOf<String?>(null) }
     val selected = playlists.firstOrNull { it.id == selectedId }
     val songIndex = remember(songs) { songs.associateBy(OdifySong::id) }
-    val tracks = selected?.songIds?.mapNotNull {OdifyChartMatching.storedReference(it,songs)}.orEmpty()
+    val playlistContext=androidx.compose.ui.platform.LocalContext.current
+    val repo=remember {OdifyPlaylists(playlistContext.applicationContext)}
+    val tracks=remember(selected,songs){selected?.let {repo.resolved(it,songs)}.orEmpty()}
 
+    Box(Modifier.fillMaxSize()) {
+        if(selected!=null) {
+            AlbumArt(tracks.firstOrNull(),Modifier.fillMaxSize().graphicsLayer{alpha=.28f}.blur(34.dp),radius=RoundedCornerShape(0.dp))
+            Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha=.52f)))
+        }
     Column(Modifier.fillMaxSize()) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             if (selected != null) {
@@ -155,6 +165,25 @@ fun OdifyPlaylistLibrary(
                 }
             }
         } else {
+            Row(Modifier.fillMaxWidth().padding(top=15.dp,bottom=19.dp),verticalAlignment=Alignment.CenterVertically) {
+                AlbumArt(tracks.firstOrNull(),Modifier.size(112.dp),radius=RoundedCornerShape(22.dp),fallbackKey=selected.name.hashCode())
+                Column(Modifier.weight(1f).padding(start=18.dp)) {
+                    Text("MY PLAYLIST",style=MaterialTheme.typography.labelSmall,color=OdifyPalette.muted)
+                    Spacer(Modifier.height(6.dp))
+                    Text(selected.name,style=MaterialTheme.typography.headlineSmall,fontWeight=FontWeight.Bold,maxLines=3)
+                    Spacer(Modifier.height(7.dp))
+                    Text("${selected.songIds.size}곡 · 나의 컬렉션",style=MaterialTheme.typography.bodySmall,color=OdifyPalette.muted)
+                }
+            }
+            Row(Modifier.fillMaxWidth().padding(bottom=17.dp),horizontalArrangement=Arrangement.spacedBy(10.dp)) {
+                Button(onClick={onPlay(tracks,0)},enabled=tracks.isNotEmpty(),modifier=Modifier.weight(1f),
+                    colors=ButtonDefaults.buttonColors(containerColor=OdifyPalette.text,contentColor=OdifyPalette.background)) {
+                    Icon(Icons.Default.PlayArrow,null);Spacer(Modifier.width(8.dp));Text("전체 재생")
+                }
+                OutlinedButton(onClick={onPlay(tracks.shuffled(),0)},enabled=tracks.isNotEmpty(),modifier=Modifier.weight(1f)) {
+                    Icon(Icons.Default.Shuffle,null);Spacer(Modifier.width(8.dp));Text("셔플")
+                }
+            }
             if(tracks.size<selected.songIds.size) Text("${selected.songIds.size}곡 중 ${tracks.size}곡 준비됨 · 동기화 후 나머지도 이어집니다",
                 style=MaterialTheme.typography.labelSmall,color=OdifyPalette.muted,modifier=Modifier.padding(vertical=8.dp))
             if (tracks.isEmpty()) {
@@ -175,22 +204,25 @@ fun OdifyPlaylistLibrary(
                                 IconButton(onClick = { songMenu = song.id }) {
                                     Icon(Icons.Default.MoreHoriz, "${song.title} 곡 메뉴", tint = OdifyPalette.muted)
                                 }
-                                DropdownMenu(expanded = songMenu == song.id, onDismissRequest = { songMenu = null }) {
+                                OdifyGlassMenu(expanded = songMenu == song.id, onDismissRequest = { songMenu = null }) {
                                     DropdownMenuItem(text = { Text("플레이리스트에서 제거") }, onClick = {
                                         songMenu = null; onRemoveSong(selected.id, song.id)
                                     })
                                 }
                             }
                         },
-                        colors = ListItemDefaults.colors(containerColor = OdifyPalette.background),
-                        modifier = Modifier.clickable { onPlay(tracks, tracks.indexOf(song)) }
+                        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                        modifier = Modifier.clip(RoundedCornerShape(14.dp))
+                            .background(if(song.id==currentSongId) Color.White.copy(alpha=.075f) else Color.Transparent)
+                            .clickable { onPlay(tracks, tracks.indexOf(song)) }
                     )
                 }
             }
         }
     }
+    }
     if (creating) {
-        AlertDialog(
+        OdifyGlassAlertDialog(
             onDismissRequest = { creating = false },
             title = { Text("새 플레이리스트") },
             text = {
@@ -217,7 +249,7 @@ fun OdifyPlaylistLibrary(
         )
     }
     if (deletePending != null) {
-        AlertDialog(
+        OdifyGlassAlertDialog(
             onDismissRequest = { deletePending = null },
             title = { Text("플레이리스트를 삭제할까요?") },
             text = { Text("목록만 삭제되며 원본 음악 파일은 그대로 유지됩니다.") },

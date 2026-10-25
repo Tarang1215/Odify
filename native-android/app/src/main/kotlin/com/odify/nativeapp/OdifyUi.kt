@@ -126,7 +126,7 @@ private object OdifyCoverMemory {
     private val images = object : LinkedHashMap<String, ImageBitmap>(32, 0.75f, true) {
         override fun removeEldestEntry(
             eldest: MutableMap.MutableEntry<String, ImageBitmap>?
-        ): Boolean = size > 24
+        ): Boolean = size > 48
     }
     @Synchronized fun peek(path: String?): ImageBitmap? =
         path?.let { images[it] }
@@ -144,7 +144,12 @@ fun AlbumArt(
     muted: Boolean = false,
     contentScale: ContentScale = ContentScale.Crop
 ) {
-    val coverPath = song?.artworkPath
+    val context=androidx.compose.ui.platform.LocalContext.current
+    val remoteCover=if(song?.id?.startsWith("youtube:")==true && song.artworkPath.isNullOrBlank()) {
+        val fetched by produceState<String?>(null,song.id) {value=youtubeArtwork(context,song.id.removePrefix("youtube:"))}
+        fetched
+    } else null
+    val coverPath = song?.artworkPath ?: remoteCover
     // produceState(key1=...) restarts its loader but keeps the OLD image value
     // for a frame when the song changes. remember(key) recreates state, so
     // neighbor transitions can never flash the previously selected cover.
@@ -228,7 +233,7 @@ fun OdifyRoot(
     onConnectYoutube: () -> Unit,
     onExternalYoutubeStarted: () -> Unit,
     onPlayYoutubeVideo: (List<YoutubeVideo>, Int) -> Unit,
-    onExternalTrack: (String, String) -> Unit,
+    onExternalTrack: (String, String,String) -> Unit,
     phoneFolderStatus: String,
     onChoosePhoneFolder: () -> Unit,
     onRefreshPhoneFolder: () -> Unit,
@@ -253,6 +258,7 @@ fun OdifyRoot(
     onRepeat: () -> Unit,
     onSaveDevice: (OdifySong) -> Unit,
     onAudioRequest: (OdifySong, String, String, String) -> Unit,
+    onReplaceAudio: (OdifySong,YoutubeVideo)->Unit,
     onRemove: (OdifySong) -> Unit,
     onEdit: (OdifySong, String, String, String) -> Unit,
     onChooseArtwork: (OdifySong) -> Unit
@@ -280,6 +286,7 @@ fun OdifyRoot(
     var playlistVersion by remember { mutableIntStateOf(0) }
     val playlists = remember(playlistVersion) { playlistStore.all() }
     var playlistDialogTrack by remember { mutableStateOf<OdifySong?>(null) }
+    var replacementTrack by remember {mutableStateOf<OdifySong?>(null)}
     var openLibraryPlaylists by rememberSaveable { mutableIntStateOf(0) }
     fun createPlaylist(name: String): String = runCatching {
         playlistStore.create(name)
@@ -476,7 +483,7 @@ fun OdifyRoot(
                     onAddTrack={track,owned -> playlistDialogTrack=owned ?:
                         OdifySong("chart:${track.id}",track.title,track.artist,"","")},
                     onProfile = { navigateTo(OdifyTab.Profile) },
-                    onMissingTrack = { track -> onExternalTrack(track.artist, track.title) },
+                    onMissingTrack = { track -> onExternalTrack(track.artist, track.title,track.id) },
                     onSaveChart = { name,ids ->
                         runCatching {playlistStore.saveMix(name,ids)}.onSuccess {
                             playlistVersion++
@@ -498,7 +505,7 @@ fun OdifyRoot(
                     onChooseArtwork = onChooseArtwork,
                     onProfile = { navigateTo(OdifyTab.Profile) },
                     onOpenYoutube = { youtubeOpen = true },
-                    playlists = playlists, playlistFocus = openLibraryPlaylists,
+                    playlists = playlists, playlistFocus = openLibraryPlaylists,currentSongId=playback.mediaId,
                     onCreatePlaylist = ::createPlaylist,
                     onDeletePlaylist = { id ->
                         playlistStore.delete(id); playlistVersion++
@@ -507,7 +514,7 @@ fun OdifyRoot(
                         playlistStore.removeSong(listId, trackId); playlistVersion++
                     }
                 )
-                OdifyTab.Profile -> OdifyProfile(
+                OdifyTab.Profile -> OdifyNeutralScene { OdifyProfile(
                     songs, onImport, onImportOffline, importing,
                     driveConnected, driveBusy, driveStatus, driveFolder,
                     onDriveConnect, onDriveSync, onDriveFolderChange,
@@ -516,7 +523,7 @@ fun OdifyRoot(
                     phoneFolderStatus, onChoosePhoneFolder, onRefreshPhoneFolder,
                     onMasterUpdated, uploadingToDrive, uploadStatus, onUploadToDrive,
                     onBack = ::navigateBack
-                )
+                ) }
                 }
             }
             }
@@ -634,6 +641,7 @@ fun OdifyRoot(
                     onAddToPlaylist = { playlistDialogTrack = active },
                     onSaveDevice = { onSaveDevice(active) },
                     onAudioRequest = { kind, link, reason -> onAudioRequest(active, kind, link, reason) },
+                    onReplaceAudio = {replacementTrack=active},
                     externalPlayback=active.id.startsWith("youtube:"),
                     onOpenExternal=onOpenExternalVideo,
                     onDragProgress = { playerDragFraction = it }
@@ -645,9 +653,12 @@ fun OdifyRoot(
                 localSongs=songs,connected=youtubeConnected,
                 onConnect=onConnectYoutube,
                 onPlayLocal={ queue,index -> onPlayYoutubeMatched(queue,index);youtubeOpen=false },
-                onClose={youtubeOpen=false}
+                onClose={youtubeOpen=false},onImported={playlistVersion++}
             )
         }
+        replacementTrack?.let {target -> OdifyAudioReplaceDialog(target,onSelect={video ->
+            replacementTrack=null;onReplaceAudio(target,video)
+        },onClose={replacementTrack=null})}
         if (queueOpen) {
             OdifyQueueDialog(
                 items=remember(playback.queueIds, songIndex) { playback.queueIds.map { id ->
@@ -658,7 +669,7 @@ fun OdifyRoot(
                 currentIndex=playback.currentQueueIndex,
                 onMove=onMoveQueue,
                 onSelect={ index -> onSelectQueue(index); queueOpen=false },
-                onClose={ queueOpen=false }
+                onClose={ queueOpen=false },glow=sharedGlow
             )
         }
         playlistDialogTrack?.let { target ->
@@ -740,11 +751,12 @@ private fun OdifyBottomBar(
                     Modifier.weight(1f).height(48.dp)
                         .clip(RoundedCornerShape(22.dp))
                         .selectable(selected = isSelected, role = Role.Tab,
+                            interactionSource=remember {MutableInteractionSource()},indication=null,
                             onClick = { onSelected(tab) }),
                     contentAlignment = Alignment.Center
                 ) {
                     Box(Modifier.size(width = 38.dp, height = 32.dp)
-                        .clip(RoundedCornerShape(10.dp)).background(highlight),
+                        .clip(RoundedCornerShape(10.dp)),
                         contentAlignment = Alignment.Center) {
                         Icon(icon, contentDescription = label,
                             tint = if (isSelected) ink else Color(0xFF93969E),
@@ -1021,7 +1033,7 @@ private fun OdifyLibraryScreen(
     playlistFocus: Int,
     onCreatePlaylist: (String) -> String,
     onDeletePlaylist: (String) -> Unit,
-    onRemoveFromPlaylist: (String, String) -> Unit
+    onRemoveFromPlaylist: (String, String) -> Unit,currentSongId:String?=null
 ) {
     var editingSong by remember { mutableStateOf<OdifySong?>(null) }
     var selection by rememberSaveable { mutableStateOf("Playlists") }
@@ -1070,7 +1082,7 @@ private fun OdifyLibraryScreen(
         }
         if (selection == "Playlists") {
             OdifyPlaylistLibrary(
-                playlists = playlists, songs = songs, onPlay = onPlay,
+                playlists = playlists, songs = songs, onPlay = onPlay,currentSongId=currentSongId,
                 onCreate = onCreatePlaylist, onDelete = onDeletePlaylist,
                 onRemoveSong = onRemoveFromPlaylist
             )
@@ -1104,7 +1116,7 @@ private fun OdifyLibraryScreen(
                             IconButton(onClick = { showMenu = true }) {
                                 Icon(Icons.Default.MoreHoriz, "더보기", tint = grey)
                             }
-                            DropdownMenu(expanded = showMenu,
+                            OdifyGlassMenu(expanded = showMenu,
                                 onDismissRequest = { showMenu = false }) {
                                 DropdownMenuItem(
                                     text = { Text("곡 정보 수정") },
@@ -1154,7 +1166,7 @@ private fun OdifyTrackEditDialog(
     var title by remember(song.id) { mutableStateOf(song.title) }
     var artist by remember(song.id) { mutableStateOf(song.artist) }
     var album by remember(song.id) { mutableStateOf(song.album) }
-    AlertDialog(
+    OdifyGlassAlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("곡 정보 수정", fontWeight = FontWeight.SemiBold, color = ink) },
         text = {
@@ -1267,7 +1279,7 @@ private fun OdifyProfile(
         Spacer(Modifier.height(27.dp))
         Row(
             Modifier.fillMaxWidth().clip(RoundedCornerShape(17.dp))
-                .background(pale).padding(horizontal = 19.dp, vertical = 20.dp),
+                .odifyNeutralPanel(17).padding(horizontal = 19.dp, vertical = 20.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(
@@ -1290,6 +1302,8 @@ private fun OdifyProfile(
         OdifyGlassSettingsCard()
         Spacer(Modifier.height(16.dp))
         OdifyStreamingRequestsCard()
+        Spacer(Modifier.height(16.dp))
+        OdifyChartSettingsCard()
         Spacer(Modifier.height(28.dp))
         Text("음악 소스 및 연결", color = ink, fontSize = 14.sp,
             fontWeight = FontWeight.SemiBold)
@@ -1452,7 +1466,7 @@ private fun OdifyProfile(
         )
     }
     if (showFolderEditor) {
-        AlertDialog(
+        OdifyGlassAlertDialog(
             onDismissRequest = { showFolderEditor = false },
             title = { Text("음악 폴더 지정") },
             text = {
@@ -1490,9 +1504,9 @@ private fun OdifySourceRow(
     onClick: () -> Unit
 ) {
     Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(13.dp))
+        Modifier.fillMaxWidth().odifyNeutralPanel(18)
             .clickable(enabled = enabled, onClick = onClick)
-            .padding(vertical = 14.dp),
+            .padding(horizontal=14.dp,vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(

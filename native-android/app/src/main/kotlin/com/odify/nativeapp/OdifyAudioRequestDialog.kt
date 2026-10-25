@@ -37,7 +37,7 @@ internal fun OdifyAudioRequestDialog(song: OdifySong, onDismiss: () -> Unit,
             delay(3000)
         }
     }
-    AlertDialog(onDismissRequest = onDismiss,
+    OdifyGlassAlertDialog(onDismissRequest = onDismiss,
         title = { Text("오디오 변경 요청") },
         text = { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(song.title, style = MaterialTheme.typography.titleMedium)

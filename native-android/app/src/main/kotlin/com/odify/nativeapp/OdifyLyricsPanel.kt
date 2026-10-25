@@ -161,7 +161,7 @@ fun OdifyLyricsPanel(song: OdifySong, positionMs: Long,
             }
         }
     }
-    if (editing) AlertDialog(
+    if (editing) OdifyGlassAlertDialog(
         onDismissRequest={editing=false;onEditorClosed()},
         title={Text("가사 수정 · LRC / 직접 입력")},
         text={

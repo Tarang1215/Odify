@@ -94,9 +94,9 @@ fun Modifier.recordOdifyBackdrop(backdrop: OdifyBackdrop): Modifier =
 
 /** Replays the real page region through a bounded blur layer; foreground stays sharp. */
 fun Modifier.odifyGlass(backdrop: OdifyBackdrop, shape: Shape,glow:Color=Color.Transparent,split:Float=0f,
-    rightWidth:Dp=120.dp,gap:Dp=8.dp,navigation:Boolean=false): Modifier = composed {
+    rightWidth:Dp=120.dp,gap:Dp=8.dp,navigation:Boolean=false,transparencyOverride:Float?=null): Modifier = composed {
     val preferences=LocalOdifyGlassPreferences.current
-    val transparency=(if(navigation)preferences?.navigation else preferences?.player) ?: .72f
+    val transparency=transparencyOverride ?: (if(navigation)preferences?.navigation else preferences?.player) ?: .72f
     val shade=(.035f+1.08f*(1f-transparency)*(1f-transparency)).coerceAtMost(.88f)
     var coordinates by remember {mutableStateOf<LayoutCoordinates?>(null)}
     val crop=rememberGraphicsLayer()

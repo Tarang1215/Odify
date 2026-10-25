@@ -26,6 +26,11 @@ internal object OdifyPhoneDownloads {
     }
 }
 
+internal object OdifyPhoneDownloadPolicy {
+    fun ageRestricted(message:String)=listOf("age-restricted","age restricted","confirm your age","sign in to confirm your age").any {message.contains(it,true)}
+    fun gated(message:String)=listOf("not a bot","captcha","sign in","429","403").any {message.contains(it,true)}
+}
+
 /** Serialized durable downloads, independent of Activity/PC. No Drive uploads occur here. */
 class OdifyPhoneDownloadWorker(context:Context,params:WorkerParameters):CoroutineWorker(context,params) {
     override suspend fun getForegroundInfo():ForegroundInfo {
@@ -46,10 +51,19 @@ class OdifyPhoneDownloadWorker(context:Context,params:WorkerParameters):Coroutin
                 return@withContext Result.success()
             setForeground(getForegroundInfo())
             YoutubeDL.init(applicationContext);FFmpeg.init(applicationContext)
-            if(inputData.getBoolean("update",false)) YoutubeDL.updateYoutubeDL(applicationContext)
-            for(i in 0 until entries.length()) {
+            val engine=applicationContext.getSharedPreferences("odify_phone_engine_v1",0)
+            val force=inputData.getBoolean("update",false)
+            if(engine.getBoolean("source_hold",false) && !force)return@withContext Result.success()
+            if(force || System.currentTimeMillis()-engine.getLong("checked",0)>24L*60*60*1000) {
+                runCatching {YoutubeDL.updateYoutubeDL(applicationContext)}.onSuccess {
+                    engine.edit().putLong("checked",System.currentTimeMillis()).apply()
+                    if(force) {engine.edit().putBoolean("source_hold",false).apply();requests.retryFailed()}
+                }.onFailure {android.util.Log.w("OdifyPhoneSave","Engine update failed",it)}
+            }
+            val current=requests.read()
+            for(i in 0 until current.length()) {
                 if(isStopped) return@withContext Result.success()
-                val row=entries.getJSONObject(i)
+                val row=current.getJSONObject(i)
                 if(row.optString("status") !in pending) continue
                 val id=row.getString("video_id")
                 require(Regex("[A-Za-z0-9_-]{11}").matches(id))
@@ -69,7 +83,14 @@ class OdifyPhoneDownloadWorker(context:Context,params:WorkerParameters):Coroutin
                         .addOption("-f","bestaudio[ext=m4a]/bestaudio").addOption("-x")
                         .addOption("--audio-format","m4a").addOption("--embed-metadata").addOption("--embed-thumbnail")
                         .addOption("-o",File(folder,"YT_$id.%(ext)s").absolutePath)
-                    YoutubeDL.execute(request,processId="odify-$id",redirectErrorStream=true,callback=null)
+                    var lastProgress=-1
+                    YoutubeDL.execute(request,processId="odify-$id",redirectErrorStream=false,callback={progress,_,_ ->
+                        val step=progress.toInt().coerceIn(0,99)
+                        if(step/5!=lastProgress/5 || lastProgress<0) {
+                            lastProgress=step
+                            requests.update(id){it.put("progress",step)}
+                        }
+                    })
                     val output=File(folder,"YT_$id.m4a")
                     check(output.isFile && output.length() in 1024..128L*1024*1024) {"완성된 음원 파일이 없습니다."}
                     val info=org.json.JSONObject(File(folder,"YT_$id.info.json").readText())
@@ -78,24 +99,27 @@ class OdifyPhoneDownloadWorker(context:Context,params:WorkerParameters):Coroutin
                     val duration=try {media.setDataSource(output.absolutePath)
                         media.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
                     } finally {media.release()}
-                    check(duration>0 && kotlin.math.abs(duration-row.getLong("duration_ms"))<=5000) {"저장 파일 재생 시간 검증 실패"}
+                    val expected=row.optLong("duration_ms")
+                    check(duration>0 && (expected<=0 || kotlin.math.abs(duration-expected)<=5000)) {"저장 파일 재생 시간 검증 실패"}
                     val digest=output.inputStream().use {stream ->
                         val sha=java.security.MessageDigest.getInstance("SHA-256");val buffer=ByteArray(65536)
                         while(true) {val count=stream.read(buffer);if(count<0)break;sha.update(buffer,0,count)}
                         sha.digest().joinToString(""){"%02x".format(it)}
                     }
                     requests.update(id){it.put("status","SAVED_PHONE").put("local_path",output.absolutePath)
-                        .put("sha256",digest).put("error","").put("drive_upload",false)}
+                        .put("sha256",digest).put("duration_ms",duration).put("progress",100).put("error","").put("drive_upload",false)}
                     OdifyPhoneDownloads.version.value++
                 } catch(failure:Exception) {
                     if(failure is kotlinx.coroutines.CancellationException) {
                         YoutubeDL.destroyProcessById("odify-$id");throw failure
                     }
-                    val message=failure.message.orEmpty().takeLast(600)
-                    requests.update(id){it.put("status",if(message.contains("age",true))"SKIPPED_AGE" else "HELD_PHONE")
+                    val message=(failure.message?.takeIf {it.isNotBlank()} ?: "${failure.javaClass.simpleName}: 다운로드 엔진에서 상세 오류를 반환하지 않았습니다.").takeLast(1200)
+                    val gated=OdifyPhoneDownloadPolicy.gated(message)
+                    android.util.Log.w("OdifyPhoneSave",message,failure)
+                    requests.update(id){it.put("status",if(OdifyPhoneDownloadPolicy.ageRestricted(message))"SKIPPED_AGE" else if(gated)"HELD_SOURCE" else "HELD_PHONE")
                         .put("error",message)}
                     // A request for authentication/verification pauses this batch.
-                    if(listOf("not a bot","captcha","sign in","429","403").any {message.contains(it,true)}) break
+                    if(gated) {engine.edit().putBoolean("source_hold",true).apply();break}
                 }
             }
             Result.success()

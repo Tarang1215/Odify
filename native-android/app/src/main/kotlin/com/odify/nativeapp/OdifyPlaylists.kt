@@ -9,9 +9,9 @@ import java.util.UUID
 data class OdifyPlaylist(val id: String, val name: String, val songIds: List<String>)
 
 /** Single-user local playlist catalog; never confuses Drive/phone-folder origins. */
-class OdifyPlaylists(context: Context) {
-    private val streaming=OdifyStreamingLibrary(context.applicationContext)
-    private val prefs = context.getSharedPreferences("odify_playlists_v1", Context.MODE_PRIVATE)
+class OdifyPlaylists(context: Context,name:String="odify_playlists_v1",streamingName:String="odify_streaming_v1") {
+    private val streaming=OdifyStreamingLibrary(context.applicationContext,streamingName)
+    private val prefs = context.getSharedPreferences(name, Context.MODE_PRIVATE)
     private val key = "playlists"
 
     @Synchronized fun all(): List<OdifyPlaylist> = runCatching {

@@ -58,6 +58,13 @@ object OdifyRecommendations {
             .sortedWith(compareByDescending<OdifySong> { signals[it.id]?.count ?: 0 }
                 .thenByDescending { signals[it.id]?.lastPlayed ?: 0 }).take(30)
         val favorites = catalog.filter { it.id in liked }.take(40)
+        val day=java.time.Instant.ofEpochMilli(now).atZone(java.time.ZoneId.systemDefault()).toLocalDate().toEpochDay().toInt()
+        val shortTracks=catalog.filter {it.durationMs==0L || it.durationMs in 45_000L..900_000L}
+        val unheard=shortTracks.filter {(signals[it.id]?.count ?: 0)==0 && it.id !in liked}
+            .shuffled(kotlin.random.Random(day)).take(30)
+        val rediscover=shortTracks.filter {signals[it.id]?.lastPlayed?.let {last -> now-last>14L*86_400_000}==true}
+            .sortedByDescending {signals[it.id]?.count ?: 0}.take(30)
+        val offline=shortTracks.filter {it.isOfflineSaved}.shuffled(kotlin.random.Random(day+17)).take(30)
         val scored = catalog.map { song ->
             val score = artists.getOrDefault(OdifyYouTubeMatcher.norm(song.artist), 0.0) * 2 +
                 genres.getOrDefault(OdifyYouTubeMatcher.norm(song.genre), 0.0) +
@@ -76,6 +83,9 @@ object OdifyRecommendations {
             daily.takeIf { it.isNotEmpty() }?.let { OdifyMix("daily", "Your daily mix", "자주 듣는 아티스트와 좋아요를 바탕으로", it) },
             repeat.takeIf { it.isNotEmpty() }?.let { OdifyMix("repeat", "On repeat", "최근 60일, 충분히 들은 음악부터", it) },
             favorites.takeIf { it.isNotEmpty() }?.let { OdifyMix("liked", "Close to your heart", "좋아요한 음악을 한자리에", it) },
+            unheard.takeIf {it.isNotEmpty()}?.let {OdifyMix("unheard","A little discovery","아직 듣지 않은 내 음악 · 매일 다른 선택",it)},
+            rediscover.takeIf {it.isNotEmpty()}?.let {OdifyMix("rediscover","Worth another listen","2주 넘게 만나지 못한, 익숙한 취향",it)},
+            offline.takeIf {it.isNotEmpty()}?.let {OdifyMix("offline","Offline essentials","연결 없이도 함께할 내 음악",it)},
             catalog.takeIf { daily.isEmpty() && repeat.isEmpty() && favorites.isEmpty() && it.isNotEmpty() }
                 ?.let { OdifyMix("start", "A little discovery", "내 음악에서 시작해요 · 들을수록 취향이 쌓여요", it.take(30)) }
         )
