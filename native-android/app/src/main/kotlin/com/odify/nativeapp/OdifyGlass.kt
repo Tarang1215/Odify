@@ -17,6 +17,7 @@ import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.isActive
 import kotlin.math.ceil
@@ -45,7 +46,8 @@ fun Modifier.recordOdifyBackdrop(backdrop: OdifyBackdrop): Modifier =
     }
 
 /** Replays the real page region through a bounded blur layer; foreground stays sharp. */
-fun Modifier.odifyGlass(backdrop: OdifyBackdrop, shape: Shape,glow:Color=Color.Transparent,split:Float=0f): Modifier = composed {
+fun Modifier.odifyGlass(backdrop: OdifyBackdrop, shape: Shape,glow:Color=Color.Transparent,split:Float=0f,
+    rightWidth:Dp=120.dp,gap:Dp=8.dp): Modifier = composed {
     var coordinates by remember {mutableStateOf<LayoutCoordinates?>(null)}
     val crop=rememberGraphicsLayer()
     val radius=with(LocalDensity.current) {24.dp.toPx()}
@@ -64,19 +66,20 @@ fun Modifier.odifyGlass(backdrop: OdifyBackdrop, shape: Shape,glow:Color=Color.T
             if(Build.VERSION.SDK_INT>=33 && lens!=null) {
                 val outline=shape.createOutline(size,layoutDirection,this)
                 val corner=(outline as? Outline.Rounded)?.roundRect?.topLeftCornerRadius?.x ?: size.height/2
-                if(lensCache.size!=size || lensCache.corner!=corner || lensCache.split!=split) {
+                val rightPx=rightWidth.toPx();val gapPx=gap.toPx()
+                if(lensCache.size!=size || lensCache.corner!=corner || lensCache.split!=split || lensCache.right!=rightPx || lensCache.gap!=gapPx) {
                 lens.setFloatUniform("origin",bleed.toFloat(),bleed.toFloat())
                 lens.setFloatUniform("bounds",size.width,size.height)
                 lens.setFloatUniform("corner",corner.coerceAtMost(size.height/2))
                 lens.setFloatUniform("depth",10.dp.toPx())
                 lens.setFloatUniform("strength",7.dp.toPx())
                 lens.setFloatUniform("split",split.coerceIn(0f,1f))
-                lens.setFloatUniform("rightWidth",120.dp.toPx())
-                lens.setFloatUniform("gap",8.dp.toPx())
+                lens.setFloatUniform("rightWidth",rightPx)
+                lens.setFloatUniform("gap",gapPx)
                 lensCache.effect=android.graphics.RenderEffect.createChainEffect(
                     android.graphics.RenderEffect.createRuntimeShaderEffect(lens,"content"),
                     android.graphics.RenderEffect.createBlurEffect(radius,radius,android.graphics.Shader.TileMode.CLAMP)).asComposeRenderEffect()
-                lensCache.size=size;lensCache.corner=corner;lensCache.split=split
+                lensCache.size=size;lensCache.corner=corner;lensCache.split=split;lensCache.right=rightPx;lensCache.gap=gapPx
                 }
                 crop.renderEffect=lensCache.effect
             } else crop.renderEffect=effect
@@ -122,11 +125,13 @@ internal object OdifyGlassLens {
         }
         float distanceToSurface(float2 p) {
             if(split<0.02) return capsule(p,bounds*0.5,bounds*0.5,corner);
-            float right=min(rightWidth*split,bounds.x*0.44);
-            float left=bounds.x-right-gap*split;
+            float right=min(rightWidth,bounds.x*0.6);
+            float left=bounds.x-right-gap;
             float a=capsule(p,float2(left*0.5,bounds.y*0.5),float2(left*0.5,bounds.y*0.5),bounds.y*0.5);
             float b=capsule(p,float2(bounds.x-right*0.5,bounds.y*0.5),float2(right*0.5,bounds.y*0.5),min(right,bounds.y)*0.5);
-            return min(a,b);
+            float k=bounds.y*0.34*(1.0-smoothstep(0.2,0.84,split));
+            float blend=max(k-abs(a-b),0.0)/max(k,0.001);
+            return min(a,b)-blend*blend*k*0.25;
         }
         half4 main(float2 coord) {
             float2 p=coord-origin;
@@ -150,5 +155,7 @@ private class OdifyLensCache {
     var size=androidx.compose.ui.geometry.Size.Zero
     var corner=Float.NaN
     var split=Float.NaN
+    var right=Float.NaN
+    var gap=Float.NaN
     var effect:RenderEffect?=null
 }

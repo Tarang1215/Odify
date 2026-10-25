@@ -16,6 +16,8 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.updateTransition
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.keyframes
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
@@ -796,18 +798,50 @@ private fun OdifyMiniPlayer(
     val scope=rememberCoroutineScope()
     val titleStyle=TextStyle(fontSize=12.sp,fontWeight=FontWeight.SemiBold)
     val titleMeasurer=rememberTextMeasurer()
-    val measured=titleMeasurer.measure(song.title,style=titleStyle,maxLines=1,softWrap=false)
+    val measured=remember(song.title,titleMeasurer,titleStyle){titleMeasurer.measure(song.title,style=titleStyle,maxLines=1,softWrap=false)}
     val titleWidth=with(LocalDensity.current){measured.size.width.toDp()}
-    val split by animateFloatAsState(if(compact)0f else 1f,spring(dampingRatio=.82f,stiffness=650f),label="droplet-split")
+    val split by animateFloatAsState(if(compact)0f else 1f,tween(560,easing=LinearEasing),label="droplet-split")
+    val lifecycle=androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
+    var visible by remember {mutableStateOf(lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED))}
+    DisposableEffect(lifecycle) {
+        val observer=androidx.lifecycle.LifecycleEventObserver {_,_ -> visible=lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)}
+        lifecycle.addObserver(observer);onDispose{lifecycle.removeObserver(observer)}
+    }
+    val morph=remember {Animatable(0f)}
+    val morphStrength by animateFloatAsState(if(playing && visible && android.animation.ValueAnimator.areAnimatorsEnabled())1f else 0f,tween(300),label="liquid-motion")
+    LaunchedEffect(playing,visible) {
+        if(playing && visible && android.animation.ValueAnimator.areAnimatorsEnabled()) {
+            while(true) {morph.snapTo(0f);morph.animateTo(1f,tween(5200,easing=LinearEasing))}
+        }
+    }
+    val tension=remember {Animatable(0f)}
+    // Touch-down is immediate. This short release follows the tap, rather than
+    // delaying the whole player behind the finger with a slow spring.
+    fun pulseSurface() {
+        scope.launch {tension.snapTo(1f);tension.animateTo(0f,keyframes {
+            durationMillis=340;1f at 0;-.6f at 125;.22f at 225;0f at 340
+        })}
+    }
     BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal=11.dp,vertical=5.dp),contentAlignment=Alignment.Center) {
-        val compactWidth=(titleWidth+110.dp).coerceIn(168.dp,216.dp).coerceAtMost(maxWidth)
-        val width by animateDpAsState(if(compact)compactWidth else maxWidth,spring(dampingRatio=.86f,stiffness=650f),label="island-width")
-        val height by animateDpAsState(if(compact)43.dp else 56.dp,spring(dampingRatio=.86f,stiffness=650f),label="island-height")
-        val shape=remember(split){OdifyDropletShape(split)}
+        val compactWidth=(titleWidth+99.dp).coerceIn(168.dp,216.dp).coerceAtMost(maxWidth)
+        val expandedText=titleWidth.coerceIn(56.dp,(maxWidth-233.dp).coerceAtLeast(56.dp))
+        val wideWidth=(expandedText+233.dp).coerceAtMost(maxWidth)
+        val growth=fluidStage(split,0f,.60f)
+        val measuredWidth by animateDpAsState(wideWidth,tween(240),label="track-title-width")
+        val width=compactWidth+(measuredWidth-compactWidth)*growth
+        val height=43.dp+13.dp*growth
+        val artSize=29.dp+11.dp*growth
+        val controlsWidth=37.dp+83.dp*growth
+        val gap=10.dp*fluidStage(split,.84f,1f)
+        val leftWidth=width-controlsWidth-gap
+        val density=LocalDensity.current
+        val rightPx=with(density){controlsWidth.toPx()};val gapPx=with(density){gap.toPx()}
+        val motionPx=with(density){(1.1.dp*morphStrength*(1f-fluidStage(split,0f,.20f)+fluidStage(split,.84f,1f))).toPx()}
+        val shape=remember(split,rightPx,gapPx,morph.value,motionPx){OdifyDropletShape(split,rightPx,gapPx,morph.value,motionPx)}
         Box(Modifier.width(width).height(height).onGloballyPositioned{coordinates=it}
-            .graphicsLayer {scaleX=1f+wobble.value*.010f;scaleY=1f-wobble.value*.017f;rotationZ=wobble.value*.10f}
+            .graphicsLayer {scaleX=1f+wobble.value*.012f+tension.value*.018f;scaleY=1f-wobble.value*.018f-tension.value*.024f}
             .shadow(9.dp,shape,ambientColor=glow.copy(alpha=.25f),spotColor=glow.copy(alpha=.22f))
-            .odifyGlass(backdrop,shape,glow,split)
+            .odifyGlass(backdrop,shape,glow,split,controlsWidth,gap)
             .pointerInput(Unit) {
                 awaitEachGesture {
                     awaitFirstDown(requireUnconsumed=false,pass=PointerEventPass.Initial)
@@ -816,45 +850,43 @@ private fun OdifyMiniPlayer(
                     scope.launch {wobble.animateTo(0f,spring(dampingRatio=.82f,stiffness=1250f))}
                 }
             }
-            .combinedClickable(onClick={onCompactChange(!compact)},onLongClick={})
+            .combinedClickable(onClick={onCompactChange(!compact);pulseSurface()},onLongClick={pulseSurface()})
             .pointerInput(Unit) {
                 var drag=0f
                 detectVerticalDragGestures(onDragStart={drag=0f},onDragCancel={drag=0f},
                     onDragEnd={if(drag< -28.dp.toPx())expandAction(coordinates?.takeIf{it.isAttached}?.boundsInRoot())},
                     onVerticalDrag={change,delta->change.consume();drag+=delta})
             },contentAlignment=Alignment.Center) {
-            Row(Modifier.fillMaxSize().padding(horizontal=8.dp),verticalAlignment=Alignment.CenterVertically) {
-                AlbumArt(song,Modifier.size(if(compact)29.dp else 40.dp).clickable(onClickLabel="전체 재생 화면 열기") {
+            // Fixed lobe containers prevent the Row's weighted text from pushing
+            // the transport controls off the center of the right-hand droplet.
+            Row(Modifier.width(leftWidth).fillMaxHeight().align(Alignment.CenterStart).padding(start=8.dp,end=(8.dp*growth)),verticalAlignment=Alignment.CenterVertically) {
+                AlbumArt(song,Modifier.size(artSize).clickable(onClickLabel="전체 재생 화면 열기") {
                     expandAction(coordinates?.takeIf{it.isAttached}?.boundsInRoot())
                 }.semantics{contentDescription="전체 재생 화면 열기"},radius=CircleShape,fallbackKey=song.id.hashCode())
                 Spacer(Modifier.width(9.dp))
-                if(compact) {
-                    Text(song.title,modifier=Modifier.weight(1f).basicMarquee(iterations=Int.MAX_VALUE,
+                Column(Modifier.weight(1f)) {
+                    Text(song.title,modifier=Modifier.fillMaxWidth().basicMarquee(iterations=Int.MAX_VALUE,
                         initialDelayMillis=2200,repeatDelayMillis=1800,spacing=MarqueeSpacing(24.dp),velocity=24.dp),
                         maxLines=1,fontSize=12.sp,color=ink,fontWeight=FontWeight.SemiBold)
-                    Spacer(Modifier.width(8.dp))
-                    Box(Modifier.size(37.dp).clickable(onClick=onToggle),contentAlignment=Alignment.Center) {
-                        Box(Modifier.size(29.dp).clip(CircleShape).background(ink),contentAlignment=Alignment.Center) {
-                            Icon(if(playing)Icons.Default.Pause else Icons.Default.PlayArrow,"재생·일시정지",tint=white,modifier=Modifier.size(21.dp))
-                        }
-                    }
-                } else {
-                    Column(Modifier.weight(1f)) {
-                        Text(song.title,modifier=Modifier.basicMarquee(iterations=Int.MAX_VALUE,initialDelayMillis=2200,repeatDelayMillis=1800,velocity=24.dp),
-                            maxLines=1,fontSize=12.sp,color=ink,fontWeight=FontWeight.SemiBold)
-                        if(song.artist.isNotBlank())Text(song.artist,fontSize=10.sp,maxLines=1,overflow=TextOverflow.Ellipsis,color=ink.copy(alpha=.69f))
-                    }
-                    IconButton(onClick=onLike,modifier=Modifier.size(31.dp)) {
+                    if(song.artist.isNotBlank())Text(song.artist,modifier=Modifier.height(14.dp*growth).graphicsLayer{alpha=growth},
+                        fontSize=10.sp,maxLines=1,overflow=TextOverflow.Ellipsis,color=ink.copy(alpha=.69f))
+                }
+                if(growth>.01f) {
+                    Spacer(Modifier.width(6.dp*growth))
+                    IconButton(onClick=onLike,modifier=Modifier.width(32.dp*growth).height(40.dp).graphicsLayer{alpha=growth}) {
                         Icon(if(liked)Icons.Default.Favorite else Icons.Default.FavoriteBorder,"좋아요",tint=ink,modifier=Modifier.size(18.dp))
                     }
-                    Spacer(Modifier.width(8.dp))
-                    Row(Modifier.width(112.dp).graphicsLayer {alpha=split.coerceIn(0f,1f)},horizontalArrangement=Arrangement.SpaceEvenly,verticalAlignment=Alignment.CenterVertically) {
-                        IconButton(onClick=onPrevious,modifier=Modifier.size(33.dp)){Icon(Icons.Default.SkipPrevious,"이전 곡",tint=ink,modifier=Modifier.size(21.dp))}
-                        Box(Modifier.size(36.dp).clip(CircleShape).background(ink).clickable(onClick=onToggle),contentAlignment=Alignment.Center) {
-                            Icon(if(playing)Icons.Default.Pause else Icons.Default.PlayArrow,"재생·일시정지",tint=white,modifier=Modifier.size(23.dp))
-                        }
-                        IconButton(onClick=onNext,modifier=Modifier.size(33.dp)){Icon(Icons.Default.SkipNext,"다음 곡",tint=ink,modifier=Modifier.size(21.dp))}
-                    }
+                }
+            }
+            Row(Modifier.width(controlsWidth).fillMaxHeight().align(Alignment.CenterEnd),horizontalArrangement=Arrangement.Center,verticalAlignment=Alignment.CenterVertically) {
+                if(growth>.01f) IconButton(onClick=onPrevious,modifier=Modifier.width(38.dp*growth).height(40.dp).graphicsLayer{alpha=growth}) {
+                    Icon(Icons.Default.SkipPrevious,"이전 곡",tint=ink,modifier=Modifier.size(21.dp))
+                }
+                Box(Modifier.size(29.dp+7.dp*growth).clip(CircleShape).background(ink).clickable(onClick=onToggle),contentAlignment=Alignment.Center) {
+                    Icon(if(playing)Icons.Default.Pause else Icons.Default.PlayArrow,"재생·일시정지",tint=white,modifier=Modifier.size(21.dp+2.dp*growth))
+                }
+                if(growth>.01f) IconButton(onClick=onNext,modifier=Modifier.width(38.dp*growth).height(40.dp).graphicsLayer{alpha=growth}) {
+                    Icon(Icons.Default.SkipNext,"다음 곡",tint=ink,modifier=Modifier.size(21.dp))
                 }
             }
         }

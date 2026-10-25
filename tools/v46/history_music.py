@@ -15,8 +15,8 @@ w=load('history_chart_worker',Path(__file__).with_name('odify_charts.py'))
 def digest(path,kind='sha256'):
     with Path(path).open('rb') as stream:return hashlib.file_digest(stream,kind).hexdigest()
 
-def save(root,rows,detail=''):
-    w.snapshot(root,rows,False,detail)
+def save(root,rows,detail='',running=False):
+    w.snapshot(root,rows,running,detail)
     by_month=collections.defaultdict(list)
     for row in rows:
         for appearance in row['appearances']:
@@ -216,14 +216,14 @@ def run_download(root,rows,limit,workers=8):
             batch=[r for r in pending[start:start+20] if r['status'] in ('QUEUED','LINK_SELECTED')]
             if not batch:continue
             selected=w.quick_links(root,batch)
-            w.snapshot(root,rows,False,'Links selected; downloading current batch')
+            w.snapshot(root,rows,True,'Links selected; downloading current batch')
             if any(w.access_blocked(r.get('error','')) and not w.age_restricted(r.get('error','')) for r in batch):
                 save(root,rows,'Source requested verification; stopped without authentication');return
             w.collect_quick(args,root,batch,selected)
             for row in batch:
                 if row['status']=='DOWNLOADED_VERIFIED':place(root,row,root/'Audio'/('CHART'+row['id']+'.mp3'))
-            w.snapshot(root,rows,False,'Completed batch; originals and MASTER preserved')
-            if start%100==0:save(root,rows,'Monthly receipts refreshed')
+            w.snapshot(root,rows,True,'Completed batch; originals and MASTER preserved')
+            if start%100==0:save(root,rows,'Monthly receipts refreshed',running=True)
             if any(w.access_blocked(r.get('error','')) and not w.age_restricted(r.get('error','')) for r in batch):return
     finally:
         save(root,rows,'Monthly receipts refreshed; queue remains resumable')

@@ -1,41 +1,69 @@
 package com.odify.nativeapp
 
-import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.PathOperation
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.LayoutDirection
-import androidx.compose.ui.unit.dp
+import kotlin.math.PI
+import kotlin.math.sin
 
-/** Two capsules briefly share a narrowing fluid neck while opening. */
-internal class OdifyDropletShape(private val split:Float):Shape {
+internal fun fluidStage(value:Float,start:Float,end:Float):Float {
+    val t=((value-start)/(end-start)).coerceIn(0f,1f)
+    return t*t*(3f-2f*t)
+}
+
+/** The neck reaches zero before the lobes move apart. Content and glass
+ * share lobe boundaries, and no visible contour is abruptly removed. */
+internal class OdifyDropletShape(
+    private val progress:Float, private val rightWidthPx:Float,
+    private val gapPx:Float, private val phase:Float=0f, private val motion:Float=0f
+):Shape {
     override fun createOutline(size:Size,layoutDirection:LayoutDirection,density:Density):Outline {
-        val p=split.coerceIn(0f,1f)
-        val right=(with(density){120.dp.toPx()}*p).coerceAtMost(size.width*.44f)
-        val gap=with(density){8.dp.toPx()}*p
-        if(p<.02f || right<1f) return Outline.Rounded(RoundRect(Rect(0f,0f,size.width,size.height),CornerRadius(size.height/2)))
-        val left=size.width-right-gap
-        val first=Path().apply {addRoundRect(RoundRect(Rect(0f,0f,left,size.height),CornerRadius(size.height/2)))}
-        val second=Path().apply {addRoundRect(RoundRect(Rect(left+gap,0f,size.width,size.height),CornerRadius(minOf(right,size.height)/2)))}
-        var path=Path.combine(PathOperation.Union,first,second)
-        val bridge=Path().apply {
-            if(p<.97f) {
-                val neck=size.height*.35f*(1f-p)/.97f
-                val overlap=minOf(size.height*.25f,right*.3f)
-                val mid=left+gap/2
-                moveTo(left-overlap,size.height/2-neck)
-                cubicTo(mid,size.height/2-neck*.55f,mid,size.height/2-neck*.55f,left+gap+overlap,size.height/2-neck)
-                lineTo(left+gap+overlap,size.height/2+neck)
-                cubicTo(mid,size.height/2+neck*.55f,mid,size.height/2+neck*.55f,left-overlap,size.height/2+neck)
-                close()
-            }
+        val w=size.width;val h=size.height;val cy=h/2f;val r=cy
+        val right=rightWidthPx.coerceIn(r,w*.6f)
+        val left=w-right-gapPx
+        val neck=r*(1f-fluidStage(progress,.20f,.84f))
+        // Small asymmetric edge motion; labels and controls remain still.
+        val breath=sin(phase*2f*PI).toFloat()*motion
+        val top=motion+breath*.65f;val bottom=h-motion+breath*.45f
+        val ry=(bottom-top)/2f;val center=(top+bottom)/2f
+        val k=.55228475f
+        val path=Path()
+        fun leftOuterBottom() {
+            path.lineTo(r,bottom)
+            path.cubicTo(r-r*k,bottom,0f,center+ry*k,0f,center)
+            path.cubicTo(0f,center-ry*k,r-r*k,top,r,top)
         }
-        if(p<.97f) path=Path.combine(PathOperation.Union,path,bridge)
+        if(progress>=.84f) {
+            // At the touching point this is the limit of the connected path.
+            path.moveTo(r,top);path.lineTo(left-r,top)
+            path.cubicTo(left-r+r*k,top,left,center-ry*k,left,center)
+            path.cubicTo(left,center+ry*k,left-r+r*k,bottom,left-r,bottom)
+            leftOuterBottom();path.close()
+            val start=left+gapPx
+            path.moveTo(start+r,0f);path.lineTo(w-r,0f)
+            path.cubicTo(w-r+r*k,0f,w,cy-r*k,w,cy)
+            path.cubicTo(w,cy+r*k,w-r+r*k,h,w-r,h)
+            path.lineTo(start+r,h)
+            path.cubicTo(start+r-r*k,h,start,cy+r*k,start,cy)
+            path.cubicTo(start,cy-r*k,start+r-r*k,0f,start+r,0f);path.close()
+        } else {
+            val mid=left+gapPx/2f
+            val roundness=(1f-neck/r).coerceIn(0f,1f)
+            val innerLeft=left-r;val innerRight=left+gapPx+r
+            path.moveTo(r,top);path.lineTo(innerLeft,top)
+            path.cubicTo(innerLeft+r*k,top,mid-neck*.6f,cy-neck-r*k*roundness,mid,cy-neck)
+            path.cubicTo(mid+neck*.6f,cy-neck-r*k*roundness,innerRight-r*k,0f,innerRight,0f)
+            path.lineTo(w-r,0f)
+            path.cubicTo(w-r+r*k,0f,w,cy-r*k,w,cy)
+            path.cubicTo(w,cy+r*k,w-r+r*k,h,w-r,h)
+            path.lineTo(innerRight,h)
+            path.cubicTo(innerRight-r*k,h,mid+neck*.6f,cy+neck+r*k*roundness,mid,cy+neck)
+            path.cubicTo(mid-neck*.6f,cy+neck+r*k*roundness,innerLeft+r*k,bottom,innerLeft,bottom)
+            leftOuterBottom();path.close()
+        }
         return Outline.Generic(path)
     }
 }
