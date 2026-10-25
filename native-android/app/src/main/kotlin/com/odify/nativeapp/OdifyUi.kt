@@ -789,7 +789,7 @@ private fun OdifyPageHeader(
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-private fun OdifyMiniPlayer(
+internal fun OdifyMiniPlayer(
     song: OdifySong, playing: Boolean, liked: Boolean, backdrop: OdifyBackdrop, glow:Color,
     compact: Boolean, onCompactChange: (Boolean) -> Unit, onExpand: (Rect?) -> Unit,
     onToggle: () -> Unit, onLike: () -> Unit, onPrevious: () -> Unit, onNext: () -> Unit
