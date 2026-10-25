@@ -15,7 +15,7 @@ internal fun fluidStage(value:Float,start:Float,end:Float):Float {
     return t*t*(3f-2f*t)
 }
 
-/** The neck reaches zero before the lobes move apart. Content and glass
+/** The lobes move apart with a stretching neck that reaches zero. Content and glass
  * share lobe boundaries, and no visible contour is abruptly removed. */
 internal class OdifyDropletShape(
     private val progress:Float, private val rightWidthPx:Float,
@@ -54,18 +54,20 @@ internal class OdifyDropletShape(
             path.cubicTo(start+r-r*k,h,start,cy+r*k,start,cy)
             path.cubicTo(start,cy-r*k,start+r-r*k,0f,start+r,0f);path.close()
         } else {
-            val mid=left+gapPx/2f
+            val rightStart=left+gapPx
             val roundness=(1f-neck/r).coerceIn(0f,1f)
             val innerLeft=left-r;val innerRight=left+gapPx+r
             path.moveTo(outerTop,top);path.lineTo(innerLeft,top)
-            path.cubicTo(innerLeft+r*k,top,mid-neck*.6f,cy-neck-r*k*roundness,mid,cy-neck)
-            path.cubicTo(mid+neck*.6f,cy-neck-r*k*roundness,innerRight-r*k,0f,innerRight,0f)
+            path.cubicTo(innerLeft+r*k,top,left,cy-neck-r*k*roundness,left,cy-neck)
+            path.cubicTo(left+gapPx*.33f,cy-neck*.55f,rightStart-gapPx*.33f,cy-neck*.55f,rightStart,cy-neck)
+            path.cubicTo(rightStart,cy-neck-r*k*roundness,innerRight-r*k,0f,innerRight,0f)
             path.lineTo(w-r,0f)
             path.cubicTo(w-r+r*k,0f,w,cy-r*k,w,cy)
             path.cubicTo(w,cy+r*k,w-r+r*k,h,w-r,h)
             path.lineTo(innerRight,h)
-            path.cubicTo(innerRight-r*k,h,mid+neck*.6f,cy+neck+r*k*roundness,mid,cy+neck)
-            path.cubicTo(mid-neck*.6f,cy+neck+r*k*roundness,innerLeft+r*k,bottom,innerLeft,bottom)
+            path.cubicTo(innerRight-r*k,h,rightStart,cy+neck+r*k*roundness,rightStart,cy+neck)
+            path.cubicTo(rightStart-gapPx*.33f,cy+neck*.55f,left+gapPx*.33f,cy+neck*.55f,left,cy+neck)
+            path.cubicTo(left,cy+neck+r*k*roundness,innerLeft+r*k,bottom,innerLeft,bottom)
             leftOuterBottom();path.close()
         }
         return Outline.Generic(path)

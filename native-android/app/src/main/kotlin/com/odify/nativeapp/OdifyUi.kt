@@ -796,10 +796,13 @@ private fun OdifyMiniPlayer(
     val expandAction by rememberUpdatedState(onExpand)
     val wobble=remember {Animatable(0f)}
     val scope=rememberCoroutineScope()
-    val titleStyle=TextStyle(fontSize=12.sp,fontWeight=FontWeight.SemiBold)
+    val titleStyle=LocalTextStyle.current.merge(TextStyle(fontSize=12.sp,fontWeight=FontWeight.SemiBold))
+    val artistStyle=LocalTextStyle.current.merge(TextStyle(fontSize=10.sp,lineHeight=14.sp))
     val titleMeasurer=rememberTextMeasurer()
     val measured=remember(song.title,titleMeasurer,titleStyle){titleMeasurer.measure(song.title,style=titleStyle,maxLines=1,softWrap=false)}
     val titleWidth=with(LocalDensity.current){measured.size.width.toDp()}
+    val measuredArtist=remember(song.artist,titleMeasurer,artistStyle){titleMeasurer.measure(song.artist,style=artistStyle,maxLines=1,softWrap=false)}
+    val artistWidth=with(LocalDensity.current){measuredArtist.size.width.toDp()}
     val split by animateFloatAsState(if(compact)0f else 1f,tween(560,easing=LinearEasing),label="droplet-split")
     val lifecycle=androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
     var visible by remember {mutableStateOf(lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED))}
@@ -824,14 +827,15 @@ private fun OdifyMiniPlayer(
     }
     BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal=11.dp,vertical=5.dp),contentAlignment=Alignment.Center) {
         val compactWidth=(titleWidth+99.dp).coerceIn(168.dp,216.dp).coerceAtMost(maxWidth)
-        val expandedText=titleWidth.coerceIn(56.dp,(maxWidth-245.dp).coerceAtLeast(56.dp))
+        val expandedText=maxOf(titleWidth,artistWidth).coerceIn(56.dp,(maxWidth-245.dp).coerceAtLeast(56.dp))
         val wideWidth=(expandedText+233.dp).coerceAtMost(maxWidth-12.dp)
         val growth=fluidStage(split,0f,.60f)
         // Measure the destination before the pinch starts. A second width
         // animation can outlive the separation and resize the detached lobe.
         val measuredWidth=wideWidth
-        val separated=fluidStage(split,.84f,1f)
-        val separationGap=(maxWidth-measuredWidth).coerceAtLeast(12.dp)*separated
+        // Both lobes travel outward while they are still connected. Once the
+        // neck breaks, position and size have already reached their targets.
+        val separationGap=(maxWidth-measuredWidth).coerceAtLeast(12.dp)*growth
         val width=compactWidth+(measuredWidth-compactWidth)*growth+separationGap
         val height=43.dp+13.dp*growth
         val artSize=29.dp+11.dp*growth
@@ -872,8 +876,9 @@ private fun OdifyMiniPlayer(
                     Text(song.title,modifier=Modifier.fillMaxWidth().basicMarquee(iterations=Int.MAX_VALUE,
                         initialDelayMillis=2200,repeatDelayMillis=1800,spacing=MarqueeSpacing(24.dp),velocity=24.dp),
                         maxLines=1,fontSize=12.sp,color=ink,fontWeight=FontWeight.SemiBold)
-                    if(song.artist.isNotBlank())Text(song.artist,modifier=Modifier.height(14.dp*growth).graphicsLayer{alpha=growth},
-                        fontSize=10.sp,maxLines=1,overflow=TextOverflow.Ellipsis,color=ink.copy(alpha=.69f))
+                    if(song.artist.isNotBlank())Text(song.artist,modifier=Modifier.fillMaxWidth().height(with(density){16.sp.toDp()}*growth)
+                        .basicMarquee(iterations=Int.MAX_VALUE,initialDelayMillis=2400,repeatDelayMillis=1800,velocity=22.dp).graphicsLayer{alpha=growth},
+                        fontSize=10.sp,lineHeight=14.sp,maxLines=1,color=ink.copy(alpha=.69f))
                 }
                 if(growth>.01f) {
                     Spacer(Modifier.width(6.dp*growth))
