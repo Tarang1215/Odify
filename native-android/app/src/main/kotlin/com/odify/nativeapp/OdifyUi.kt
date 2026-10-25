@@ -3,16 +3,28 @@ package com.odify.nativeapp
 import android.graphics.BitmapFactory
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.updateTransition
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.keyframes
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.*
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.gestures.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -21,18 +33,30 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.unit.IntOffset
 import kotlin.math.roundToInt
 import androidx.compose.ui.input.pointer.PointerEventPass
@@ -47,8 +71,13 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.style.TextAlign
@@ -56,18 +85,23 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.abs
 
-private val ink = Color(0xFF111216)
-private val grey = Color(0xFF83868D)
-private val pale = Color(0xFFF4F4F6)
-private val white = Color.White
+private val ink = OdifyPalette.text
+private val grey = OdifyPalette.muted
+private val pale = OdifyPalette.surface
+private val white = OdifyPalette.background
 private val glass = Brush.horizontalGradient(
     listOf(Color(0xF22C3036), Color(0xF026292E))
 )
 
-enum class OdifyTab { Home, Search, Library, Profile }
+enum class OdifyTab { Home, Explore, Search, Library, Profile }
+
+// Profile is a utility destination reached from the screen headers.
+val odifyPrimaryTabs = listOf(OdifyTab.Home, OdifyTab.Explore, OdifyTab.Search, OdifyTab.Library)
+private val navigationHeight = 64.dp
 
 @Composable
 fun OdifySplash() {
@@ -77,6 +111,7 @@ fun OdifySplash() {
             androidx.compose.foundation.Image(
                 painter = androidx.compose.ui.res.painterResource(R.drawable.odify_symbol_black),
                 contentDescription = "Odify",
+                colorFilter = ColorFilter.tint(ink),
                 modifier = Modifier.size(96.dp)
             )
             Spacer(Modifier.height(16.dp))
@@ -91,7 +126,7 @@ private object OdifyCoverMemory {
     private val images = object : LinkedHashMap<String, ImageBitmap>(32, 0.75f, true) {
         override fun removeEldestEntry(
             eldest: MutableMap.MutableEntry<String, ImageBitmap>?
-        ): Boolean = size > 24
+        ): Boolean = size > 48
     }
     @Synchronized fun peek(path: String?): ImageBitmap? =
         path?.let { images[it] }
@@ -106,9 +141,15 @@ fun AlbumArt(
     modifier: Modifier = Modifier,
     radius: androidx.compose.ui.graphics.Shape = RoundedCornerShape(14.dp),
     fallbackKey: Int = 0,
-    muted: Boolean = false
+    muted: Boolean = false,
+    contentScale: ContentScale = ContentScale.Crop
 ) {
-    val coverPath = song?.artworkPath
+    val context=androidx.compose.ui.platform.LocalContext.current
+    val remoteCover=if(song?.id?.startsWith("youtube:")==true && song.artworkPath.isNullOrBlank()) {
+        val fetched by produceState<String?>(null,song.id) {value=youtubeArtwork(context,song.id.removePrefix("youtube:"))}
+        fetched
+    } else null
+    val coverPath = song?.artworkPath ?: remoteCover
     // produceState(key1=...) restarts its loader but keeps the OLD image value
     // for a frame when the song changes. remember(key) recreates state, so
     // neighbor transitions can never flash the previously selected cover.
@@ -162,7 +203,7 @@ fun AlbumArt(
         val bitmap = image
         if (bitmap != null) {
             Image(bitmap = bitmap, contentDescription = song?.album ?: song?.title,
-                contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize(),
+                contentScale = contentScale, modifier = Modifier.fillMaxSize(),
                 colorFilter = if (muted) ColorFilter.colorMatrix(
                     ColorMatrix().apply { setToSaturation(0.20f) }
                 ) else null)
@@ -178,6 +219,8 @@ fun AlbumArt(
 fun OdifyRoot(
     songs: List<OdifySong>,
     playback: OdifyPlaybackSnapshot,
+    externalSong: OdifySong? = null,
+    onOpenExternalVideo: () -> Unit = {},
     driveConnected: Boolean,
     driveBusy: Boolean,
     driveStatus: String,
@@ -188,6 +231,9 @@ fun OdifyRoot(
     youtubeConnected: Boolean,
     youtubeStatus: String,
     onConnectYoutube: () -> Unit,
+    onExternalYoutubeStarted: () -> Unit,
+    onPlayYoutubeVideo: (List<YoutubeVideo>, Int) -> Unit,
+    onExternalTrack: (String, String,String) -> Unit,
     phoneFolderStatus: String,
     onChoosePhoneFolder: () -> Unit,
     onRefreshPhoneFolder: () -> Unit,
@@ -211,17 +257,37 @@ fun OdifyRoot(
     onShuffle: () -> Unit,
     onRepeat: () -> Unit,
     onSaveDevice: (OdifySong) -> Unit,
+    onAudioRequest: (OdifySong, String, String, String) -> Unit,
+    onReplaceAudio: (OdifySong,YoutubeVideo)->Unit,
     onRemove: (OdifySong) -> Unit,
     onEdit: (OdifySong, String, String, String) -> Unit,
     onChooseArtwork: (OdifySong) -> Unit
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
+    val pageBackdrop = rememberOdifyBackdrop()
+    val exploreRepository=remember {OdifyExploreRepository(context.applicationContext)}
+    val chartIndex by produceState(OdifyChartMatching.buildIndex(emptyList()),songs) {
+        value=withContext(Dispatchers.Default) {OdifyChartMatching.buildIndex(songs)}
+    }
+    LaunchedEffect(exploreRepository) {
+        for(country in listOf("kr","jp","us")) exploreRepository.cached(country)
+    }
     val prefs = remember { context.getSharedPreferences("odify_native_ui", 0) }
     val playlistStore = remember { OdifyPlaylists(context.applicationContext) }
+    val listeningStore = remember { OdifyListeningStore(context.applicationContext) }
+    var listeningSignals by remember { mutableStateOf(listeningStore.signals()) }
+    DisposableEffect(listeningStore) {
+        val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
+            listeningSignals = listeningStore.signals()
+        }
+        listeningStore.preferences.registerOnSharedPreferenceChangeListener(listener)
+        onDispose { listeningStore.preferences.unregisterOnSharedPreferenceChangeListener(listener) }
+    }
     var playlistVersion by remember { mutableIntStateOf(0) }
     val playlists = remember(playlistVersion) { playlistStore.all() }
     var playlistDialogTrack by remember { mutableStateOf<OdifySong?>(null) }
-    var openLibraryPlaylists by remember { mutableIntStateOf(0) }
+    var replacementTrack by remember {mutableStateOf<OdifySong?>(null)}
+    var openLibraryPlaylists by rememberSaveable { mutableIntStateOf(0) }
     fun createPlaylist(name: String): String = runCatching {
         playlistStore.create(name)
         playlistVersion++
@@ -233,6 +299,10 @@ fun OdifyRoot(
         if (!added) "이미 이 플레이리스트에 있는 곡입니다." else ""
     }.getOrElse { it.message ?: "플레이리스트 저장 실패" }
     var selectedTab by remember { mutableStateOf(OdifyTab.Home) }
+    var searchQuery by rememberSaveable { mutableStateOf("") }
+    var searchGenre by rememberSaveable { mutableStateOf("All") }
+    var searchScope by rememberSaveable { mutableStateOf(OdifySearchScope.Music) }
+    val pageState = rememberSaveableStateHolder()
     val tabHistory = remember { mutableStateListOf<OdifyTab>() }
     fun navigateTo(tab: OdifyTab) {
         if (tab != selectedTab) {
@@ -241,6 +311,10 @@ fun OdifyRoot(
             selectedTab = tab
         }
     }
+    fun navigateBack() {
+        selectedTab = if (tabHistory.isNotEmpty())
+            tabHistory.removeAt(tabHistory.lastIndex) else OdifyTab.Home
+    }
     var queueOpen by remember { mutableStateOf(false) }
     var youtubeOpen by remember { mutableStateOf(false) }
     BackHandler(enabled = queueOpen || expanded ||
@@ -248,9 +322,7 @@ fun OdifyRoot(
         when {
             queueOpen -> queueOpen = false
             expanded -> onExpandedChange(false)
-            tabHistory.isNotEmpty() ->
-                selectedTab = tabHistory.removeAt(tabHistory.lastIndex)
-            else -> selectedTab = OdifyTab.Home
+            else -> navigateBack()
         }
     }
     var liked by remember {
@@ -260,14 +332,36 @@ fun OdifyRoot(
         mutableStateOf(prefs.getString("history", "")!!.split("|").filter { it.isNotBlank() })
     }
     var navVisible by remember { mutableStateOf(true) }
-    var interaction by remember { mutableIntStateOf(0) }
+    var compactPlayer by rememberSaveable { mutableStateOf(false) }
+    var expansionOrigin by remember { mutableStateOf<Rect?>(null) }
+    var playerDragFraction by remember { mutableFloatStateOf(0f) }
+    LaunchedEffect(expanded) {
+        if (expanded) {
+            playerDragFraction = 0f
+        }
+    }
     // Navigation state is gesture-driven and the mini-player is a separate surface.
 
-    val songIndex = remember(songs) { songs.associateBy(OdifySong::id) }
+    val songIndex = remember(songs,externalSong) { (songs+listOfNotNull(externalSong)).associateBy(OdifySong::id) }
     val active = songIndex[playback.mediaId]
+    val artworkPalette=rememberArtworkPalette(active?.artworkPath)
+    val artworkGlow=artworkPalette.first()
+    val sharedGlow by animateColorAsState(artworkGlow,tween(700),label="shared-artwork-glow")
     val recent = remember(history, songIndex) { history.mapNotNull(songIndex::get) }
     val displayed = remember(recent, songs) {
         OdifySongPresentation.visible(if (recent.isNotEmpty()) recent else songs.asReversed())
+    }
+    val mixes = remember(songs, liked, listeningSignals) {
+        OdifyRecommendations.mixes(songs, liked, listeningSignals)
+    }
+    fun saveMix(mix: OdifyMix) {
+        runCatching { playlistStore.saveMix(mix.name, mix.songs.map { it.id }) }
+            .onSuccess {
+                playlistVersion++
+                android.widget.Toast.makeText(context,"${it.name} · 보관함에 저장했어요",android.widget.Toast.LENGTH_SHORT).show()
+            }.onFailure {
+                android.widget.Toast.makeText(context,it.message ?: "저장하지 못했습니다.",android.widget.Toast.LENGTH_SHORT).show()
+            }
     }
 
     fun playList(list: List<OdifySong>, index: Int) {
@@ -282,30 +376,29 @@ fun OdifyRoot(
         liked = if (id in liked) liked - id else liked + id
         prefs.edit().putStringSet("likes", liked).apply()
     }
+    LaunchedEffect(playback.mediaId) {
+        playback.mediaId?.takeIf { it in songIndex }?.let { key ->
+            history = (listOf(key) + history.filterNot { it == key }).take(25)
+            prefs.edit().putString("history",history.joinToString("|")).apply()
+        }
+    }
 
 
     // Both controls live in a stable overlay. Animating layout height caused
     // the old mini-player to snap down after the navigation animation finished.
-    val navShown = navVisible || active == null
+    val navShown = navVisible
     val navFraction by animateFloatAsState(
         targetValue = if (navShown) 1f else 0f,
-        animationSpec = tween(durationMillis = 360, easing = FastOutSlowInEasing),
+        animationSpec = spring(dampingRatio = .95f, stiffness = 420f),
         label = "odify-nav-and-mini-linked"
     )
-    LaunchedEffect(active?.id, interaction, selectedTab, expanded) {
-        if (active == null) {
-            navVisible = true
-        } else if (!expanded) {
-            delay(3400)
-            navVisible = false
-        }
-    }
-    LaunchedEffect(selectedTab) { navVisible = true }
+    // Four primary destinations stay reachable; the full player covers them.
+    LaunchedEffect(selectedTab) { navVisible = true; compactPlayer = false }
 
     // Extend rounded nav background behind the Android gesture indicator.
     val gestureInset = WindowInsets.navigationBars.asPaddingValues()
         .calculateBottomPadding()
-    val barHeight = 66.dp + gestureInset
+    val barHeight = navigationHeight + gestureInset
     val barHeightPx = with(androidx.compose.ui.platform.LocalDensity.current) {
         barHeight.toPx()
     }
@@ -318,6 +411,7 @@ fun OdifyRoot(
         Box(Modifier.fillMaxSize().statusBarsPadding().clipToBounds()) {
         Box(
             Modifier.fillMaxSize()
+                .recordOdifyBackdrop(pageBackdrop)
                 // Scroll content fills the screen: no fixed opaque 135dp bottom slab.
                 // Each scrollable page owns its last-item clearance instead.
                 .pointerInput(active?.id, selectedTab) {
@@ -325,41 +419,54 @@ fun OdifyRoot(
                         val down = awaitFirstDown(requireUnconsumed = false)
                         var previousY = down.position.y
                         var net = 0f
+                        var horizontal = 0f
+                        var vertical = 0f
+                        var childOwnsGesture = false
+                        val primary = selectedTab in odifyPrimaryTabs
                         while (true) {
-                            val event = awaitPointerEvent(PointerEventPass.Initial)
+                            // Children get first refusal: horizontal album rows
+                            // and sliders must keep ownership of their gestures.
+                            val event = awaitPointerEvent(PointerEventPass.Final)
                             val pointer = event.changes.firstOrNull { it.id == down.id }
                                 ?: break
-                            if (!pointer.pressed) break
+                            if (!pointer.pressed) {
+                                if (primary && !childOwnsGesture && abs(horizontal) > 78.dp.toPx() &&
+                                    abs(horizontal) > abs(vertical)*1.8f) {
+                                    OdifyMotion.adjacentTab(selectedTab, horizontal)?.let(::navigateTo)
+                                }
+                                break
+                            }
+                            horizontal = pointer.position.x - down.position.x
+                            vertical = pointer.position.y - down.position.y
+                            if (pointer.isConsumed) childOwnsGesture = true
                             net += pointer.position.y - previousY
                             previousY = pointer.position.y
-                            if (kotlin.math.abs(net) >= 27.dp.toPx()) {
-                                if (active != null) {
-                                    val shouldShow = net > 0f
-                                    if (navVisible != shouldShow) {
-                                        navVisible = shouldShow
-                                    }
-                                    interaction++
-                                }
+                            if (abs(net) >= 20.dp.toPx() && abs(vertical) > abs(horizontal)*1.3f) {
+                                navVisible = net > 0f
+                                compactPlayer = net < 0f
                                 net = 0f
                             }
                         }
                     }
                 }
         ) {
-            when (selectedTab) {
-                OdifyTab.Home -> OdifyHome(
-                    songs = songs,
+            AnimatedContent(targetState = selectedTab, modifier = Modifier.fillMaxSize(),
+                transitionSpec = {
+                    val direction = if (odifyPrimaryTabs.indexOf(targetState) >= odifyPrimaryTabs.indexOf(initialState)) 1 else -1
+                    (slideInHorizontally(tween(230, easing = FastOutSlowInEasing)) { it*direction/5 } + fadeIn(tween(180)))
+                        .togetherWith(slideOutHorizontally(tween(200, easing = FastOutSlowInEasing)) { -it*direction/5 } + fadeOut(tween(150)))
+                }, label = "primary-page-change") { pageTab ->
+            pageState.SaveableStateProvider(pageTab.name) {
+                when (pageTab) {
+                OdifyTab.Home -> OdifyPersonalHome(
                     recent = displayed,
                     hasHistory = recent.isNotEmpty(),
-                    importing = importing,
-                    onImport = onImport,
+                    mixes = mixes,
                     onSearch = { navigateTo(OdifyTab.Search) },
                     onProfile = { navigateTo(OdifyTab.Profile) },
                     onLibrary = { navigateTo(OdifyTab.Library) },
-                    onPlaylists = {
-                        openLibraryPlaylists++
-                        navigateTo(OdifyTab.Library)
-                    },
+                    onExplore = { navigateTo(OdifyTab.Explore) },
+                    onSaveMix = ::saveMix,
                     onPlay = ::playList,
                     playlists = playlists,
                     onPlaylistPlay = { list ->
@@ -371,12 +478,34 @@ fun OdifyRoot(
                         }
                     }
                 )
-                OdifyTab.Search -> OdifySearch(songs, onImport, ::playList)
+                OdifyTab.Explore -> OdifyExplore(
+                    index=chartIndex,repository=exploreRepository,onPlay=::playList,onSync=onDriveSync,
+                    onAddTrack={track,owned -> playlistDialogTrack=owned ?:
+                        OdifySong("chart:${track.id}",track.title,track.artist,"","")},
+                    onProfile = { navigateTo(OdifyTab.Profile) },
+                    onMissingTrack = { track -> onExternalTrack(track.artist, track.title,track.id) },
+                    onSaveChart = { name,ids ->
+                        runCatching {playlistStore.saveMix(name,ids)}.onSuccess {
+                            playlistVersion++
+                            android.widget.Toast.makeText(context,"${it.songIds.size}곡 목록을 보관함에 저장했어요",android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                )
+                OdifyTab.Search -> OdifySearch(songs, onImport, ::playList,
+                    onProfile = { navigateTo(OdifyTab.Profile) },
+                    query = searchQuery, onQueryChange = { searchQuery = it },
+                    genre = searchGenre, onGenreChange = { searchGenre = it },
+                    searchScope = searchScope, onScopeChange = { searchScope = it },
+                    youtubeConnected = youtubeConnected, onConnectYoutube = onConnectYoutube,
+                    onExternalYoutubeStarted = onExternalYoutubeStarted,
+                    onPlayYoutubeVideo = onPlayYoutubeVideo, onAddSong = { playlistDialogTrack=it })
                 OdifyTab.Library -> OdifyLibraryScreen(
                     songs = songs, liked = liked, onPlay = ::playList,
                     onImport = onImport, onRemove = onRemove, onEdit = onEdit,
                     onChooseArtwork = onChooseArtwork,
-                    playlists = playlists, playlistFocus = openLibraryPlaylists,
+                    onProfile = { navigateTo(OdifyTab.Profile) },
+                    onOpenYoutube = { youtubeOpen = true },
+                    playlists = playlists, playlistFocus = openLibraryPlaylists,currentSongId=playback.mediaId,
                     onCreatePlaylist = ::createPlaylist,
                     onDeletePlaylist = { id ->
                         playlistStore.delete(id); playlistVersion++
@@ -385,21 +514,22 @@ fun OdifyRoot(
                         playlistStore.removeSong(listId, trackId); playlistVersion++
                     }
                 )
-                OdifyTab.Profile -> OdifyProfile(
+                OdifyTab.Profile -> OdifyNeutralScene { OdifyProfile(
                     songs, onImport, onImportOffline, importing,
                     driveConnected, driveBusy, driveStatus, driveFolder,
                     onDriveConnect, onDriveSync, onDriveFolderChange,
                     youtubeConnected, youtubeStatus, onConnectYoutube,
                     { youtubeOpen = true },
                     phoneFolderStatus, onChoosePhoneFolder, onRefreshPhoneFolder,
-                    onMasterUpdated, uploadingToDrive, uploadStatus, onUploadToDrive
-                )
+                    onMasterUpdated, uploadingToDrive, uploadStatus, onUploadToDrive,
+                    onBack = ::navigateBack
+                ) }
+                }
+            }
             }
         }
 
-        // Two visually separate floating surfaces on ONE animation timeline.
-        // Fade the navigation as it exits instead of dragging its solid panel
-        // across scrollable content or leaving an opaque rectangular ghost.
+        // Linked glass navigation and mini-player follow the same spring.
         Box(
             Modifier.align(Alignment.BottomCenter)
                 .graphicsLayer {
@@ -407,10 +537,9 @@ fun OdifyRoot(
                     alpha = navFraction
                 }
         ) {
-            OdifyBottomBar(selectedTab, gestureInset) {
+            OdifyBottomBar(selectedTab, gestureInset, pageBackdrop,sharedGlow) {
                 navigateTo(it)
                 navVisible = true
-                interaction++
             }
         }
         if (active != null) {
@@ -421,10 +550,15 @@ fun OdifyRoot(
                             navFraction * (barHeightPx - gestureInsetPx)
                     }
             ) {
-                OdifyMiniPlayer(active, playback.isPlaying, active.id in liked,
-                    onExpand = { onExpandedChange(true) },
+                OdifyMiniPlayer(active, playback.isPlaying, active.id in liked, pageBackdrop,sharedGlow,
+                    compact=compactPlayer,onCompactChange={compactPlayer=it},
+                    onExpand = { bounds ->
+                        expansionOrigin = bounds
+                        playerDragFraction = 0f
+                        onExpandedChange(true)
+                    },
                     onToggle = onTogglePlayback,
-                    onLike = { toggleLike(active.id) })
+                    onLike = { toggleLike(active.id) },onPrevious=onPrevious,onNext=onNext)
             }
         }
 
@@ -437,7 +571,7 @@ fun OdifyRoot(
         )
         val fullProgress by fullTransition.animateFloat(
             transitionSpec = {
-                tween(durationMillis = 440, easing = FastOutSlowInEasing)
+                spring(dampingRatio = 0.92f, stiffness = 360f)
             },
             label = "player-expand-progress"
         ) { open -> if (open) 1f else 0f }
@@ -450,17 +584,43 @@ fun OdifyRoot(
             Box(
                 Modifier.fillMaxSize()
                     .graphicsLayer {
-                        val closed = 1f - fullProgress
-                        translationY = size.height * 0.59f * closed
-                        scaleX = 1f - closed * 0.045f
-                        scaleY = 1f - closed * 0.13f
-                        alpha = (fullProgress * 1.8f).coerceIn(0.0f, 1.0f)
-                        shape = RoundedCornerShape((30f * closed).dp)
+                        val progress = fullProgress.coerceIn(0f, 1f)
+                        val drag = playerDragFraction.coerceIn(0f, .65f)
+                        val closed = 1f - progress
+                        val origin = expansionOrigin ?: Rect(
+                            11.dp.toPx(), size.height - gestureInsetPx -
+                                navFraction * navigationHeight.toPx() - 61.dp.toPx(),
+                            size.width - 11.dp.toPx(), size.height - gestureInsetPx -
+                                navFraction * navigationHeight.toPx() - 5.dp.toPx()
+                        )
+                        // Blend out while approaching the measured mini-player.
+                        // Never flatten a portrait render into a 56dp strip:
+                        // its final frame would otherwise flash against the mini.
+                        transformOrigin = TransformOrigin(0f, 0f)
+                        // Follow the finger at a uniform scale; do not squash
+                        // portrait content into mini-player proportions mid-drag.
+                        val attraction=closed*closed*(3f-2f*closed)
+                        val terminalScale=minOf(origin.width/size.width,origin.height/size.height).coerceIn(.025f,.15f)
+                        val uniformScale=OdifyMotion.playerScale(progress,drag,terminalScale)
+                        val centerX=size.width/2f+(origin.center.x-size.width/2f)*attraction
+                        val draggedCenterY=size.height/2f+size.height*drag
+                        val centerY=draggedCenterY+(origin.center.y-draggedCenterY)*attraction
+                        translationX=centerX-size.width*uniformScale/2f
+                        translationY=centerY-size.height*uniformScale/2f
+                        scaleX = uniformScale
+                        scaleY = uniformScale
+                        alpha = OdifyMotion.playerOpacity(progress)
+                        shape = RoundedCornerShape((22f * maxOf(closed, drag)/uniformScale).dp)
                         clip = true
+                    }
+                    .featherPlayerEdges {
+                        (1f-fullProgress.coerceIn(0f,1f))*1.3f+
+                            playerDragFraction.coerceIn(0f,.65f)*2.4f
                     }
             ) {
                 OdifyNowPlaying(
                     song = active,
+                    glow=sharedGlow,
                     previousSong = songIndex[playback.previousMediaId],
                     nextSong = songIndex[playback.nextMediaId],
                     playing = playback.isPlaying,
@@ -479,7 +639,12 @@ fun OdifyRoot(
                     onRepeat = onRepeat,
                     onShowQueue = { queueOpen = true },
                     onAddToPlaylist = { playlistDialogTrack = active },
-                    onSaveDevice = { onSaveDevice(active) }
+                    onSaveDevice = { onSaveDevice(active) },
+                    onAudioRequest = { kind, link, reason -> onAudioRequest(active, kind, link, reason) },
+                    onReplaceAudio = {replacementTrack=active},
+                    externalPlayback=active.id.startsWith("youtube:"),
+                    onOpenExternal=onOpenExternalVideo,
+                    onDragProgress = { playerDragFraction = it }
                 )
             }
         }
@@ -488,9 +653,12 @@ fun OdifyRoot(
                 localSongs=songs,connected=youtubeConnected,
                 onConnect=onConnectYoutube,
                 onPlayLocal={ queue,index -> onPlayYoutubeMatched(queue,index);youtubeOpen=false },
-                onClose={youtubeOpen=false}
+                onClose={youtubeOpen=false},onImported={playlistVersion++}
             )
         }
+        replacementTrack?.let {target -> CompositionLocalProvider(LocalOdifyModalTint provides sharedGlow) {OdifyAudioReplaceDialog(target,onSelect={video ->
+            replacementTrack=null;onReplaceAudio(target,video)
+        },onClose={replacementTrack=null})}}
         if (queueOpen) {
             OdifyQueueDialog(
                 items=remember(playback.queueIds, songIndex) { playback.queueIds.map { id ->
@@ -501,7 +669,7 @@ fun OdifyRoot(
                 currentIndex=playback.currentQueueIndex,
                 onMove=onMoveQueue,
                 onSelect={ index -> onSelectQueue(index); queueOpen=false },
-                onClose={ queueOpen=false }
+                onClose={ queueOpen=false },glow=sharedGlow
             )
         }
         playlistDialogTrack?.let { target ->
@@ -524,243 +692,6 @@ fun OdifyRoot(
 }
 
 @Composable
-private fun OdifyHome(
-    songs: List<OdifySong>,
-    recent: List<OdifySong>,
-    hasHistory: Boolean,
-    onImport: () -> Unit,
-    importing: Boolean,
-    onSearch: () -> Unit,
-    onProfile: () -> Unit,
-    onLibrary: () -> Unit,
-    onPlaylists: () -> Unit,
-    onPlay: (List<OdifySong>, Int) -> Unit,
-    playlists: List<OdifyPlaylist>,
-    onPlaylistPlay: (OdifyPlaylist) -> Unit
-) {
-    // Lightweight, explainable, on-device discovery. Real genre metadata
-    // drives each mix; no remote recommendations, opaque claims or fake tracks.
-    val vibeMixes = remember(songs, recent) {
-        fun tagged(vararg tags: String): List<OdifySong> =
-            songs.filter { track ->
-                tags.any { t -> track.genre.contains(t, ignoreCase = true) }
-            }.distinctBy { it.id }.take(40)
-        listOf(
-            "잔잔한 밤" to tagged("발라드", "r&b", "재즈", "jazz", "포크", "acoustic", "lo-fi"),
-            "에너지 충전" to tagged("록", "rock", "힙합", "hip-hop", "dance", "edm"),
-            "팝 플레이리스트" to tagged("k-pop", "j-pop", "pop")
-        ).filter { it.second.size >= 2 } +
-            listOfNotNull(
-                recent.take(25).takeIf { it.size >= 2 }?.let { "최근 취향 다시 듣기" to it }
-            )
-    }
-    // Home shows only actual songs and user-created playlists. Drive accounts,
-    // permissions, diagnostics and syncing belong under Profile / Settings.
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 20.dp, end = 20.dp,
-            top = 16.dp, bottom = 158.dp),
-        verticalArrangement = Arrangement.spacedBy(0.dp)
-    ) {
-        item {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("ODIFY", color = ink, fontSize = 24.sp,
-                        fontWeight = FontWeight.Bold, letterSpacing = (-0.7).sp)
-                    Text("오늘은 어떤 음악을 들을까요?", color = grey, fontSize = 12.sp)
-                }
-                IconButton(onClick = onProfile,
-                    modifier = Modifier.size(48.dp)
-                        .clip(RoundedCornerShape(50)).background(pale)) {
-                    Icon(Icons.Default.PersonOutline, "프로필 및 설정",
-                        tint = ink, modifier = Modifier.size(25.dp))
-                }
-            }
-            Spacer(Modifier.height(21.dp))
-            SearchHint(onTap = onSearch)
-            Spacer(Modifier.height(23.dp))
-            Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(17.dp))
-                .background(pale).clickable(onClick = onLibrary)
-                .padding(horizontal = 17.dp, vertical = 16.dp),
-                verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.LibraryMusic, null, tint = ink,
-                    modifier = Modifier.size(26.dp))
-                Spacer(Modifier.width(14.dp))
-                Column(Modifier.weight(1f)) {
-                    Text("내 음악 라이브러리", color = ink, fontSize = 14.sp,
-                        fontWeight = FontWeight.SemiBold)
-                    Text("${songs.size}곡 · 플레이리스트 ${playlists.size}개",
-                        color = grey, fontSize = 11.sp)
-                }
-                Icon(Icons.Default.ChevronRight, "라이브러리 열기", tint = grey)
-            }
-            Spacer(Modifier.height(29.dp))
-            SectionTitle(if (hasHistory) "최근 들은 음악" else "최근 추가된 음악")
-            Spacer(Modifier.height(13.dp))
-        }
-        if (recent.isEmpty()) {
-            item {
-                EmptyMusicPrompt(onImport, importing)
-                Spacer(Modifier.height(25.dp))
-            }
-        } else {
-            item {
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(13.dp)) {
-                    items(recent.take(12), key = { it.id }) { song ->
-                        val index = recent.indexOfFirst { it.id == song.id }
-                        Column(Modifier.width(102.dp)
-                            .clickable { if (index >= 0) onPlay(recent, index) }) {
-                            AlbumArt(song, Modifier.size(102.dp),
-                                fallbackKey = song.id.hashCode())
-                            Spacer(Modifier.height(8.dp))
-                            Text(song.title, fontSize = 12.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                maxLines = 1, overflow = TextOverflow.Ellipsis, color = ink)
-                            Text(song.artist.ifBlank { "아티스트 미상" },
-                                fontSize = 10.sp, maxLines = 1,
-                                overflow = TextOverflow.Ellipsis, color = grey)
-                        }
-                    }
-                }
-                Spacer(Modifier.height(29.dp))
-            }
-        }
-        if (vibeMixes.isNotEmpty()) {
-            item {
-                SectionTitle("Vibe Mix · 라이브러리 탐색")
-                Spacer(Modifier.height(4.dp))
-                Text("보유곡 장르 태그 기반 · 추천 알고리즘은 준비 중",
-                    color = grey, fontSize = 11.sp)
-                Spacer(Modifier.height(13.dp))
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    items(vibeMixes, key = { it.first }) { (label, tracks) ->
-                        OdifyMixCard(
-                            label = label, coverSong = tracks.firstOrNull(),
-                            index = label.hashCode(),
-                            onTap = { if (tracks.isNotEmpty()) onPlay(tracks, 0) }
-                        )
-                    }
-                }
-                Spacer(Modifier.height(26.dp))
-            }
-        }
-        item {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.weight(1f)) { SectionTitle("내 플레이리스트") }
-                TextButton(onClick = onPlaylists) {
-                    Text("모두 보기", color = grey, fontSize = 12.sp)
-                }
-            }
-            Spacer(Modifier.height(8.dp))
-        }
-        if (playlists.isEmpty()) {
-            item {
-                Text("재생 화면의 ⋮ 메뉴에서 나만의 플레이리스트를 만들 수 있습니다.",
-                    fontSize = 12.sp, color = grey,
-                    modifier = Modifier.padding(vertical = 12.dp))
-            }
-        } else {
-            items(playlists.take(5), key = { it.id }) { list ->
-                Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
-                    .clickable { onPlaylistPlay(list) }
-                    .padding(vertical = 10.dp, horizontal = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size(48.dp).clip(RoundedCornerShape(12.dp))
-                        .background(pale), contentAlignment = Alignment.Center) {
-                        Icon(Icons.Default.QueueMusic, null, tint = ink)
-                    }
-                    Spacer(Modifier.width(12.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(list.name, color = ink, fontSize = 14.sp,
-                            fontWeight = FontWeight.SemiBold, maxLines = 1,
-                            overflow = TextOverflow.Ellipsis)
-                        Text("${list.songIds.size}곡", color = grey, fontSize = 11.sp)
-                    }
-                    Icon(Icons.Default.PlayArrow, "플레이리스트 재생", tint = ink)
-                }
-            }
-        }
-        item { Spacer(Modifier.height(22.dp)) }
-    }
-}
-
-@Composable
-private fun SearchHint(modifier: Modifier = Modifier, onTap: () -> Unit) {
-    Row(
-        modifier.fillMaxWidth().height(42.dp)
-            .clip(RoundedCornerShape(20.dp))
-            .background(pale).clickable(onClick = onTap)
-            .padding(horizontal = 14.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Icon(Icons.Default.Search, null, tint = grey, modifier = Modifier.size(18.dp))
-        Spacer(Modifier.width(9.dp))
-        Text("Search songs, artists, or moods", fontSize = 12.sp,
-            color = grey, modifier = Modifier.weight(1f))
-        Icon(Icons.Default.Tune, null, tint = grey, modifier = Modifier.size(17.dp))
-    }
-}
-
-@Composable
-private fun HorizontalChips(options: List<String>) {
-    var selected by remember { mutableStateOf(options.first()) }
-    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp),
-        contentPadding = PaddingValues(end = 20.dp)) {
-        items(options) { label ->
-            val active = label == selected
-            Box(Modifier.clip(RoundedCornerShape(50))
-                .background(if (active) ink else pale)
-                .clickable { selected = label }
-                .padding(horizontal = 13.dp, vertical = 7.dp)) {
-                Text(label, color = if (active) white else Color(0xFF5B5D63),
-                    fontSize = 11.sp)
-            }
-        }
-    }
-}
-
-@Composable
-private fun SectionTitle(title: String) {
-    // Only actionable rows have chevrons; this is a static section heading.
-    Text(title, fontSize = 17.sp, color = ink, fontWeight = FontWeight.Bold,
-        modifier = Modifier.fillMaxWidth())
-}
-
-@Composable
-private fun OdifyMixCard(
-    label: String,
-    coverSong: OdifySong?,
-    index: Int,
-    onTap: () -> Unit
-) {
-    Box(
-        Modifier.width(146.dp).height(176.dp)
-            .clip(RoundedCornerShape(15.dp))
-            .clickable(onClick = onTap)
-    ) {
-        AlbumArt(coverSong, Modifier.fillMaxSize(),
-            radius = RoundedCornerShape(15.dp), fallbackKey = index + 9,
-            muted = true)
-        Box(Modifier.fillMaxSize().background(
-            Brush.verticalGradient(listOf(Color.Transparent,
-                Color.Transparent, Color.Black.copy(alpha = 0.75f)))
-        ))
-        Column(Modifier.align(Alignment.BottomStart).padding(start = 12.dp, bottom = 12.dp, end = 38.dp)) {
-            Text(label, color = white, fontSize = 13.sp,
-                fontWeight = FontWeight.SemiBold, lineHeight = 15.sp)
-            Spacer(Modifier.height(3.dp))
-            Text("내 라이브러리 · 장르 기반",
-                color = white.copy(alpha = .78f), fontSize = 9.sp)
-        }
-        Box(Modifier.align(Alignment.BottomEnd).padding(10.dp)
-            .size(29.dp).clip(RoundedCornerShape(50))
-            .background(Color.White.copy(alpha = .94f)), contentAlignment = Alignment.Center) {
-            Icon(Icons.Default.PlayArrow, null, tint = ink, modifier = Modifier.size(18.dp))
-        }
-    }
-}
-
-@Composable
 private fun EmptyMusicPrompt(onImport: () -> Unit, importing: Boolean) {
     Box(Modifier.fillMaxWidth().padding(end = 20.dp)
         .clip(RoundedCornerShape(15.dp)).background(pale)
@@ -776,91 +707,230 @@ private fun EmptyMusicPrompt(onImport: () -> Unit, importing: Boolean) {
     }
 }
 
+/** Restrained glass surface; no opaque rectangular slab behind the rounded bar. */
 @Composable
 private fun OdifyBottomBar(
     selected: OdifyTab,
     bottomInset: androidx.compose.ui.unit.Dp,
+    backdrop: OdifyBackdrop,
+    glow:Color,
     onSelected: (OdifyTab) -> Unit
 ) {
-    val navShape = RoundedCornerShape(topStart = 23.dp, topEnd = 23.dp)
-    Row(Modifier.fillMaxWidth()
-        .height(66.dp + bottomInset)
-        .shadow(10.dp, navShape, clip = false)
-        .clip(navShape)
-        .background(Brush.verticalGradient(listOf(
-            Color(0xF9FFFFFF), Color(0xF4F6F6F8)
-        )))
-        .border(0.7.dp, Color(0xFFE9E9EB), navShape)
-        .padding(start = 12.dp, end = 12.dp, bottom = bottomInset),
-        verticalAlignment = Alignment.CenterVertically
+    Box(
+        Modifier.fillMaxWidth().height(navigationHeight + bottomInset)
+            .padding(start = 12.dp, end = 12.dp, bottom = bottomInset + 4.dp),
+        contentAlignment = Alignment.TopCenter
     ) {
-        val icons = mapOf(
-            OdifyTab.Home to Icons.Default.Home,
-            OdifyTab.Search to Icons.Default.Search,
-            OdifyTab.Library to Icons.Default.LibraryMusic,
-            OdifyTab.Profile to Icons.Default.PersonOutline
-        )
-        val labels = mapOf(
-            OdifyTab.Home to "Home", OdifyTab.Search to "Search",
-            OdifyTab.Library to "Library", OdifyTab.Profile to "Profile"
-        )
-        OdifyTab.entries.forEach { tab ->
-            Column(Modifier.weight(1f).fillMaxHeight()
-                .clickable { onSelected(tab) },
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
-            ) {
-                Icon(icons.getValue(tab), labels.getValue(tab),
-                    tint = if (tab == selected) ink else Color(0xFF9BA0A7),
-                    modifier = Modifier.size(21.dp))
-                Spacer(Modifier.height(3.dp))
-                Text(labels.getValue(tab), fontSize = 10.sp,
-                    color = if (tab == selected) ink else grey,
-                    fontWeight = if (tab == selected) FontWeight.Bold else FontWeight.Normal)
+        Row(
+            Modifier.widthIn(max = 480.dp).fillMaxWidth().height(58.dp)
+                .odifyGlass(backdrop,RoundedCornerShape(21.dp),glow,navigation=true)
+                .selectableGroup().padding(horizontal = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            odifyPrimaryTabs.forEach { tab ->
+                val isSelected = tab == selected
+                val label = when (tab) {
+                    OdifyTab.Home -> "홈"
+                    OdifyTab.Explore -> "탐색"
+                    OdifyTab.Library -> "보관함"
+                    OdifyTab.Search -> "검색"
+                    OdifyTab.Profile -> "프로필 및 설정"
+                }
+                val icon = when (tab) {
+                    OdifyTab.Home -> if (isSelected) Icons.Filled.Home else Icons.Outlined.Home
+                    OdifyTab.Explore -> if (isSelected) Icons.Filled.Explore else Icons.Outlined.Explore
+                    OdifyTab.Library -> if (isSelected) Icons.Filled.LibraryMusic else Icons.Outlined.LibraryMusic
+                    OdifyTab.Search -> Icons.Outlined.Search
+                    OdifyTab.Profile -> Icons.Outlined.PersonOutline
+                }
+                val highlight by animateColorAsState(
+                    if (isSelected) Color.White.copy(alpha = .065f) else Color.Transparent,
+                    animationSpec = tween(180), label = "navigation-selection"
+                )
+                Box(
+                    Modifier.weight(1f).height(48.dp)
+                        .clip(RoundedCornerShape(22.dp))
+                        .selectable(selected = isSelected, role = Role.Tab,
+                            interactionSource=remember {MutableInteractionSource()},indication=null,
+                            onClick = { onSelected(tab) }),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Box(Modifier.size(width = 38.dp, height = 32.dp)
+                        .clip(RoundedCornerShape(10.dp)),
+                        contentAlignment = Alignment.Center) {
+                        Icon(icon, contentDescription = label,
+                            tint = if (isSelected) ink else Color(0xFF93969E),
+                            modifier = Modifier.size(23.dp))
+                    }
+                }
             }
         }
     }
 }
 
 @Composable
-private fun OdifyMiniPlayer(
-    song: OdifySong,
-    playing: Boolean,
-    liked: Boolean,
-    onExpand: () -> Unit,
-    onToggle: () -> Unit,
-    onLike: () -> Unit
+private fun OdifyAccountButton(onClick: () -> Unit) {
+    IconButton(onClick = onClick, modifier = Modifier.size(48.dp)) {
+        Box(Modifier.size(36.dp).clip(RoundedCornerShape(18.dp))
+            .background(pale), contentAlignment = Alignment.Center) {
+            Icon(Icons.Outlined.PersonOutline, "프로필 및 설정",
+                tint = ink, modifier = Modifier.size(21.dp))
+        }
+    }
+}
+
+@Composable
+private fun OdifyPageHeader(
+    title: String,
+    onProfile: () -> Unit,
+    onImport: (() -> Unit)? = null
 ) {
-    Row(
-        Modifier.fillMaxWidth().padding(horizontal = 11.dp, vertical = 5.dp)
-            .height(56.dp)
-            .shadow(8.dp, RoundedCornerShape(22.dp))
-            .clip(RoundedCornerShape(22.dp))
-            .background(glass)
-            .border(0.8.dp, white.copy(alpha = .30f), RoundedCornerShape(22.dp))
-            .clickable(onClick = onExpand)
-            .padding(horizontal = 8.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        AlbumArt(song, Modifier.size(41.dp), radius = RoundedCornerShape(11.dp),
-            fallbackKey = song.id.hashCode())
-        Spacer(Modifier.width(10.dp))
-        Column(Modifier.weight(1f)) {
-            Text(song.title, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                fontSize = 12.sp, color = white, fontWeight = FontWeight.SemiBold)
-            if (song.artist.isNotBlank()) Text(song.artist, fontSize = 10.sp,
-                maxLines = 1, overflow = TextOverflow.Ellipsis,
-                color = white.copy(alpha = .69f))
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(title, color = ink, fontSize = 25.sp,
+            fontWeight = FontWeight.Bold, letterSpacing = (-0.7).sp,
+            modifier = Modifier.weight(1f))
+        onImport?.let { action ->
+            IconButton(onClick = action, modifier = Modifier.size(48.dp)) {
+                Icon(Icons.Outlined.Add, "음악 가져오기", tint = ink,
+                    modifier = Modifier.size(23.dp))
+            }
         }
-        IconButton(onClick = onLike, modifier = Modifier.size(37.dp)) {
-            Icon(if (liked) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                "좋아요", tint = white, modifier = Modifier.size(19.dp))
+        OdifyAccountButton(onProfile)
+    }
+}
+
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable
+internal fun OdifyMiniPlayer(
+    song: OdifySong, playing: Boolean, liked: Boolean, backdrop: OdifyBackdrop, glow:Color,
+    compact: Boolean, onCompactChange: (Boolean) -> Unit, onExpand: (Rect?) -> Unit,
+    onToggle: () -> Unit, onLike: () -> Unit, onPrevious: () -> Unit, onNext: () -> Unit
+) {
+    var coordinates by remember {mutableStateOf<androidx.compose.ui.layout.LayoutCoordinates?>(null)}
+    val expandAction by rememberUpdatedState(onExpand)
+    val wobble=remember {Animatable(0f)}
+    val scope=rememberCoroutineScope()
+    val titleStyle=LocalTextStyle.current.merge(TextStyle(fontSize=12.sp,fontWeight=FontWeight.SemiBold))
+    val artistStyle=LocalTextStyle.current.merge(TextStyle(fontSize=10.sp,lineHeight=14.sp))
+    val titleMeasurer=rememberTextMeasurer()
+    val measured=remember(song.title,titleMeasurer,titleStyle){titleMeasurer.measure(song.title,style=titleStyle,maxLines=1,softWrap=false)}
+    val titleWidth=with(LocalDensity.current){measured.size.width.toDp()}
+    val measuredArtist=remember(song.artist,titleMeasurer,artistStyle){titleMeasurer.measure(song.artist,style=artistStyle,maxLines=1,softWrap=false)}
+    val artistWidth=with(LocalDensity.current){measuredArtist.size.width.toDp()}
+    val surfaceProgress by animateFloatAsState(if(compact)0f else 1f,
+        tween(720,easing=CubicBezierEasing(.22f,.12f,.26f,1f)),label="droplet-split")
+    val split=surfaceProgress.coerceIn(0f,1f)
+    val lifecycle=androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
+    var visible by remember {mutableStateOf(lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED))}
+    DisposableEffect(lifecycle) {
+        val observer=androidx.lifecycle.LifecycleEventObserver {_,_ -> visible=lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)}
+        lifecycle.addObserver(observer);onDispose{lifecycle.removeObserver(observer)}
+    }
+    val morph=remember {Animatable(0f)}
+    val morphStrength by animateFloatAsState(if(playing && visible && android.animation.ValueAnimator.areAnimatorsEnabled())1f else 0f,tween(300),label="liquid-motion")
+    LaunchedEffect(playing,visible) {
+        if(playing && visible && android.animation.ValueAnimator.areAnimatorsEnabled()) {
+            while(true) {morph.snapTo(0f);morph.animateTo(1f,tween(5200,easing=LinearEasing))}
         }
-        Box(Modifier.size(37.dp)
-            .clip(RoundedCornerShape(13.dp)).background(white)
-            .clickable(onClick = onToggle), contentAlignment = Alignment.Center) {
-            Icon(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow,
-                "재생·일시정지", tint = ink, modifier = Modifier.size(23.dp))
+    }
+    val tension=remember {Animatable(0f)}
+    // Touch-down is immediate. This short release follows the tap, rather than
+    // delaying the whole player behind the finger with a slow spring.
+    fun pulseSurface() {
+        scope.launch {tension.snapTo(1f);tension.animateTo(0f,keyframes {
+            durationMillis=240;1f at 0;-.35f at 85;.12f at 155;0f at 240
+        })}
+    }
+    BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal=11.dp,vertical=5.dp),contentAlignment=Alignment.Center) {
+        val compactWidth=(titleWidth+99.dp).coerceIn(168.dp,216.dp).coerceAtMost(maxWidth)
+        val expandedText=maxOf(titleWidth,artistWidth).coerceIn(56.dp,(maxWidth-245.dp).coerceAtLeast(56.dp))
+        val wideWidth=(expandedText+233.dp).coerceAtMost(maxWidth-12.dp)
+        val growth=fluidStage(split,0f,.64f)
+        // Measure the destination before the pinch starts. A second width
+        // animation can outlive the separation and resize the detached lobe.
+        val measuredWidth=wideWidth
+        // Both lobes travel outward while they are still connected. Once the
+        // neck breaks, position and size have already reached their targets.
+        val separationGap=(maxWidth-measuredWidth).coerceAtLeast(12.dp)*growth
+        val width=compactWidth+(measuredWidth-compactWidth)*growth+separationGap
+        val height=43.dp+13.dp*growth
+        val artSize=29.dp+11.dp*growth
+        val controlsWidth=43.dp+77.dp*growth
+        val gap=separationGap
+        val leftWidth=width-controlsWidth-gap
+        val density=LocalDensity.current
+        val rightPx=with(density){controlsWidth.toPx()};val gapPx=with(density){gap.toPx()}
+        val motionPx=with(density){(1.1.dp*morphStrength*(1f-fluidStage(split,0f,.20f)+fluidStage(split,.84f,1f))).toPx()}
+        // At the joined endpoint the outline is a whole capsule, independent
+        // of the left-lobe pulse. Avoid recomposing controls for that unused
+        // phase; the expanded lobe still morphs while music plays.
+        val shape=remember(split,rightPx,gapPx,motionPx){OdifyDropletShape(split,rightPx,gapPx,motion=motionPx,
+            phaseProvider=if(split<=0f || motionPx<=0f)null else {{morph.value}})}
+        Box(Modifier.width(width).height(height).onGloballyPositioned{coordinates=it}
+            .graphicsLayer {scaleX=1f+wobble.value*.006f+tension.value*.008f;scaleY=1f-wobble.value*.010f-tension.value*.012f}
+            .graphicsLayer {
+                shadowElevation=9.dp.toPx();this.shape=shape.frameShape()
+                ambientShadowColor=glow.copy(alpha=.25f);spotShadowColor=glow.copy(alpha=.22f)
+            }
+            .odifyGlass(backdrop,shape,glow,split,controlsWidth,gap)
+            .drawBehind {
+                // Press highlight follows the same deforming silhouette. A
+                // rectangular Material ripple must never cover the neck/gap.
+                drawRect(Color.White.copy(alpha=(wobble.value*.045f).coerceIn(0f,.045f)))
+            }
+            .pointerInput(Unit) {
+                awaitEachGesture {
+                    awaitFirstDown(requireUnconsumed=false,pass=PointerEventPass.Initial)
+                    scope.launch {wobble.snapTo(1f)}
+                    do {val event=awaitPointerEvent(PointerEventPass.Initial)} while(event.changes.any{it.pressed})
+                    scope.launch {wobble.animateTo(0f,spring(dampingRatio=.82f,stiffness=1250f))}
+                }
+            }
+            .combinedClickable(interactionSource=remember {MutableInteractionSource()},indication=null,
+                onClick={onCompactChange(!compact)},onLongClick={pulseSurface()})
+            .pointerInput(Unit) {
+                var drag=0f
+                detectVerticalDragGestures(onDragStart={drag=0f},onDragCancel={drag=0f},
+                    onDragEnd={if(drag< -28.dp.toPx())expandAction(coordinates?.takeIf{it.isAttached}?.boundsInRoot())},
+                    onVerticalDrag={change,delta->change.consume();drag+=delta})
+            },contentAlignment=Alignment.Center) {
+            // Fixed lobe containers prevent the Row's weighted text from pushing
+            // the transport controls off the center of the right-hand droplet.
+            Row(Modifier.width(leftWidth).fillMaxHeight().align(Alignment.CenterStart).padding(start=8.dp,end=(8.dp*growth)),verticalAlignment=Alignment.CenterVertically) {
+                AlbumArt(song,Modifier.size(artSize).clickable(interactionSource=remember {MutableInteractionSource()},indication=null,onClickLabel="전체 재생 화면 열기") {
+                    expandAction(coordinates?.takeIf{it.isAttached}?.boundsInRoot())
+                }.semantics{contentDescription="전체 재생 화면 열기"},radius=CircleShape,fallbackKey=song.id.hashCode())
+                Spacer(Modifier.width(9.dp))
+                Column(Modifier.weight(1f).clipToBounds()) {
+                    Text(song.title,modifier=Modifier.fillMaxWidth().basicMarquee(iterations=Int.MAX_VALUE,
+                        initialDelayMillis=2200,repeatDelayMillis=1800,spacing=MarqueeSpacing(24.dp),velocity=24.dp),
+                        maxLines=1,fontSize=12.sp,color=ink,fontWeight=FontWeight.SemiBold)
+                    if(song.artist.isNotBlank())Text(song.artist,modifier=Modifier.fillMaxWidth().height(with(density){16.sp.toDp()}*growth)
+                        .basicMarquee(iterations=Int.MAX_VALUE,initialDelayMillis=2400,repeatDelayMillis=1800,velocity=22.dp).graphicsLayer{alpha=growth},
+                        fontSize=10.sp,lineHeight=14.sp,maxLines=1,color=ink.copy(alpha=.69f))
+                }
+                if(growth>.01f) {
+                    Spacer(Modifier.width(6.dp*growth))
+                    Box(modifier=Modifier.width(32.dp*growth).height(40.dp).graphicsLayer{alpha=growth}
+                        .clickable(interactionSource=remember {MutableInteractionSource()},indication=null,role=Role.Button,onClick=onLike),contentAlignment=Alignment.Center) {
+                        Icon(if(liked)Icons.Default.Favorite else Icons.Default.FavoriteBorder,"좋아요",tint=ink,modifier=Modifier.size(18.dp))
+                    }
+                }
+            }
+            Row(Modifier.width(controlsWidth).fillMaxHeight().align(Alignment.CenterEnd),horizontalArrangement=Arrangement.Center,verticalAlignment=Alignment.CenterVertically) {
+                if(growth>.01f) Box(modifier=Modifier.width(38.dp*growth).height(40.dp).graphicsLayer{alpha=growth}
+                    .clickable(interactionSource=remember {MutableInteractionSource()},indication=null,role=Role.Button,onClick=onPrevious),contentAlignment=Alignment.Center) {
+                    Icon(Icons.Default.SkipPrevious,"이전 곡",tint=ink,modifier=Modifier.size(21.dp))
+                }
+                Box(Modifier.size(artSize).clip(CircleShape).background(ink)
+                    .clickable(interactionSource=remember {MutableInteractionSource()},indication=null,role=Role.Button,onClick=onToggle),contentAlignment=Alignment.Center) {
+                    Icon(if(playing)Icons.Default.Pause else Icons.Default.PlayArrow,"재생·일시정지",tint=white,modifier=Modifier.size(21.dp+2.dp*growth))
+                }
+                if(growth>.01f) Box(modifier=Modifier.width(38.dp*growth).height(40.dp).graphicsLayer{alpha=growth}
+                    .clickable(interactionSource=remember {MutableInteractionSource()},indication=null,role=Role.Button,onClick=onNext),contentAlignment=Alignment.Center) {
+                    Icon(Icons.Default.SkipNext,"다음 곡",tint=ink,modifier=Modifier.size(21.dp))
+                }
+            }
         }
     }
 }
@@ -869,67 +939,71 @@ private fun OdifyMiniPlayer(
 private fun OdifySearch(
     songs: List<OdifySong>,
     onImport: () -> Unit,
-    onPlay: (List<OdifySong>, Int) -> Unit
+    onPlay: (List<OdifySong>, Int) -> Unit,
+    onProfile: () -> Unit,
+    query: String,
+    onQueryChange: (String) -> Unit,
+    genre: String,
+    onGenreChange: (String) -> Unit,
+    searchScope: OdifySearchScope,
+    onScopeChange: (OdifySearchScope) -> Unit,
+    youtubeConnected: Boolean, onConnectYoutube: () -> Unit, onExternalYoutubeStarted: () -> Unit,
+    onPlayYoutubeVideo: (List<YoutubeVideo>, Int) -> Unit, onAddSong:(OdifySong)->Unit
 ) {
-    var query by remember { mutableStateOf("") }
-    var genre by remember { mutableStateOf("All") }
-    var showDuplicates by remember { mutableStateOf(false) }
+    var showDuplicates by rememberSaveable { mutableStateOf(false) }
     val genres = remember(songs) {
         listOf("All") + songs.map { it.genre.substringBefore(" / ").trim() }
             .filter { it.isNotBlank() }.distinct().sorted().take(60)
     }
-    val filtered = remember(songs, query, genre, showDuplicates) {
+    val filtered = remember(songs, query, genre, showDuplicates, searchScope) {
         val matches = songs.filter {
             (genre == "All" || it.genre.startsWith(genre, ignoreCase = true)) &&
-            (it.title.contains(query, true) || it.artist.contains(query, true) ||
-             it.album.contains(query, true) || it.genre.contains(query, true) ||
-             it.lyrics.contains(query, true))
+            OdifySearchMatching.matches(it, query, searchScope)
         }
-        OdifySongPresentation.visible(matches, showDuplicates)
+        OdifySongPresentation.visible(matches, showDuplicates).sortedBy { if(it.id.startsWith("gdrive:"))0 else 1 }
     }
     Column(Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
-        Spacer(Modifier.height(24.dp))
-        Text("Search", fontSize = 25.sp, fontWeight = FontWeight.Bold)
-        Spacer(Modifier.height(19.dp))
+        Spacer(Modifier.height(12.dp))
+        OdifyPageHeader("검색", onProfile)
+        Spacer(Modifier.height(14.dp))
         Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp))
             .background(pale).height(48.dp).padding(horizontal = 13.dp),
             verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Default.Search, null, tint = grey, modifier = Modifier.size(20.dp))
             Spacer(Modifier.width(9.dp))
             BasicTextField(
-                value = query, onValueChange = { query = it },
+                value = query, onValueChange = onQueryChange,
                 textStyle = androidx.compose.ui.text.TextStyle(color = ink, fontSize = 14.sp),
                 singleLine = true,
                 modifier = Modifier.weight(1f),
                 decorationBox = { inner ->
                     Box {
-                        if (query.isEmpty()) Text("노래, 가수, 앨범, 장르, 가사 검색",
+                        if (query.isEmpty()) Text(if (searchScope == OdifySearchScope.Lyrics) "떠오르는 가사로 검색" else "노래, 아티스트, 앨범 검색",
                             color = grey, fontSize = 13.sp)
                         inner()
                     }
                 }
             )
             if (query.isNotBlank()) Icon(Icons.Default.Close, "지우기",
-                modifier = Modifier.size(20.dp).clickable { query = "" }, tint = grey)
+                modifier = Modifier.size(20.dp).clickable { onQueryChange("") }, tint = grey)
         }
         Spacer(Modifier.height(14.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf(OdifySearchScope.Music to "곡·아티스트", OdifySearchScope.Lyrics to "가사").forEach { (scope, label) ->
+                val selected = searchScope == scope
+                OdifyPill(label,selected) {onScopeChange(scope)}
+            }
+        }
+        Spacer(Modifier.height(12.dp))
         LazyRow(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
             items(genres) { option ->
                 val selected = genre == option
-                Box(
-                    Modifier.clip(RoundedCornerShape(30.dp))
-                        .background(if (selected) ink else pale)
-                        .clickable { genre = option }
-                        .padding(horizontal = 13.dp, vertical = 8.dp)
-                ) {
-                    Text(option, fontSize = 11.sp,
-                        color = if (selected) white else grey)
-                }
+                OdifyPill(option,selected) {onGenreChange(option)}
             }
         }
         Spacer(Modifier.height(16.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(if (query.isEmpty()) "내 음악" else "검색 결과 · ${filtered.size}",
+            Text(if (query.isEmpty()) "내 음악" else if(searchScope==OdifySearchScope.Music) "통합 검색" else "가사 검색 · ${filtered.size}",
                 fontSize = 16.sp, fontWeight = FontWeight.Bold,
                 modifier = Modifier.weight(1f))
             Text(if (showDuplicates) "중복 숨기기" else "중복 포함 보기",
@@ -938,17 +1012,9 @@ private fun OdifySearch(
                     .padding(horizontal = 6.dp, vertical = 8.dp))
         }
         Spacer(Modifier.height(11.dp))
-        if (filtered.isEmpty()) {
-            EmptyMusicPrompt(onImport, false)
-        } else {
-            LazyColumn(contentPadding = PaddingValues(bottom = 155.dp)) {
-                items(filtered, key = { it.id }) { song ->
-                    OdifySongRow(song, onClick = {
-                        onPlay(filtered, filtered.indexOf(song))
-                    })
-                }
-            }
-        }
+        OdifyYoutubeSearch(query, youtubeConnected, onConnectYoutube, onExternalYoutubeStarted,onPlayYoutubeVideo,
+            localSongs=filtered,onPlayLocal=onPlay,onAddSong=onAddSong,includeYoutube=searchScope==OdifySearchScope.Music)
+
     }
 }
 
@@ -961,50 +1027,62 @@ private fun OdifyLibraryScreen(
     onRemove: (OdifySong) -> Unit,
     onEdit: (OdifySong, String, String, String) -> Unit,
     onChooseArtwork: (OdifySong) -> Unit,
+    onProfile: () -> Unit,
+    onOpenYoutube: () -> Unit,
     playlists: List<OdifyPlaylist>,
     playlistFocus: Int,
     onCreatePlaylist: (String) -> String,
     onDeletePlaylist: (String) -> Unit,
-    onRemoveFromPlaylist: (String, String) -> Unit
+    onRemoveFromPlaylist: (String, String) -> Unit,currentSongId:String?=null
 ) {
     var editingSong by remember { mutableStateOf<OdifySong?>(null) }
-    var selection by remember { mutableStateOf("Songs") }
+    var selection by rememberSaveable { mutableStateOf("Playlists") }
+    var lastPlaylistFocus by rememberSaveable { mutableIntStateOf(0) }
     LaunchedEffect(playlistFocus) {
-        if (playlistFocus > 0) selection = "Playlists"
+        if (playlistFocus > lastPlaylistFocus) {
+            selection = "Playlists"
+            lastPlaylistFocus = playlistFocus
+        }
     }
-    var showDuplicates by remember { mutableStateOf(false) }
-    val modes = listOf("Songs", "Saved", "Playlists", "Albums", "Artists")
+    var showDuplicates by rememberSaveable { mutableStateOf(false) }
+    val modes = listOf("Playlists" to "플레이리스트", "Offline" to "오프라인", "Saved" to "좋아요")
     val rawVisible = when (selection) {
         "Saved" -> songs.filter { it.id in liked }
-        "Albums" -> songs.distinctBy { it.album.ifEmpty { it.title } }
-        "Artists" -> songs.distinctBy { it.artist }
-        else -> songs
+        "Offline" -> songs.filter { it.isOfflineSaved }
+        else -> emptyList()
     }
     val visible = OdifySongPresentation.visible(rawVisible, showDuplicates)
     Column(Modifier.fillMaxSize().padding(start = 20.dp, end = 20.dp)) {
-        Spacer(Modifier.height(23.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Your Library", fontSize = 24.sp, fontWeight = FontWeight.Bold,
-                modifier = Modifier.weight(1f), color = ink)
-            IconButton(onClick = onImport) { Icon(Icons.Default.Add, "음악 가져오기") }
-        }
-        Spacer(Modifier.height(17.dp))
+        Spacer(Modifier.height(12.dp))
+        OdifyPageHeader("보관함", onProfile, onImport)
+        Spacer(Modifier.height(12.dp))
         Row(Modifier.horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-            modes.forEach { mode ->
-                Box(Modifier.clip(RoundedCornerShape(50))
+            modes.forEach { (mode, label) ->
+                Box(Modifier.heightIn(min = 48.dp)
+                    .wrapContentHeight(Alignment.CenterVertically)
+                    .clip(RoundedCornerShape(50))
                     .background(if (selection == mode) ink else pale)
                     .clickable { selection = mode }
                     .padding(horizontal = 13.dp, vertical = 8.dp)) {
-                    Text(mode, fontSize = 11.sp,
-                        color = if (selection == mode) white else Color(0xFF62646A))
+                    Text(label, fontSize = 12.sp,
+                        color = if (selection == mode) white else grey)
                 }
             }
         }
-        Spacer(Modifier.height(12.dp))
+        TextButton(onClick = onOpenYoutube,
+            contentPadding = PaddingValues(horizontal = 0.dp, vertical = 6.dp)) {
+            Icon(Icons.Outlined.PlaylistPlay, null, tint = grey,
+                modifier = Modifier.size(19.dp))
+            Spacer(Modifier.width(6.dp))
+            Text("YouTube 플레이리스트", color = grey, fontSize = 12.sp)
+            Spacer(Modifier.width(3.dp))
+            Icon(Icons.Default.ChevronRight, null, tint = grey,
+                modifier = Modifier.size(16.dp))
+        }
         if (selection == "Playlists") {
             OdifyPlaylistLibrary(
-                playlists = playlists, songs = songs, onPlay = onPlay,
+                playlists = playlists, songs = songs, onPlay = onPlay,currentSongId=currentSongId,
                 onCreate = onCreatePlaylist, onDelete = onDeletePlaylist,
                 onRemoveSong = onRemoveFromPlaylist
             )
@@ -1017,12 +1095,13 @@ private fun OdifyLibraryScreen(
         )
         Spacer(Modifier.height(12.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Recently added", fontSize = 12.sp, color = grey,
+            Text(if(selection == "Offline") "기기에 저장한 음악" else "좋아요한 음악", fontSize = 12.sp, color = grey,
                 modifier = Modifier.weight(1f))
-            Text("${visible.size} items", fontSize = 11.sp, color = grey)
+            Text("${visible.size}곡", fontSize = 11.sp, color = grey)
         }
         Spacer(Modifier.height(9.dp))
-        if (visible.isEmpty()) EmptyMusicPrompt(onImport, false)
+        if (visible.isEmpty()) Text(if(selection=="Offline") "아직 오프라인 음악이 없어요. 설정에서 휴대폰 폴더를 연결하거나 음악을 오프라인으로 가져오세요." else "마음에 드는 음악에 하트를 눌러 주세요.",
+            color=grey,fontSize=13.sp,modifier=Modifier.padding(vertical=24.dp))
         else LazyColumn(contentPadding = PaddingValues(bottom = 155.dp)) {
             items(visible, key = { it.id }) { song ->
                 OdifySongRow(
@@ -1037,7 +1116,7 @@ private fun OdifyLibraryScreen(
                             IconButton(onClick = { showMenu = true }) {
                                 Icon(Icons.Default.MoreHoriz, "더보기", tint = grey)
                             }
-                            DropdownMenu(expanded = showMenu,
+                            OdifyGlassMenu(expanded = showMenu,
                                 onDismissRequest = { showMenu = false }) {
                                 DropdownMenuItem(
                                     text = { Text("곡 정보 수정") },
@@ -1087,7 +1166,7 @@ private fun OdifyTrackEditDialog(
     var title by remember(song.id) { mutableStateOf(song.title) }
     var artist by remember(song.id) { mutableStateOf(song.artist) }
     var album by remember(song.id) { mutableStateOf(song.album) }
-    AlertDialog(
+    OdifyGlassAlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("곡 정보 수정", fontWeight = FontWeight.SemiBold, color = ink) },
         text = {
@@ -1163,7 +1242,8 @@ private fun OdifyProfile(
     onMasterUpdated: (List<MasterTrack>) -> Unit,
     uploadingToDrive: Boolean,
     uploadStatus: String,
-    onUploadToDrive: () -> Unit
+    onUploadToDrive: () -> Unit,
+    onBack: () -> Unit
 ) {
     var showMaster by remember { mutableStateOf(false) }
     var showAdvanced by remember { mutableStateOf(false) }
@@ -1185,15 +1265,21 @@ private fun OdifyProfile(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState())
             .padding(start = 21.dp, end = 21.dp, bottom = 170.dp)
     ) {
-        Spacer(Modifier.height(24.dp))
-        Text("설정 및 계정", fontSize = 25.sp, fontWeight = FontWeight.Bold,
-            color = ink, letterSpacing = (-0.6).sp)
+        Spacer(Modifier.height(12.dp))
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onBack, modifier = Modifier.size(48.dp)) {
+                Icon(Icons.Default.ArrowBack, "이전 화면", tint = ink)
+            }
+            Spacer(Modifier.width(4.dp))
+            Text("설정 및 계정", fontSize = 25.sp, fontWeight = FontWeight.Bold,
+                color = ink, letterSpacing = (-0.6).sp)
+        }
         Spacer(Modifier.height(4.dp))
         Text("음악 소스, 동기화, 재생 및 저장 공간 관리", fontSize = 12.sp, color = grey)
         Spacer(Modifier.height(27.dp))
         Row(
             Modifier.fillMaxWidth().clip(RoundedCornerShape(17.dp))
-                .background(pale).padding(horizontal = 19.dp, vertical = 20.dp),
+                .odifyNeutralPanel(17).padding(horizontal = 19.dp, vertical = 20.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(
@@ -1212,7 +1298,13 @@ private fun OdifyProfile(
                     color = grey, fontSize = 11.sp)
             }
         }
-        Spacer(Modifier.height(33.dp))
+        Spacer(Modifier.height(24.dp))
+        OdifyGlassSettingsCard()
+        Spacer(Modifier.height(16.dp))
+        OdifyStreamingRequestsCard()
+        Spacer(Modifier.height(16.dp))
+        OdifyChartSettingsCard()
+        Spacer(Modifier.height(28.dp))
         Text("음악 소스 및 연결", color = ink, fontSize = 14.sp,
             fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.height(13.dp))
@@ -1289,7 +1381,7 @@ private fun OdifyProfile(
             subtitle = "파일 선택기를 통한 재생도 지원",
             enabled = !importing, onClick = onImport
         )
-        HorizontalDivider(color = Color(0xFFF1F1F3))
+        HorizontalDivider(color = OdifyPalette.hairline)
         OdifySourceRow(
             icon = Icons.Default.FileDownload,
             title = "오프라인 음악 저장",
@@ -1374,7 +1466,7 @@ private fun OdifyProfile(
         )
     }
     if (showFolderEditor) {
-        AlertDialog(
+        OdifyGlassAlertDialog(
             onDismissRequest = { showFolderEditor = false },
             title = { Text("음악 폴더 지정") },
             text = {
@@ -1412,9 +1504,9 @@ private fun OdifySourceRow(
     onClick: () -> Unit
 ) {
     Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(13.dp))
+        Modifier.fillMaxWidth().odifyNeutralPanel(18)
             .clickable(enabled = enabled, onClick = onClick)
-            .padding(vertical = 14.dp),
+            .padding(horizontal=14.dp,vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
@@ -1456,3 +1548,4 @@ private fun OdifyInfoRow(
         }
     }
 }
+

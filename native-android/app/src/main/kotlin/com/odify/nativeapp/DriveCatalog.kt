@@ -239,9 +239,11 @@ class DriveCatalog(private val context: Context) {
 
     fun tracks(): List<OdifySong> {
         val result = ArrayList<OdifySong>()
+        val chartMap=runCatching {JSONObject(prefs.getString("chartAliases","{}").orEmpty())}.getOrDefault(JSONObject())
+        val aliasesByFile=chartMap.keys().asSequence().groupBy {chartMap.optString(it)}
         val hidden = prefs.getStringSet("hidden", emptySet()) ?: emptySet()
         db.readableDatabase.rawQuery(
-            "SELECT id,name,title,artist,album,genre,cover,lyrics,meta_source FROM tracks ORDER BY modified DESC,name LIMIT 100000",
+            "SELECT id,name,title,artist,album,genre,cover,lyrics,meta_source,md5 FROM tracks ORDER BY modified DESC,name LIMIT 100000",
             null
         ).use { cursor ->
             while (cursor.moveToNext()) {
@@ -263,7 +265,10 @@ class DriveCatalog(private val context: Context) {
                         cursor.getString(6).takeIf { it.isNotBlank() },
                     sourceUri = "https://www.googleapis.com/drive/v3/files/$fileId?alt=media",
                     genre = cursor.getString(5),
-                    lyrics = cursor.getString(7).orEmpty().take(20000)
+                    lyrics = cursor.getString(7).orEmpty().take(20000),
+                    contentMd5 = cursor.getString(9).orEmpty(),
+                    chartId = Regex("^CHART([0-9]+)\\.").find(cursor.getString(1).orEmpty())?.groupValues?.get(1).orEmpty(),
+                    chartAliases = aliasesByFile[fileId].orEmpty()
                 )
             }
         }
@@ -271,7 +276,7 @@ class DriveCatalog(private val context: Context) {
     }
 
     /**
-     * Browse only the user's selected music root, recursively.
+     * Browse the selected music root and Odify's named upload roots recursively.
      * Sync is transactional: unsuccessful network listing leaves old catalog.
      * Volume-limited to 50k files and 4k folders to prevent runaway scans.
      */
@@ -288,7 +293,9 @@ class DriveCatalog(private val context: Context) {
         }
         val filter = "mimeType = '$FOLDER_MIME' and trashed = false and ($names)"
         var rootPage: String? = null
+        val rootPages = HashSet<String>()
         do {
+            check(rootPages.add(rootPage.orEmpty())) { "Drive 폴더 페이지가 반복되었습니다." }
             val result = JSONObject(apiJson("files", mapOf(
                 "q" to filter, "pageSize" to "1000",
                 "fields" to "nextPageToken,files(id,name)",
@@ -298,12 +305,14 @@ class DriveCatalog(private val context: Context) {
             for (i in 0 until entries.length()) {
                 roots += entries.getJSONObject(i).getString("id")
             }
+            check(roots.size <= 4_000) { "폴더 수 제한(4,000)을 초과했습니다." }
             rootPage = result.optString("nextPageToken").takeIf { it.isNotBlank() }
         } while (rootPage != null)
         if (roots.isEmpty()) error("Drive에서 Odify_Music_Test 또는 Odify_Auto_Upload 폴더를 찾지 못했습니다.")
         roots.forEach { queue.add(it to "") }
         val scannedFolders = mutableSetOf<String>()
         val collected = LinkedHashMap<String, JSONObject>()
+        val chartIndexes=LinkedHashMap<String,JSONObject>()
         var visitedFolders = 0
         while (queue.isNotEmpty()) {
             val (parent, genrePath) = queue.removeFirst()
@@ -329,6 +338,11 @@ class DriveCatalog(private val context: Context) {
                         queue.add(id to if (genrePath.isEmpty()) name else "$genrePath / $name")
                         continue
                     }
+                    if(name.startsWith("odify_chart_index_") && name.endsWith(".json") && f.optLong("size") in 1..512_000) {
+                        val previous=chartIndexes[parent]
+                        if(previous==null || f.optString("modifiedTime")>previous.optString("modifiedTime")) chartIndexes[parent]=f
+                        continue
+                    }
                     if (!isAudio(name, mime)) continue
                     if (f.optJSONObject("capabilities")?.optBoolean("canDownload", true) == false) {
                         continue
@@ -340,6 +354,22 @@ class DriveCatalog(private val context: Context) {
                 onProgress(collected.size)
                 nextPage = json.optString("nextPageToken").takeIf { it.isNotBlank() }
             } while (nextPage != null)
+        }
+        val aliases=runCatching {JSONObject(prefs.getString("chartAliases","{}").orEmpty())}.getOrDefault(JSONObject())
+        var indexRead=0
+        var indexError=""
+        chartIndexes.values.take(32).forEach {index ->
+            runCatching {
+                val payload=JSONObject(apiJson("files/${index.getString("id")}",mapOf("alt" to "media")))
+                check(payload.optInt("schemaVersion")==1)
+                val entries=payload.getJSONObject("mappings")
+                check(entries.length()<=1000)
+                indexRead++
+                entries.keys().forEach {chartId ->
+                    val driveId=entries.getJSONObject(chartId).optString("driveId")
+                    if(Regex("[0-9]+").matches(chartId) && collected.containsKey(driveId)) aliases.put(chartId,driveId)
+                }
+            }.onFailure {indexError=it.javaClass.simpleName+": "+(it.message ?: "").take(160)}
         }
         val dbConn = db.writableDatabase
         dbConn.beginTransaction()
@@ -382,6 +412,9 @@ class DriveCatalog(private val context: Context) {
             dbConn.execSQL("DELETE FROM tracks WHERE id NOT IN (SELECT id FROM odify_seen)")
             dbConn.setTransactionSuccessful()
         } finally { dbConn.endTransaction() }
+        prefs.edit().putString("chartAliases",aliases.toString()).apply()
+        prefs.edit().putString("chartIndexDiagnostics",JSONObject().put("found",chartIndexes.size)
+            .put("read",indexRead).put("linked",aliases.length()).put("error",indexError).toString()).apply()
         lastSync = System.currentTimeMillis()
         collected.size
     }

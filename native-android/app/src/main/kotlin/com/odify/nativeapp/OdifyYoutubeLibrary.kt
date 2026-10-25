@@ -32,37 +32,41 @@ object OdifyYoutubeAuth {
     @Volatile private var token:String?=null
     @Volatile private var obtainedAt=0L
     val connected:Boolean get() = !token.isNullOrBlank()
-    private fun request(choose:Boolean=false):AuthorizationRequest {
+    private fun request(context:Context,choose:Boolean=false):AuthorizationRequest {
         val builder=AuthorizationRequest.builder()
             .setRequestedScopes(listOf(scope))
             .setOptOutIncludingGrantedScopes(true)
         if (choose) builder.setPrompt(AuthorizationRequest.Prompt.SELECT_ACCOUNT)
-        else account?.let { builder.setAccount(it) }
+        else (account ?: context.getSharedPreferences("odify_youtube_account_v1",0)
+            .getString("account",null)?.let { Account(it,"com.google") })?.let { builder.setAccount(it) }
         return builder.build()
     }
-    private fun accept(result:AuthorizationResult):Boolean {
+    private fun accept(context:Context,result:AuthorizationResult):Boolean {
         val value=result.accessToken ?: return false
         if(value.isBlank()) return false
         token=value
         obtainedAt=System.currentTimeMillis()
         @Suppress("DEPRECATION")
         val selected=result.toGoogleSignInAccount()?.account
-        if(selected!=null) account=selected
+        context.getSharedPreferences("odify_youtube_account_v1",0).edit().apply {
+            putBoolean("enabled",true)
+            if(selected!=null) {account=selected;putString("account",selected.name)}
+        }.apply()
         return true
     }
     fun connect(activity:Activity, onReady:()->Unit,
                 onResolution:(PendingIntent)->Unit, onError:(String)->Unit) {
-        Identity.getAuthorizationClient(activity).authorize(request(true))
+        Identity.getAuthorizationClient(activity).authorize(request(activity,true))
             .addOnSuccessListener { result ->
                 if(result.hasResolution() && result.pendingIntent != null)
                     onResolution(result.pendingIntent!!)
-                else if(accept(result)) onReady()
+                else if(accept(activity,result)) onReady()
                 else onError("YouTube 계정 권한을 승인하지 않았습니다.")
             }.addOnFailureListener { onError(it.localizedMessage ?: "YouTube 로그인 실패") }
     }
     fun resolve(activity:Activity,intent:Intent?):Boolean {
         if(intent==null) return false
-        return accept(Identity.getAuthorizationClient(activity)
+        return accept(activity,Identity.getAuthorizationClient(activity)
             .getAuthorizationResultFromIntent(intent))
     }
     fun accessToken(context:Context):String {
@@ -70,15 +74,20 @@ object OdifyYoutubeAuth {
         if(!t.isNullOrBlank() && System.currentTimeMillis()-obtainedAt < 35*60*1000)
             return t
         val result=Tasks.await(
-            Identity.getAuthorizationClient(context).authorize(request()),
+            Identity.getAuthorizationClient(context).authorize(request(context)),
             30,TimeUnit.SECONDS
         )
-        check(!result.hasResolution() && accept(result)) {
+        check(!result.hasResolution() && accept(context,result)) {
             "YouTube 계정의 재승인이 필요합니다."
         }
         return token ?: error("YouTube 로그인 필요")
     }
     fun disconnect() { token=null;account=null;obtainedAt=0L }
+    fun restore(activity:Activity,onReady:()->Unit) {
+        if(!activity.getSharedPreferences("odify_youtube_account_v1",0).getBoolean("enabled",false)) return
+        Identity.getAuthorizationClient(activity).authorize(request(activity))
+            .addOnSuccessListener { if(!it.hasResolution() && accept(activity,it)) onReady() }
+    }
 }
 
 /**
@@ -86,6 +95,31 @@ object OdifyYoutubeAuth {
  * Actual videos open in the official YouTube player; no audio extraction.
  */
 class OdifyYoutubeLibrary(private val context:Context) {
+    companion object {
+        private val searches = object : LinkedHashMap<String, Pair<Long, List<YoutubeVideo>>>(20, .75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Pair<Long, List<YoutubeVideo>>>?) = size > 20
+        }
+    }
+    suspend fun search(query: String): List<YoutubeVideo> = withContext(Dispatchers.IO) {
+        val text = query.trim()
+        require(text.length in 2..160)
+        synchronized(searches) { searches[text] }?.takeIf {
+            System.currentTimeMillis() - it.first < 30 * 60_000
+        }?.let { return@withContext it.second }
+        val response = get("search?part=snippet&type=video&videoCategoryId=10&maxResults=20&q=${enc(text)}")
+        val items = response.optJSONArray("items") ?: org.json.JSONArray()
+        val result = (0 until items.length()).mapNotNull { i ->
+            val item = items.getJSONObject(i)
+            val id = item.optJSONObject("id")?.optString("videoId").orEmpty()
+            if (!Regex("[A-Za-z0-9_-]{11}").matches(id)) null else {
+                val info = item.getJSONObject("snippet")
+                YoutubeVideo(id, android.text.Html.fromHtml(info.optString("title"), 0).toString(),
+                    info.optString("channelTitle"), "")
+            }
+        }.distinctBy { it.videoId }
+        synchronized(searches) { searches[text] = System.currentTimeMillis() to result }
+        result
+    }
     private val prefs=context.getSharedPreferences("odify_youtube_playlists_v1",0)
     val savedIds:Set<String> get()=prefs.getStringSet("saved",emptySet())?.toSet() ?: emptySet()
     fun toggleSaved(id:String) {
@@ -162,11 +196,30 @@ class OdifyYoutubeLibrary(private val context:Context) {
             conn.connectTimeout=12_000;conn.readTimeout=25_000
             conn.setRequestProperty("Authorization","Bearer ${OdifyYoutubeAuth.accessToken(context)}")
             val status=conn.responseCode
-            check(status==200) {
-                val body=conn.errorStream?.bufferedReader()?.use { it.readText().take(250) }
-                "YouTube Data API HTTP $status ${body.orEmpty()}"
+            if(status!=200) {
+                val body=conn.errorStream?.bufferedReader()?.use { it.readText().take(4096) }.orEmpty()
+                val reason=runCatching { JSONObject(body).getJSONObject("error").getJSONArray("errors")
+                    .getJSONObject(0).getString("reason") }.getOrDefault("unknown")
+                val consumer=Regex("(?:project[s]?[/ ]+)([0-9]{5,})",RegexOption.IGNORE_CASE)
+                    .find(body)?.groupValues?.get(1).orEmpty()
+                context.getSharedPreferences("odify_youtube_account_v1",0).edit()
+                    .putString("lastApiError","HTTP $status · $reason").apply()
+                context.getSharedPreferences("odify_youtube_account_v1",0).edit()
+                    .putString("lastApiConsumerProject",consumer).apply()
+                android.util.Log.w("OdifyYouTube","Data API HTTP $status reason=$reason consumerProject=$consumer")
+                val message=when(reason) {
+                    "accessNotConfigured", "serviceDisabled" -> "YouTube API 설정 연결 오류" +
+                        (if(consumer.isNotBlank()) " · 프로젝트 $consumer" else "") + ". 앱 OAuth와 콘솔의 프로젝트를 확인해 주세요."
+                    "quotaExceeded", "dailyLimitExceeded", "rateLimitExceeded" -> "YouTube 검색 한도를 사용했습니다. YouTube 앱에서 검색할 수 있어요."
+                    "insufficientPermissions", "authError" -> "YouTube 계정을 다시 연결해 주세요."
+                    else -> "YouTube 검색 연결 오류 ($status · $reason)"
+                }
+                error(message)
             }
-            return JSONObject(conn.inputStream.bufferedReader().use { it.readText() })
+            val response=JSONObject(conn.inputStream.bufferedReader().use { it.readText() })
+            context.getSharedPreferences("odify_youtube_account_v1",0).edit()
+                .remove("lastApiError").remove("lastApiConsumerProject").apply()
+            return response
         } finally {conn.disconnect()}
     }
 }

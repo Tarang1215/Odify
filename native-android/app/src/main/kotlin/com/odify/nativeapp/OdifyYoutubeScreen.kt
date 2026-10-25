@@ -31,11 +31,13 @@ import org.json.JSONObject
 @Composable
 fun OdifyYoutubeScreen(
     localSongs: List<OdifySong>, connected: Boolean, onConnect: () -> Unit,
-    onPlayLocal: (List<OdifySong>,Int) -> Unit, onClose: () -> Unit
+    onPlayLocal: (List<OdifySong>,Int) -> Unit, onClose: () -> Unit, onImported:()->Unit = {}
 ) {
     val context=LocalContext.current
     val repo=remember {OdifyYoutubeLibrary(context.applicationContext)}
     val scope=rememberCoroutineScope()
+    val streaming=remember {OdifyStreamingLibrary(context.applicationContext)}
+    val playlistStore=remember {OdifyPlaylists(context.applicationContext)}
     var playlists by remember {mutableStateOf<List<YoutubePlaylist>>(emptyList())}
     var saved by remember {mutableStateOf(repo.savedIds)}
     var selected by remember {mutableStateOf<String?>(null)}
@@ -103,6 +105,12 @@ fun OdifyYoutubeScreen(
             }
         }
     }
+    val mixedQueue by produceState<List<OdifySong>>(emptyList(),videos,matches) {
+        value=if(matches.size!=videos.size) emptyList() else withContext(Dispatchers.IO) {
+            streaming.rememberAll(videos)
+            videos.mapIndexedNotNull {i,v -> matches.getOrNull(i) ?: streaming.find("youtube:"+v.videoId)}
+        }
+    }
     fun back() {
         requestNumber++; loading=false
         if (selected != null) { selected=null; videos=emptyList() } else onClose()
@@ -113,7 +121,7 @@ fun OdifyYoutubeScreen(
         properties=DialogProperties(usePlatformDefaultWidth=false)) {
         Surface(Modifier.fillMaxSize().statusBarsPadding()
             .navigationBarsPadding().padding(10.dp),
-            shape=RoundedCornerShape(22.dp),color=Color.White) {
+            shape=RoundedCornerShape(22.dp),color=OdifyPalette.surface) {
             Column(Modifier.fillMaxSize().padding(16.dp)) {
                 Row(verticalAlignment=Alignment.CenterVertically) {
                     IconButton(onClick=::back) {Icon(Icons.Default.ArrowBack,"뒤로")}
@@ -121,7 +129,7 @@ fun OdifyYoutubeScreen(
                         modifier=Modifier.weight(1f),fontSize=18.sp,
                         fontWeight=FontWeight.Bold)
                 }
-                Text("Drive와 다른 Google 계정의 공개 플리를 읽습니다. 보유 음원은 광고 없는 Odify 플레이어로 재생하고, 없는 곡은 수집 목록으로 내보냅니다.",
+                Text("보유한 곡은 내 음원으로, 나머지는 YouTube로 바로 재생해요. 통째로 내 플레이리스트에 저장할 수 있어요.",
                     fontSize=11.sp,color=Color.Gray,lineHeight=16.sp)
                 Spacer(Modifier.height(10.dp))
                 Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
@@ -147,7 +155,17 @@ fun OdifyYoutubeScreen(
                 Text(status,color=Color.Gray,fontSize=11.sp)
                 Spacer(Modifier.height(9.dp))
                 if(selected!=null) {
-                    val matchedQueue=matches.filterNotNull()
+                    val matchedQueue=mixedQueue
+                    Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                        FilledTonalButton(enabled=mixedQueue.isNotEmpty(),onClick={onPlayLocal(mixedQueue,0)}) {Text("전체 재생")}
+                        TextButton(enabled=mixedQueue.isNotEmpty(),onClick={onPlayLocal(mixedQueue.shuffled(),0)}) {Text("랜덤")}
+                        TextButton(enabled=mixedQueue.isNotEmpty(),onClick={scope.launch {
+                            runCatching {withContext(Dispatchers.IO) {playlistStore.saveMix(
+                                playlists.firstOrNull {it.id==selected}?.title ?: "YouTube · ${selected.orEmpty().takeLast(6)}",mixedQueue.map {it.id})}}
+                                .onSuccess {onImported();status="보관함에 ${it.songIds.size}곡을 저장했어요."}
+                                .onFailure {status=it.message ?: "저장 실패"}
+                        }}) {Text("플리로 저장")}
+                    }
                     val unmatched=videos.filterIndexed { index, _ -> matches.getOrNull(index)==null }
                     OutlinedButton(
                         enabled=videos.isNotEmpty() && matches.size==videos.size,
@@ -174,7 +192,7 @@ fun OdifyYoutubeScreen(
                         Spacer(Modifier.width(6.dp))
                         Text("미보유 ${unmatched.size}곡 수집목록 내보내기",fontSize=11.sp)
                     }
-                    Text("YouTube 영상 재생 화면은 사용하지 않습니다. 목록을 별도 음원 수집 작업에 전달한 후 Odify Drive 재생 목록으로 통합합니다.",
+                    Text("내 음원이 없는 곡도 바로 스트리밍할 수 있어요. 20초 이상 들으면 휴대폰 저장 요청이 만들어집니다.",
                         fontSize=10.sp,color=Color.Gray,lineHeight=16.sp)
                     Spacer(Modifier.height(7.dp))
                     LazyColumn {
@@ -185,19 +203,16 @@ fun OdifyYoutubeScreen(
                             val held=matches.getOrNull(videoIndex)
                             Column(
                                 Modifier.fillMaxWidth()
-                                    .clickable(enabled=held!=null) {
-                                        held?.let {
-                                            val index=matches.take(videoIndex).count { it != null }
-                                            if(index>=0) onPlayLocal(matchedQueue,index)
-                                        }
+                                    .clickable(enabled=mixedQueue.size==videos.size) {
+                                        onPlayLocal(mixedQueue,videoIndex)
                                     }.padding(vertical=10.dp,horizontal=5.dp)
                             ) {
                                 Text(v.title,fontSize=13.sp,fontWeight=FontWeight.SemiBold)
                                 Text(if(matches.size!=videos.size) "보유 음원 매칭 중"
                                     else if(held!=null) "Odify 음원 매칭 · 탭하여 재생"
-                                    else "미보유 · 음원 추가 후 자동 연결",
+                                    else "YouTube · 탭하여 바로 재생",
                                     fontSize=11.sp,
-                                    color=if(held!=null) Color(0xFF237A56) else Color.Gray)
+                                    color=if(held!=null) Color(0xFFBCDEC8) else Color.Gray)
                             }
                             HorizontalDivider()
                         }

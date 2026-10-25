@@ -9,8 +9,9 @@ import java.util.UUID
 data class OdifyPlaylist(val id: String, val name: String, val songIds: List<String>)
 
 /** Single-user local playlist catalog; never confuses Drive/phone-folder origins. */
-class OdifyPlaylists(context: Context) {
-    private val prefs = context.getSharedPreferences("odify_playlists_v1", Context.MODE_PRIVATE)
+class OdifyPlaylists(context: Context,name:String="odify_playlists_v1",streamingName:String="odify_streaming_v1") {
+    private val streaming=OdifyStreamingLibrary(context.applicationContext,streamingName)
+    private val prefs = context.getSharedPreferences(name, Context.MODE_PRIVATE)
     private val key = "playlists"
 
     @Synchronized fun all(): List<OdifyPlaylist> = runCatching {
@@ -64,6 +65,21 @@ class OdifyPlaylists(context: Context) {
         return true
     }
 
+    /** Save the exact current mix, atomically. Later recommendation changes leave it intact. */
+    @Synchronized fun saveMix(name: String, songIds: List<String>): OdifyPlaylist {
+        val ids = songIds.filter(String::isNotBlank).distinct()
+        require(ids.isNotEmpty()) { "저장할 음악이 없습니다." }
+        val base = name.trim().take(70).ifBlank { "My mix" }
+        val items = all()
+        items.firstOrNull { it.name == base && it.songIds == ids }?.let { return it }
+        var label = base
+        var suffix = 2
+        while (items.any { it.name.equals(label, true) }) label = "$base · ${suffix++}"
+        val playlist = OdifyPlaylist(UUID.randomUUID().toString(), label, ids)
+        save(items + playlist)
+        return playlist
+    }
+
     @Synchronized fun removeSong(playlistId: String, songId: String) {
         save(all().map {
             if (it.id == playlistId) it.copy(songIds = it.songIds.filterNot { id -> id == songId })
@@ -76,7 +92,6 @@ class OdifyPlaylists(context: Context) {
     }
 
     fun resolved(playlist: OdifyPlaylist, songs: List<OdifySong>): List<OdifySong> {
-        val index = songs.associateBy(OdifySong::id)
-        return playlist.songIds.mapNotNull(index::get)
+        return OdifySongPresentation.visible(playlist.songIds.mapNotNull {OdifyChartMatching.storedReference(it,songs) ?: streaming.find(it)})
     }
 }

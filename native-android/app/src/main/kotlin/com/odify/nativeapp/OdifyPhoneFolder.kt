@@ -15,6 +15,8 @@ import java.io.File
 import java.security.MessageDigest
 import java.util.ArrayDeque
 import java.util.Locale
+import kotlinx.coroutines.ensureActive
+import kotlin.coroutines.coroutineContext
 
 /**
  * The user selects exactly one device folder through SAF. Tracks are read via
@@ -66,6 +68,7 @@ class OdifyPhoneFolder(private val context: Context) {
         if (!hasFolder) return emptyList()
         val raw = prefs.getString("index","[]").orEmpty()
         val hidden = prefs.getStringSet("hidden", emptySet()).orEmpty()
+        val fingerprints=runCatching {JSONObject(prefs.getString("fingerprints","{}").orEmpty())}.getOrDefault(JSONObject())
         val overrides = runCatching {
             JSONObject(prefs.getString("overrides", "{}").orEmpty())
         }.getOrDefault(JSONObject())
@@ -84,10 +87,42 @@ class OdifyPhoneFolder(private val context: Context) {
                     album=edited?.optString("album") ?: j.optString("album"),
                     filePath="",sourceUri=uri,
                     artworkPath=j.optString("artworkPath").takeIf { it.isNotBlank() },
-                    durationMs=j.optLong("durationMs"),genre=j.optString("genre")
+                    durationMs=j.optLong("durationMs"),genre=j.optString("genre"),
+                    contentMd5=fingerprints.optJSONObject(id)?.optString("md5").orEmpty()
                 )
             }
         }.getOrDefault(emptyList())
+    }
+
+    /** Hash only possible mirrored local files, once per observed size/mtime.
+     * No cloud audio is fetched and no source file/tag is modified. */
+    suspend fun fingerprintMirrors(cloud: List<OdifySong>, onUpdated: suspend (List<OdifySong>) -> Unit) = withContext(Dispatchers.IO) {
+        val titles=cloud.filter {it.contentMd5.isNotBlank()}.map {OdifyYouTubeMatcher.norm(it.title)}.toSet()
+        val cache=runCatching {JSONObject(prefs.getString("fingerprints","{}").orEmpty())}.getOrDefault(JSONObject())
+        var changed=0
+        for(song in tracks().filter {OdifyYouTubeMatcher.norm(it.title) in titles}) {
+            coroutineContext.ensureActive()
+            val uri=song.sourceUri?.let(Uri::parse) ?: continue
+            try {
+                val columns=arrayOf(DocumentsContract.Document.COLUMN_SIZE,DocumentsContract.Document.COLUMN_LAST_MODIFIED)
+                val info=context.contentResolver.query(uri,columns,null,null,null)?.use {c ->
+                    if(c.moveToFirst()) c.getLong(0) to c.getLong(1) else null
+                } ?: continue
+                val old=cache.optJSONObject(song.id)
+                if(info.second>0 && old?.optLong("size")==info.first && old.optLong("modified")==info.second) continue
+                val digest=MessageDigest.getInstance("MD5")
+                context.contentResolver.openInputStream(uri)?.use {input ->
+                    val buffer=ByteArray(256*1024)
+                    while(true) {coroutineContext.ensureActive();val n=input.read(buffer);if(n<0)break;digest.update(buffer,0,n)}
+                } ?: continue
+                cache.put(song.id,JSONObject().put("size",info.first).put("modified",info.second)
+                    .put("md5",digest.digest().joinToString("") {"%02x".format(it)}))
+                changed++
+                if(changed%20==0) {prefs.edit().putString("fingerprints",cache.toString()).apply();onUpdated(tracks())}
+            } catch(cancel:kotlinx.coroutines.CancellationException) {throw cancel}
+            catch(_:Exception) { /* An unreadable local file remains a separate source. */ }
+        }
+        if(changed>0) {prefs.edit().putString("fingerprints",cache.toString()).apply();onUpdated(tracks())}
     }
 
     suspend fun scan(onProgress:(Int)->Unit={}): Int = withContext(Dispatchers.IO) {

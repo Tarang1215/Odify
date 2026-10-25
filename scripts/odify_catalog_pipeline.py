@@ -169,7 +169,11 @@ def recording(con,name,artist_name,version=None,source=None,source_id=None,
         if prior:return prior["recording_id"]
     aid=artist(con,artist_name)
     title=norm(name)
-    if not title:raise ValueError("empty track")
+    if not title:
+        # Published titles such as CHANMINA's ^_^ are not empty recordings.
+        literal=unicodedata.normalize("NFKC",str(name or "")).strip()
+        if not literal:raise ValueError("empty track")
+        title="symbol:"+literal
     edition=norm(version) if version else version_label(name,album)
     if not edition:edition="original"
     prior=con.execute("SELECT id FROM recording WHERE artist_id=? AND normalized=? AND version=?",

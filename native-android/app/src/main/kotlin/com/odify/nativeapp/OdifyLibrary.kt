@@ -28,12 +28,25 @@ data class OdifySong(
     val durationMs: Long = 0L,
     val sourceUri: String? = null,
     val genre: String = "",
-    val lyrics: String = ""
+    val lyrics: String = "",
+    val contentMd5: String = "",
+    val chartId: String = "",
+    val chartAliases: List<String> = emptyList()
 ) {
+    val isYoutubeStream:Boolean get()=id.startsWith("youtube:") &&
+        (filePath.endsWith("youtube_queue_marker.wav") || filePath.isBlank() &&
+            (sourceUri.isNullOrBlank() || sourceUri.endsWith("youtube_queue_marker.wav")))
     val isCloud: Boolean get() = id.startsWith("gdrive:") || sourceUri?.startsWith("https://") == true && !id.startsWith("localfolder:")
     val isPhoneFolder: Boolean get() = id.startsWith("localfolder:")
+    val isOfflineSaved: Boolean get() = !isYoutubeStream && !isCloud && (
+        sourceUri.isNullOrBlank() && filePath.isNotBlank() ||
+            (sourceUri?.startsWith("content://com.android.externalstorage.documents/") == true ||
+                sourceUri?.startsWith("content://com.android.providers.media.documents/") == true)
+        )
     fun mediaItem(): MediaItem = MediaItem.Builder()
         .setMediaId(id)
+        // A same-ID Drive content replacement must not reuse old stream bytes.
+        .setCustomCacheKey(if (id.startsWith("gdrive:") && contentMd5.isNotBlank()) "$id:$contentMd5" else null)
         .setUri(if (!sourceUri.isNullOrBlank()) Uri.parse(sourceUri) else Uri.fromFile(File(filePath)))
         .setMediaMetadata(
             MediaMetadata.Builder()
@@ -42,6 +55,9 @@ data class OdifySong(
                 .setAlbumTitle(album)
                     .setExtras(android.os.Bundle().apply {
                         putString("odify.queueEntry", java.util.UUID.randomUUID().toString())
+                        putString("odify.contentMd5",contentMd5)
+                        putLong("odify.duration",durationMs)
+                        putBoolean("odify.youtubeStream",isYoutubeStream)
                     })
                 .apply {
                     if (!artworkPath.isNullOrBlank()) {
@@ -78,7 +94,7 @@ class OdifyLibrary(private val context: Context) {
                     durationMs = value.optLong("durationMs"),
                     sourceUri = cloudUri,
                     genre = value.optString("genre"),
-                    lyrics = value.optString("lyrics")
+                    lyrics = value.optString("lyrics"), contentMd5 = value.optString("contentMd5")
                 )
             }
         } catch (_: Exception) { emptyList() }
@@ -98,9 +114,20 @@ class OdifyLibrary(private val context: Context) {
                 put("sourceUri", song.sourceUri ?: "")
                 put("genre", song.genre)
                 put("lyrics", song.lyrics)
+                put("contentMd5", song.contentMd5)
             })
         }
         prefs.edit().putString("songs", json.toString()).apply()
+    }
+
+    /** Register a completed local export; remote document providers are not offline copies. */
+    fun rememberOfflineExport(song: OdifySong, uri: Uri) {
+        if (uri.authority !in setOf("com.android.externalstorage.documents", "com.android.providers.media.documents")) return
+        runCatching { context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+        val id = "offline:" + MessageDigest.getInstance("SHA-256").digest(uri.toString().toByteArray())
+            .joinToString("") { "%02x".format(it) }
+        val current = songs()
+        store(current.filterNot { it.id == id } + song.copy(id=id,sourceUri=uri.toString(),filePath=""))
     }
 
     /**

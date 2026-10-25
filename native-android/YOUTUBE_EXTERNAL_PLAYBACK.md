@@ -1,0 +1,218 @@
+# YouTube search and internal playback
+
+Search → YouTube shows up to 20 music-category video results, fetched using the
+existing user-approved YouTube Data API connection. Each row shows its public
+thumbnail, title and channel. Search waits for 900ms of idle typing and caches
+20 queries in memory for 30 minutes. It does not scrape another app's account.
+
+VersionCode 30 introduced an internal WebView/IFrame player. VersionCode 31
+replaced its separate dialog with the existing Odify mini-player, full-screen
+artwork player and queue. The selected public video title/channel and cached
+thumbnail form a temporary song; they are not inserted into the Drive catalog
+or declared verified artist/album metadata. Native controls call the official
+IFrame API for play, pause and seek. The package identifier is the HTTPS
+origin/Referer. No extracted stream URL or ReVanced account is used.
+
+The service owns the WebView across Activity recreation; the renderer sits
+behind the native artwork UI. A foreground mediaPlayback service, Android
+MediaSession, media notification, WebView-managed audio focus and bounded playback wake lock
+are implemented to support background playback. The service is not restarted
+after process death or force-stop. Actual background/screen-off playback still
+requires device verification; a foreground service alone does not prove that
+the WebView/provider will keep producing audio.
+
+Starting a YouTube song pauses the native Media3 player and builds a following
+queue of up to 20 existing Drive songs from listening-based mixes, falling back
+to available Drive songs. End-of-video/Next hands that queue to Media3; Repeat
+restarts the selected video. Shuffle is carried into the Drive queue. There is
+no prebuffer/crossfade or claim of gapless playback. An empty Drive catalog
+leaves no automatic following queue. Explicitly playing a local/Drive song
+stops the web service. The YouTube item itself is not an offline file.
+
+The row's explicit external icon still opens its exact video ID in an installed
+YouTube app. The device's `app.morphe.android.youtube` is tried first, followed
+by known ReVanced, YouTube and YouTube Music packages and the Android URL handler.
+
+“가사 영상 바로 재생” searches the typed artist/title plus `lyrics`, chooses the
+first result not labelled live/concert/cover/karaoke/remix/sped/slowed or a
+tutorial/lesson/instrumental, and opens it inside Odify. Missing Explore audio
+uses artist + title + lyrics too. Without
+a connected API account, the same query opens in the installed YouTube app for
+manual selection. This is a quick fallback, not a verified MASTER source; it
+does not silently rewrite links or claim the top result is always correct.
+
+For explicit external handoff, the external app owns playback, background
+availability, queue and restrictions. Odify does not extract ReVanced streams or
+read its storage/tokens. Unrelated search results are not silently turned into
+an autoplay queue. Embedding-disabled/unavailable videos report an error;
+the full-screen menu offers explicit external handoff. Downloads and audio
+correction remain separate from web playback.
+
+Public app-link search was verified on the USB device with Hype Boy. No private
+account export, YouTube cookie reuse, source-gate bypass or provider patching is
+used. Official references: [search API](https://developers.google.com/youtube/v3/docs/search/list),
+[Android intents](https://developer.android.com/guide/components/intents-common).
+
+## Verified project binding and device results (2026-10-25)
+
+The native package `com.odify.music.nativepreview.v11.debug` and permanent
+signing SHA-1 `65:6D:46:5E:5C:72:9B:DF:21:A4:02:6C:76:4D:FB:63:6F:18:99:E5`
+are registered as Android client 2 in project `sage-passkey-512404-q5`
+(number `745737586961`, console name My First Project). The separate
+`odify-512404` project (number `816869113913`) contains the desktop rclone client;
+enabling its YouTube API did not enable the native consumer's API.
+
+After explicit user approval, YouTube Data API v3 was enabled in the native
+project. The console showed enabled status. The existing installed build then
+returned Oasis Don't Look Back In Anger results, including OasisVEVO, lyrics
+videos and Oasis - Topic. No API key, package, signing certificate or OAuth
+client was replaced. From versionCode 30, successful API responses clear the
+previous failure diagnostic and failed searches have an explicit retry button.
+
+The diagnostic `OdifyExternalBrowserProbe` connected to the installed Morphe
+app's exported Android MediaBrowser service. Its advertised actions included
+PLAY_FROM_URI. The initial null-extras probe left the session STOPPED. Inspecting
+the installed service showed that it reads the extras Bundle; a non-null empty
+Bundle was then tested. Cold playback remained uninitialized. After the user
+explicitly approved opening ReVanced once to start Hype Boy, the public URI
+command changed playback to Oasis, and another background-state test changed it
+back to Hype Boy. Both changes eventually brought Morphe's Activity forward.
+This proves new-video playback works through that interface, but does not meet
+the requirement to keep Odify foreground. The diagnostic now waits eight seconds
+to avoid treating an already-playing old title as successful new-track playback.
+No app patch, credential export, privileged grant or production hidden remote
+engine was added.
+
+The device currently uses `com.google.android.webview`; Brave is not installed.
+Android WebView and browser-provided Custom Tabs are distinct. Installing Brave
+does not make ordinary WebView inherit Brave features. A Custom Tab uses the
+browser's own surface and is not an arbitrary embedded Odify player. A visible
+WebView/IFrame player was implemented in version 30, then integrated behind
+the native player surface in version 31. No Brave engine bundle or new browser
+dependency was added.
+
+## Glass and mini-player motion (versionCode 32)
+
+The native glass records the actual underlying Compose page, crops it using
+live coordinates, applies blur and an original AGSL edge-refraction lens on
+Android 13+, then draws sharp foreground controls. Android 12 uses blur without
+the lens. Mini-player and navigation retain the same artwork-derived glow.
+The full-player lower surface uses the same glass modifier.
+
+The expanded mini-player has a title-measured information lobe at the left
+screen inset and a fixed 120dp transport lobe at the right screen inset. A short
+title increases the space between the lobes rather than centering their group.
+The information lobe has a capped title width and clipped marquee;
+the heart sits beside that text. Transport controls are centered in their own
+lobe, independently of weighted text. Expansion keeps the same cover/text/play
+nodes mounted. A continuous contour pinches to zero before a gap opens, with
+the reverse sequence on collapse. A short touch/release tension effect starts
+immediately. While playing in the foreground, the left surface (compact surface
+when collapsed) morphs subtly without moving its text or controls. Idle/background
+states stop that loop; disabled system animations disable the continuous effect.
+
+Version 33 keeps the top and bottom of both lobes aligned throughout playback;
+only the information lobe's corner curvature changes. The compact transport
+region is at least one capsule-height wide, preventing an intersecting cap.
+It also removes a second service audio-focus request. Real-device logs showed
+Chromium's focus gain triggering LOSS on that service listener, which paused
+the same video at 187ms; tapping Play reversed that focus conflict. Chromium
+now owns focus for the media element, while the service retains headphone
+disconnect handling and the native Media3 player is paused before web playback.
+
+References are visual/implementation research, not bundled web dependencies:
+[GlassiFy](https://github.com/Saviru/GlassiFy),
+[native glass examples](https://github.com/topics/liquid-glass), and the user's
+[surface-tension/liquid-morph reference](https://codepen.io/Margarita-the-solid/pen/NPRPBjd).
+The Compose path and AGSL code here are original implementations.
+
+## Validation boundaries
+
+- Version 30: actual internal Hype Boy audio and advancing playback time were
+  observed. The exposed video region was black on the real device too; this was
+  not claimed fixed. Version 31 uses the user-requested native artwork surface.
+- Version 31: permanently signed APK installed preserving app data. The lens
+  shader compiled on the real phone (one device test). The background/handoff
+  test stopped before playback because it incorrectly required preloaded Drive
+  duration. DriveCatalog entries commonly have unknown duration until opened;
+  version 32's test now selects an existing catalog item without that condition.
+- Version 32: compilation and JVM regression validation are recorded with the
+  change. New device tests cover contour continuity at the split and actual
+  background playback followed by Drive handoff. Their execution and visual
+  review are pending the user's next device-review window. Do not describe
+  unexecuted tests as successful background playback.
+- Version 32 device follow-up: five existing playback/storage regressions passed.
+  The contour assertion flipped 36 raster edge pixels at a near-zero gap; the
+  strengthened test distinguishes a lost interior area from one-pixel edge
+  rounding. The YouTube focus conflict and mismatched lobe heights described
+  above were reproduced. Version 34 contains the focus/height fixes and opposite
+  edge placement. Its permanent signature is verified; 39 JVM tests, compilation
+  and seven emulator instrumentation cases passed (two lens/contour plus five
+  playback/storage regressions). The user's phone was disconnected before the
+  corrected build could be installed, so actual YouTube background playback,
+  automatic Drive handoff and the revised visual layout remain unverified on
+  that phone. APK and a hash-pinned data-preserving installer are archived in
+  the external Android/Odify-v34 folder for the next connection.
+
+References: [Android WebView versus Custom Tabs](https://developer.android.com/develop/ui/views/layout/webapps),
+[WebView provider requirements](https://chromium.googlesource.com/chromium/src.git/+/master/android_webview/docs/webview-providers.md),
+[YouTube IFrame control API](https://developers.google.com/youtube/iframe_api_reference).
+
+## Current native continuation (versions 37–41)
+
+Version 37 adds separate persisted navigation/player glass transparency sliders
+under Settings > Liquid Glass, both defaulting to 72%. Blur sampling remains
+opaque so original sharp page glyphs cannot leak through. Actual device touch
+checks changed both values, restarted the app, verified persistence and reset.
+Version 38 removes the retraced compact contour stroke. Device contour/lens and
+five playback/storage cases passed. The YouTube background/Drive handoff test
+passed in an isolated rerun (1.335s to 6.348s background progress, then actual
+Drive playback); an initial combined-run autoplay timeout is retained as a limit.
+
+Version 40 adds one search list, owned Drive recordings first and YouTube results
+below, with independent source loading/errors. Video results can enter local
+Odify playlists without any new YouTube write scope. Persistent video metadata
+resolves saved IDs across restarts; mixed native/video queues use a local silent
+marker intercepted by the service, rather than giving a YouTube HTML page to
+Media3. Previous original-file playlists retain their ID format.
+
+Twenty seconds of observed playing time produces a durable per-video request;
+pauses, seeks and track changes cannot fabricate this duration. A serialized
+WorkManager download runs yt-dlp/FFmpeg directly on the phone, stores audio under
+Music/YouTube/YYYY/MM in app storage, verifies identity/runtime/hash, and resolves
+successful copies as local music on subsequent playlist plays. No PC is required.
+Work and receipts survive Activity recreation. Drive upload remains explicitly
+deferred. Settings exposes engine update and receipt export. Version 40's bundled
+engine ran on the real phone (2025.11.12), and eleven device regressions passed.
+Actual 20-second playback produced a request, but the first real download entered
+HELD_PHONE without a useful error string. Saving is therefore not claimed working;
+the user explicitly deferred this repair while prioritizing glass rendering.
+
+Version 41 replaces independent contour/optical approximations with one signed
+distance field. The smooth-union, Snell refraction, dispersion and directional
+Fresnel/glare calculations are adapted from Charles Yin's MIT-licensed Liquid
+Glass Studio; attribution is bundled in app assets. The rounded native contour
+is sampled from the same field used by the shader. The neck separates naturally
+as this field changes, rather than switching between two path implementations.
+Spring progress drives shape/position/size together; rectangular touch ripples
+are disabled on mini-player content. Navigation and player surfaces share this
+renderer and artwork glow. The full-player backdrop uses an actual cropped,
+blurred cover rather than stretching its pixels to the screen aspect ratio.
+
+Reference source: https://github.com/iyinchao/liquid-glass-studio
+The published demo was fetched, but interactive browser use is disabled in this
+session, so no interactive demo review is claimed. Source shader/motion review
+was completed. Latest-build device execution and visual checks are recorded in
+the completion update; older pending statements above describe their past builds.
+
+Version 41's twelve device instrumentation cases passed (four surface/optics,
+three streaming-playlist/runtime, five playback/storage). A manual transition
+capture was interrupted by changing on-device state and is not counted as a
+successful visual review. The user judged the transition too fast and the glass
+too uniformly frosted. Version 42 lengthens the contour transition to 720ms,
+removes the second post-tap bulge and separates the optical rendering into two
+GPU layers: a blurred body and a refracted unblurred rim. Both use live page
+coordinates and the same distance field. The transparency sliders now reduce
+blur as well as tint; full transparency is no longer equally frosted. Artwork
+glow is reduced so the actual sampled page remains visible. No CPU screenshot
+readback is used in this render path.

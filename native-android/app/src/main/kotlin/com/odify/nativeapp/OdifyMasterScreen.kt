@@ -97,7 +97,7 @@ fun OdifyMasterScreen(
         Surface(
             modifier=Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()
                 .padding(10.dp),
-            shape=RoundedCornerShape(22.dp), color=Color.White
+            shape=RoundedCornerShape(22.dp), color=OdifyPalette.surface
         ) {
             Column(Modifier.fillMaxSize().padding(18.dp)) {
                 Row(verticalAlignment=Alignment.CenterVertically) {
@@ -146,7 +146,7 @@ fun OdifyMasterScreen(
                             MasterPresence.NOT_ON_DRIVE -> Color.Gray
                         }
                         Column(Modifier.fillMaxWidth()
-                            .background(Color(0xFFF5F5F7),RoundedCornerShape(12.dp))
+                            .background(OdifyPalette.raised,RoundedCornerShape(12.dp))
                             .padding(11.dp)) {
                             Row {
                                 Text(item.track.title, fontWeight=FontWeight.SemiBold,

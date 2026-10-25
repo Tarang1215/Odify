@@ -19,8 +19,14 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
@@ -30,15 +36,17 @@ import kotlinx.coroutines.withContext
 /** An LRC-first lyrics area that replaces the square artwork on demand. */
 @Composable
 fun OdifyLyricsPanel(song: OdifySong, positionMs: Long,
-                     onSeek: (Long) -> Unit, modifier: Modifier = Modifier) {
+                     onSeek: (Long) -> Unit, modifier: Modifier = Modifier,
+                     editRequested:Boolean=false,visible:Boolean=true,
+                     onEditorClosed:()->Unit={},onLyricsChanged:(String)->Unit={},immersive:Boolean=false) {
     val context = LocalContext.current
     val repo = remember { OdifyLyricsRepository(context.applicationContext) }
     val scope = rememberCoroutineScope()
     var text by remember(song.id) { mutableStateOf(song.lyrics) }
-    var editing by remember { mutableStateOf(false) }
+    var editing by remember(song.id) { mutableStateOf(editRequested) }
     var artistQuery by remember(song.id) { mutableStateOf(song.artist) }
     var titleQuery by remember(song.id) { mutableStateOf(song.title) }
-    var draft by remember(song.id) { mutableStateOf("") }
+    var draft by remember(song.id) { mutableStateOf(song.lyrics) }
     var matches by remember { mutableStateOf<List<LyricCandidate>>(emptyList()) }
     var searching by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf("") }
@@ -46,23 +54,26 @@ fun OdifyLyricsPanel(song: OdifySong, positionMs: Long,
     LaunchedEffect(song.id, song.lyrics) {
         val saved = repo.read(song)
         text = saved
+        onLyricsChanged(saved)
         if (KoreanOriginalLyrics.needsOriginal(song, saved)) {
             status = "한국어 원문 가사 확인 중…"
             val original = runCatching { repo.recoverKoreanOriginal(song, saved) }.getOrNull()
             if (original != null) {
                 text = original
+                onLyricsChanged(original)
                 status = "곡명·가수·길이를 대조한 한국어 원문으로 교체했습니다."
             } else {
                 status = "발음 표기 가사일 수 있습니다. 가사 추가에서 한글 원문을 선택하세요."
             }
         }
     }
+    LaunchedEffect(editRequested) {if(editRequested) {draft=text;editing=true}}
     val openDocument = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri ->
         if (uri != null) scope.launch {
             runCatching { repo.import(song, uri); repo.read(song) }
-                .onSuccess { text = it; status = "LRC 파일을 불러왔습니다."; editing = false }
+                .onSuccess { text = it;onLyricsChanged(it); status = "LRC 파일을 불러왔습니다."; editing = false;onEditorClosed() }
                 .onFailure { status = it.message ?: "파일 열기 실패" }
         }
     }
@@ -86,7 +97,7 @@ fun OdifyLyricsPanel(song: OdifySong, positionMs: Long,
     fun saveLyrics(input: String) {
         scope.launch {
             runCatching { repo.save(song,input); repo.read(song) }
-                .onSuccess { text = it; editing = false; status = "가사를 저장했습니다." }
+                .onSuccess { text = it;onLyricsChanged(it); editing = false;onEditorClosed(); status = "가사를 저장했습니다." }
                 .onFailure { status = it.message ?: "저장 실패" }
         }
     }
@@ -97,12 +108,18 @@ fun OdifyLyricsPanel(song: OdifySong, positionMs: Long,
     val listState = rememberLazyListState()
     LaunchedEffect(active, parsed.isTimed) {
         if (active >= 0 && parsed.isTimed)
-            listState.animateScrollToItem(active.coerceAtLeast(0))
+            listState.animateScrollToItem(active.coerceAtLeast(0),if(immersive) -(listState.layoutInfo.viewportEndOffset*.32f).toInt() else 0)
     }
-    Column(
-        modifier.background(Color(0xFF252B33),RoundedCornerShape(20.dp))
-            .padding(14.dp)
+    val viewport=if(immersive) modifier.graphicsLayer {compositingStrategy=CompositingStrategy.Offscreen}
+        .drawWithContent {
+            drawContent()
+            drawRect(Brush.verticalGradient(0f to Color.Transparent,.10f to Color.White,
+                .82f to Color.White,1f to Color.Transparent),blendMode=BlendMode.DstIn)
+        } else modifier
+    if(visible) Column(
+        viewport.padding(horizontal=if(immersive) 4.dp else 14.dp,vertical=if(immersive) 0.dp else 14.dp)
     ) {
+        if(!immersive) {
         Row(verticalAlignment=Alignment.CenterVertically) {
             Text("LYRICS",fontWeight=FontWeight.Bold,color=Color.White,
                 fontSize=13.sp,modifier=Modifier.weight(1f))
@@ -117,6 +134,7 @@ fun OdifyLyricsPanel(song: OdifySong, positionMs: Long,
                 color = Color(0xFFFFCD86), fontSize = 10.sp,
                 modifier = Modifier.padding(vertical = 4.dp))
         }
+        }
         if (text.isBlank()) {
             Box(Modifier.fillMaxSize(),contentAlignment=Alignment.Center) {
                 Text("가사 없음\n가사 추가에서 LRC 파일·온라인 검색·직접 입력을 선택하세요.",
@@ -124,26 +142,28 @@ fun OdifyLyricsPanel(song: OdifySong, positionMs: Long,
             }
         } else if (parsed.isTimed) {
             LazyColumn(state=listState,modifier=Modifier.fillMaxSize(),
-                verticalArrangement=Arrangement.spacedBy(15.dp),
-                contentPadding=PaddingValues(top=18.dp,bottom=24.dp)) {
+                verticalArrangement=Arrangement.spacedBy(if(immersive) 23.dp else 15.dp),
+                contentPadding=PaddingValues(top=if(immersive) 55.dp else 18.dp,bottom=if(immersive) 120.dp else 24.dp)) {
                 itemsIndexed(parsed.lines) { index,line ->
                     Text(line.text.ifBlank { "♪" },
-                        color=if(index == active) Color.White else Color(0xFF9CA5B1),
+                        color=if(index == active) Color.White else Color.White.copy(alpha=if(immersive) .42f else .64f),
                         fontWeight=if(index==active) FontWeight.Bold else FontWeight.Normal,
-                        fontSize=if(index==active) 16.sp else 13.sp,
-                        lineHeight=21.sp,modifier=Modifier.fillMaxWidth()
+                        fontSize=if(immersive) {if(index==active) 20.sp else 17.sp} else {if(index==active) 16.sp else 13.sp},
+                        lineHeight=if(immersive) 29.sp else 21.sp,textAlign=TextAlign.Center,modifier=Modifier.fillMaxWidth()
                             .clickable { onSeek(line.milliseconds) })
                 }
             }
         } else {
-            Column(Modifier.verticalScroll(rememberScrollState())) {
-                Text(text,color=Color.White,fontSize=13.sp,lineHeight=22.sp)
+            Column(Modifier.verticalScroll(rememberScrollState()).padding(vertical=if(immersive) 35.dp else 0.dp)) {
+                Text(parsed.text,color=Color.White,fontSize=if(immersive) 17.sp else 13.sp,
+                    lineHeight=if(immersive) 30.sp else 22.sp,fontWeight=if(immersive) FontWeight.SemiBold else FontWeight.Normal,textAlign=TextAlign.Center,
+                    modifier=Modifier.fillMaxWidth())
             }
         }
     }
-    if (editing) AlertDialog(
-        onDismissRequest={editing=false},
-        title={Text("가사 추가 · LRC 우선")},
+    if (editing) OdifyGlassAlertDialog(
+        onDismissRequest={editing=false;onEditorClosed()},
+        title={Text("가사 수정 · LRC / 직접 입력")},
         text={
             Column(Modifier.verticalScroll(rememberScrollState())) {
                 OutlinedTextField(value=titleQuery,onValueChange={titleQuery=it},
@@ -187,6 +207,6 @@ fun OdifyLyricsPanel(song: OdifySong, positionMs: Long,
                 Text("입력 내용 저장")
             }
         },
-        dismissButton={TextButton(onClick={editing=false}) {Text("닫기")} }
+        dismissButton={TextButton(onClick={editing=false;onEditorClosed()}) {Text("닫기")} }
     )
 }

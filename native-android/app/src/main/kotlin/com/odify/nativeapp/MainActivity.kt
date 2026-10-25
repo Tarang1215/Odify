@@ -12,8 +12,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.unit.dp
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.lightColorScheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -32,25 +36,45 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, false)
-        // Do not let Samsung/Android draw a contrasting grey scrim below the
-        // white rounded Odify navigation surface and the system gesture bar.
+        // Per-window preference only: preserve the user's display resolution,
+        // system motion settings and power policy. Android chooses the mode.
         @Suppress("DEPRECATION")
-        window.navigationBarColor = android.graphics.Color.WHITE
+        val smoothRate=windowManager.defaultDisplay.supportedModes.maxOfOrNull {it.refreshRate}?.coerceAtMost(120f)
+        if(smoothRate!=null) window.attributes=window.attributes.apply {preferredRefreshRate=smoothRate}
+        // Do not let Samsung/Android draw a contrasting grey scrim below the
+        // dark rounded Odify navigation surface and the system gesture bar.
+        @Suppress("DEPRECATION")
+        window.navigationBarColor = android.graphics.Color.rgb(12, 14, 18)
+        window.statusBarColor = android.graphics.Color.rgb(12, 14, 18)
         if (android.os.Build.VERSION.SDK_INT >= 29) {
             window.isNavigationBarContrastEnforced = false
         }
         setContent {
             MaterialTheme(
                 typography = OdifyTypography,
-                colorScheme = lightColorScheme(
-                    primary = Color(0xFF111215),
-                    onPrimary = Color.White,
-                    surface = Color.White,
-                    background = Color.White,
-                    onSurface = Color(0xFF111215)
+                colorScheme = darkColorScheme(
+                    primary = OdifyPalette.text,
+                    onPrimary = OdifyPalette.background,
+                    primaryContainer = OdifyPalette.raised,
+                    onPrimaryContainer = OdifyPalette.text,
+                    surface = OdifyPalette.surface,
+                    surfaceVariant = OdifyPalette.raised,
+                    background = OdifyPalette.background,
+                    onBackground = OdifyPalette.text,
+                    onSurface = OdifyPalette.text,
+                    onSurfaceVariant = OdifyPalette.muted,
+                    secondary = Color(0xFFCED3DF),
+                    secondaryContainer = OdifyPalette.raised,
+                    onSecondaryContainer = OdifyPalette.text,
+                    outline = OdifyPalette.hairline
                 )
             ) {
-                NativeOdify()
+                // MaterialTheme alone does not supply LocalContentColor. A
+                // Surface keeps inherited text/icons readable on every route.
+                Surface(Modifier.fillMaxSize(), color = OdifyPalette.background,
+                    contentColor = OdifyPalette.text) {
+                    OdifyGlassPreferencesProvider {NativeOdify()}
+                }
             }
         }
     }
@@ -83,6 +107,7 @@ private fun NativeOdify() {
     val masterDb = remember { OdifyMasterDatabase(context.applicationContext) }
     val artworkFallback = remember { OdifyArtworkFallback(context.applicationContext) }
     val uploader = remember { OdifyDriveUploader(context.applicationContext) }
+    val audioRequests = remember { OdifyAudioRequests(context.applicationContext) }
     val deviceExport = remember { OdifyDeviceExport(context.applicationContext) }
     var pendingDeviceSong by remember { mutableStateOf<OdifySong?>(null) }
     var savingDeviceSong by remember { mutableStateOf(false) }
@@ -94,9 +119,33 @@ private fun NativeOdify() {
     var driveStatus by remember { mutableStateOf("Google Drive 계정을 연결하세요.") }
     var driveFolder by remember { mutableStateOf(driveCatalog.folderId) }
     var songs by remember { mutableStateOf<List<OdifySong>>(emptyList()) }
+    val downloadedVersion by OdifyPhoneDownloads.version.collectAsState()
+    val streamingVersion by OdifyStreamingLibrary.version.collectAsState()
+    val downloadedSongs by produceState<List<OdifySong>>(emptyList(),downloadedVersion,streamingVersion) {
+        value=withContext(Dispatchers.IO){OdifyStreamingLibrary(context.applicationContext).all()}
+    }
+    val audioOverrides=remember {OdifyAudioOverrides(context.applicationContext)}
     var controller by remember { mutableStateOf<MediaController?>(null) }
     var playback by remember { mutableStateOf(OdifyPlaybackSnapshot()) }
     var expanded by remember { mutableStateOf(false) }
+    val youtubeSession by OdifyYoutubeRuntime.session.collectAsState()
+    val youtubeVideo=youtubeSession.video
+    val youtubeState=youtubeSession.playback
+    fun webCommand(js:String) {OdifyYoutubeRuntime.command(js)}
+    val youtubeCover by produceState<String?>(null,youtubeVideo?.videoId) {
+        value=null
+        youtubeVideo?.let {value=youtubeArtwork(context.applicationContext,it.videoId)}
+    }
+    val youtubeSong=youtubeVideo?.let {OdifySong("youtube:${it.videoId}",it.title,it.channel,"YouTube","",
+        artworkPath=youtubeCover,durationMs=youtubeState.duration)}
+    val visiblePlayback=if(youtubeSong==null) playback else OdifyPlaybackSnapshot(
+        mediaId=youtubeSong.id,isPlaying=youtubeState.playing,position=youtubeState.position,duration=youtubeState.duration,
+        queueIds=listOf(youtubeSong.id)+youtubeSession.following.map {it.id},currentQueueIndex=0,
+        nextMediaId=youtubeSession.following.firstOrNull()?.id,
+        shuffleEnabled=youtubeSession.shuffle,repeatOne=youtubeSession.repeat)
+    LaunchedEffect(youtubeState.error) {
+        if(youtubeState.error.isNotBlank()) Toast.makeText(context,youtubeState.error,Toast.LENGTH_LONG).show()
+    }
     var importing by remember { mutableStateOf(false) }
     var uploadingToDrive by remember { mutableStateOf(false) }
     var uploadStatus by remember { mutableStateOf("선택한 음악만 Drive에 저장합니다.") }
@@ -255,6 +304,25 @@ private fun NativeOdify() {
             uploadFiles(uploadSelection)
         else uploadStatus = "Drive 쓰기 권한 승인이 취소되었습니다."
     }
+    fun syncAudioRequests() {
+        scope.launch {
+            runCatching { audioRequests.sync() }.onFailure {
+                Toast.makeText(context, "요청은 저장되었습니다. Drive 권한·연결 확인 후 다시 전송됩니다.", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+    val audioRequestAuthorization = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartIntentSenderForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK &&
+            runCatching { DriveAuth.resolveUpload(activity, result.data) }.getOrDefault(false)) syncAudioRequests()
+    }
+    LaunchedEffect(driveConnected) {
+        while (driveConnected && isActive) {
+            runCatching { audioRequests.sync() }
+            delay(60_000)
+        }
+    }
     val driveUploadPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenMultipleDocuments()
     ) { files ->
@@ -283,6 +351,10 @@ private fun NativeOdify() {
                 savingDeviceSong = true
                 runCatching { deviceExport.save(current, destination) }
                     .onSuccess { total ->
+                        withContext(Dispatchers.IO) {
+                            library.rememberOfflineExport(current,destination)
+                            songs = library.songs() + driveCatalog.tracks() + phoneFolder.tracks()
+                        }
                         Toast.makeText(context,
                             "디바이스에 저장 완료 (${OdifyDiagnostics.humanBytes(total)})",
                             Toast.LENGTH_LONG).show()
@@ -318,6 +390,7 @@ private fun NativeOdify() {
     }
 
     LaunchedEffect(Unit) {
+        OdifyYoutubeAuth.restore(activity) { youtubeConnected=true;youtubeStatus="YouTube 연결 복원됨" }
         songs = withContext(Dispatchers.IO) {
             library.songs() + runCatching { driveCatalog.tracks() }.getOrElse {
                 // Preserve the database for diagnosis; a broken Drive cache
@@ -343,6 +416,15 @@ private fun NativeOdify() {
             refreshCatalog(showProgress = false)
         }
     }
+    LaunchedEffect(driveBusy,phoneFolderStatus) {
+        if(!driveBusy && phoneFolder.hasFolder) {
+            val base=withContext(Dispatchers.IO) {library.songs()+driveCatalog.tracks()}
+            phoneFolder.fingerprintMirrors(base) { local ->
+                val refreshed=withContext(Dispatchers.IO) {library.songs()+driveCatalog.tracks()+local}
+                withContext(Dispatchers.Main) {songs=refreshed}
+            }
+        }
+    }
     LaunchedEffect(playback.mediaId) {
         val track = songs.firstOrNull { it.id == playback.mediaId }
         if (track != null && track.id.startsWith("gdrive:") && driveConnected) {
@@ -359,23 +441,8 @@ private fun NativeOdify() {
         }
     }
 
-    // Prime waveform caches while the user browses the library, rather than
-    // starting a multi-minute PCM decode when Now Playing is first opened.
-    // Analyze one track at a time off the UI thread; prioritize the current
-    // track and cap work to protect large music libraries/battery.
-    LaunchedEffect(songs, playback.mediaId) {
-        val active = songs.firstOrNull { it.id == playback.mediaId }
-        // Never prefetch the entire remote collection. Only analyze the one
-        // currently requested Drive track, and keep that expensive read off UI.
-        // Streaming range playback must not cause a second unauthenticated
-        // full-track decode. Local files get true pre-analyzed waveforms.
-        val candidates = (listOfNotNull(active?.takeIf { it.sourceUri == null }) +
-            songs.filterNot { it.sourceUri != null || it.id == active?.id }).take(8)
-        for (track in candidates) {
-            OdifyWaveformRepository.load(context.applicationContext, track)
-            kotlinx.coroutines.yield()
-        }
-    }
+    // Now Playing uses the chosen design waveform patterns. Do not decode
+    // whole local songs in the background for an unused PCM waveform cache.
 
     // Connect only to our own foreground Media3 service. No vendor player init.
     DisposableEffect(Unit) {
@@ -512,13 +579,57 @@ private fun NativeOdify() {
         }
     }
 
-    fun playFrom(items: List<OdifySong>, index: Int) {
+    var externalLookupJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    fun playYoutubeVideo(queue: List<YoutubeVideo>, index: Int) {
+        if(index !in queue.indices) return
+        val streaming=OdifyStreamingLibrary(context.applicationContext)
+        streaming.rememberAll(queue)
+        controller?.pause()
+        expanded=true
+        val drive=songs.filter {it.id.startsWith("gdrive:")}.distinctBy {it.id}
+        val likes=context.getSharedPreferences("odify_native_ui",0).getStringSet("likes",emptySet()).orEmpty()
+        val suggested=OdifyRecommendations.mixes(drive,likes,OdifyListeningStore(context.applicationContext).signals())
+            .firstOrNull()?.songs?.take(20).orEmpty().ifEmpty {drive.take(20)}
+        val following=queue.drop(index+1).mapNotNull {streaming.find("youtube:"+it.videoId)}.ifEmpty {suggested}
+        OdifyYoutubeRuntime.play(context,queue[index],following)
+    }
+    fun playExternalTrack(artist: String, title: String,chartId:String="") {
+        Toast.makeText(context,"재생할 음원을 찾고 있어요…",Toast.LENGTH_SHORT).show()
+        externalLookupJob?.cancel()
+        externalLookupJob = scope.launch {
+            val query = OdifyYoutubeQuickPlay.query(artist, title)
+            val selected = if (youtubeConnected) runCatching {
+                OdifyYoutubeQuickPlay.first(OdifyYoutubeLibrary(context.applicationContext).search(query))
+            }.getOrNull() else null
+            if (!kotlinx.coroutines.currentCoroutineContext().isActive) return@launch
+            if(selected!=null) {
+                val store=OdifyStreamingLibrary(context);store.remember(selected)
+                if(chartId.isNotBlank()) {
+                    store.associateChart(selected.videoId,chartId)
+                    OdifyStreamingRequests(context).enqueue(selected,0,"chart_tap")
+                    OdifyPhoneDownloads.schedule(context)
+                }
+                playYoutubeVideo(listOf(selected),0);return@launch
+            }
+            Toast.makeText(context,if(youtubeConnected) "재생할 영상을 찾지 못했어요. 검색에서 다른 영상을 선택해 주세요." else "설정에서 YouTube 계정을 연결해 주세요.",Toast.LENGTH_LONG).show()
+
+        }
+    }
+
+    fun playFrom(originalItems: List<OdifySong>, index: Int) {
+        val items=originalItems.map(audioOverrides::resolve)
         val player = controller
         if (player == null) {
             Toast.makeText(context, "플레이어를 연결 중입니다.", Toast.LENGTH_SHORT).show()
             return
         }
         if (items.isEmpty() || index !in items.indices) return
+        if(items[index].isYoutubeStream) {
+            player.pause();expanded=true
+            OdifyYoutubeRuntime.play(context,OdifyStreamingLibrary(context).video(items[index]),items.drop(index+1))
+            return
+        }
+        if(youtubeVideo!=null) OdifyYoutubeRuntime.stop(context)
         player.setMediaItems(items.map(OdifySong::mediaItem), index, 0L)
         player.prepare()
         player.play()
@@ -538,6 +649,8 @@ private fun NativeOdify() {
     LaunchedEffect(Unit) {
         delay(430)
         startup = false
+        OdifyPhoneDownloads.schedule(context.applicationContext)
+        OdifyChartAutomation.schedule(context.applicationContext)
     }
 
     LaunchedEffect(expanded) {
@@ -546,21 +659,25 @@ private fun NativeOdify() {
         delay(if (expanded) 210L else 200L)
         @Suppress("DEPRECATION")
         activity.window.statusBarColor =
-            if (expanded) android.graphics.Color.rgb(16, 18, 22) else android.graphics.Color.WHITE
+            if (expanded) android.graphics.Color.rgb(16, 18, 22) else android.graphics.Color.rgb(12,14,18)
         @Suppress("DEPRECATION")
         activity.window.navigationBarColor =
-            if (expanded) android.graphics.Color.rgb(16, 18, 22) else android.graphics.Color.WHITE
+            if (expanded) android.graphics.Color.rgb(16, 18, 22) else android.graphics.Color.rgb(12,14,18)
         val insets = WindowCompat.getInsetsController(activity.window, activity.window.decorView)
-        insets.isAppearanceLightStatusBars = !expanded
-        insets.isAppearanceLightNavigationBars = !expanded
+        insets.isAppearanceLightStatusBars = false
+        insets.isAppearanceLightNavigationBars = false
     }
 
+    Box(Modifier.fillMaxSize()) {
+    if(youtubeVideo!=null) OdifyYoutubeWebHost(Modifier.size(240.dp))
     if (startup) {
         OdifySplash()
     } else {
         OdifyRoot(
-            songs = songs,
-            playback = playback,
+            songs = songs+downloadedSongs,
+            playback = visiblePlayback,
+            externalSong = youtubeSong,
+            onOpenExternalVideo = {youtubeVideo?.let {OdifyExternalYoutube.openVideo(context,it.videoId)}},
             driveConnected = driveConnected,
             driveBusy = driveBusy,
             driveStatus = driveStatus,
@@ -583,6 +700,9 @@ private fun NativeOdify() {
             youtubeConnected = youtubeConnected,
             youtubeStatus = youtubeStatus,
             onConnectYoutube = { connectYoutube() },
+            onExternalYoutubeStarted = { controller?.pause() },
+            onPlayYoutubeVideo = { queue,index -> playYoutubeVideo(queue,index) },
+            onExternalTrack = { artist, title,chartId -> playExternalTrack(artist, title,chartId) },
             phoneFolderStatus = phoneFolderStatus,
             onChoosePhoneFolder = { phoneFolderPicker.launch(null) },
             onRefreshPhoneFolder = {
@@ -624,7 +744,11 @@ private fun NativeOdify() {
             },
             onPlay = { list, index -> playFrom(list, index) },
             onMoveQueue = { from, to ->
-                controller?.let { player ->
+                if(youtubeVideo!=null && from>0 && to>0 && from<=youtubeSession.following.size && to<=youtubeSession.following.size) {
+                    val list=youtubeSession.following.toMutableList();list.add(to-1,list.removeAt(from-1))
+                    OdifyYoutubeRuntime.session.value=youtubeSession.copy(following=list)
+                }
+                if(youtubeVideo==null) controller?.let { player ->
                     if (from in 0 until player.mediaItemCount &&
                         to in 0 until player.mediaItemCount && from != to) {
                         // A manually sorted Media3 queue must be the actual
@@ -642,28 +766,57 @@ private fun NativeOdify() {
             },
             onPlayYoutubeMatched = { matchedQueue,index -> playFrom(matchedQueue,index) },
             onSelectQueue = { index ->
-                controller?.let { player ->
+                if(youtubeVideo!=null) {if(index==0) webCommand("odifySeek(0);odifyPlay()") else if(index-1 in youtubeSession.following.indices) playFrom(youtubeSession.following,index-1)}
+                else controller?.let { player ->
                     if (index in 0 until player.mediaItemCount) {
                         player.seekToDefaultPosition(index)
                         player.play()
                     }
                 }
             },
-            onTogglePlayback = { toggle() },
-            onPrevious = { controller?.seekToPreviousMediaItem() },
-            onNext = { controller?.seekToNextMediaItem() },
-            onSeek = { progress -> controller?.seekTo(progress) },
+            onTogglePlayback = { if(youtubeVideo!=null) webCommand(if(youtubeState.playing) "odifyPause()" else "odifyPlay()") else toggle() },
+            onPrevious = { if(youtubeVideo!=null) webCommand("odifySeek(0)") else controller?.seekToPreviousMediaItem() },
+            onNext = { if(youtubeVideo!=null) {if(youtubeSession.following.isNotEmpty()) playFrom(youtubeSession.following,0)} else controller?.seekToNextMediaItem() },
+            onSeek = { progress -> if(youtubeVideo!=null) webCommand("odifySeek(${progress.coerceAtLeast(0)/1000.0})") else controller?.seekTo(progress) },
             onShuffle = {
-                controller?.shuffleModeEnabled = !(controller?.shuffleModeEnabled ?: false)
+                if(youtubeVideo!=null) OdifyYoutubeRuntime.session.value=youtubeSession.copy(shuffle=!youtubeSession.shuffle) else controller?.shuffleModeEnabled = !(controller?.shuffleModeEnabled ?: false)
             },
             onRepeat = {
-                controller?.repeatMode =
+                if(youtubeVideo!=null) OdifyYoutubeRuntime.session.value=youtubeSession.copy(repeat=!youtubeSession.repeat) else controller?.repeatMode =
                     if (controller?.repeatMode == androidx.media3.common.Player.REPEAT_MODE_ONE)
                         androidx.media3.common.Player.REPEAT_MODE_OFF
                     else androidx.media3.common.Player.REPEAT_MODE_ONE
             },
+            onReplaceAudio = {song,video ->
+                audioOverrides.choose(song,video)
+                OdifyStreamingRequests(context).enqueue(video,0,"audio_replacement",retry=true)
+                OdifyPhoneDownloads.schedule(context)
+                if(song.id.startsWith("gdrive:")) audioRequests.enqueue(song,"paste_link","https://www.youtube.com/watch?v=${video.videoId}","앱에서 대체 음원 선택")
+                val following=if(youtubeVideo!=null)youtubeSession.following else controller?.let {player ->
+                    (player.currentMediaItemIndex+1 until player.mediaItemCount).map {queueSong(player.getMediaItemAt(it))}
+                }.orEmpty()
+                controller?.pause();expanded=true;OdifyYoutubeRuntime.play(context,video,following)
+            },
+            onAudioRequest = { track, kind, link, reason ->
+                scope.launch {
+                    runCatching { withContext(Dispatchers.IO) {
+                        audioRequests.enqueue(track, kind, link, reason)
+                    } }.onSuccess {
+                        Toast.makeText(context, "오디오 변경 요청을 저장했습니다.", Toast.LENGTH_SHORT).show()
+                        DriveAuth.authorizeUpload(activity,
+                            onToken = { syncAudioRequests() },
+                            onResolution = { pending -> audioRequestAuthorization.launch(
+                                IntentSenderRequest.Builder(pending.intentSender).build()) },
+                            onError = { Toast.makeText(context, "요청 보관 중 · Drive 전송 권한을 확인하세요.", Toast.LENGTH_LONG).show() })
+                    }.onFailure { Toast.makeText(context, it.message ?: "요청 저장 실패", Toast.LENGTH_LONG).show() }
+                }
+            },
             onSaveDevice = { track ->
-                if (savingDeviceSong) {
+                if(track.isYoutubeStream) {
+                    OdifyStreamingRequests(context).enqueue(OdifyStreamingLibrary(context).video(track),track.durationMs,"manual",retry=true)
+                    OdifyPhoneDownloads.schedule(context)
+                    Toast.makeText(context,"휴대폰 저장을 시작합니다. 설정에서 진행 상황을 확인할 수 있어요.",Toast.LENGTH_LONG).show()
+                } else if (savingDeviceSong) {
                     Toast.makeText(context, "이전 곡을 저장 중입니다.",
                         Toast.LENGTH_SHORT).show()
                 } else {
@@ -727,5 +880,6 @@ private fun NativeOdify() {
                 }
             }
         )
+    }
     }
 }

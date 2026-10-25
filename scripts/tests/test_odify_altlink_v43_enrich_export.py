@@ -1,4 +1,5 @@
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 import sys
 import tempfile
@@ -41,7 +42,8 @@ class ExportTests(unittest.TestCase):
    self.assertEqual(z.execute("SELECT external_id FROM external_recording_identity").fetchone()[0],"123")
    self.assertEqual(z.execute("SELECT COUNT(*) FROM link_state WHERE verified!=0").fetchone()[0],0)
    z.close()
-   self.assertEqual(sqlite3.connect(links).execute("SELECT COUNT(*) FROM album").fetchone()[0],0)
+   with closing(sqlite3.connect(links)) as check:
+    self.assertEqual(check.execute("SELECT COUNT(*) FROM album").fetchone()[0],0)
    with self.assertRaises(FileExistsError):enr.audit(cat,links,out,expected=2)
  def test_export_rejects_unsafe_prior_selection(self):
   with tempfile.TemporaryDirectory() as d:
