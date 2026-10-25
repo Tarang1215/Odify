@@ -48,6 +48,7 @@ class OdifyGlassFrameTest {
             scenario.onActivity {activity ->
                 activityRef=activity
                 window=activity.window
+                activity.window.addOnFrameMetricsAvailableListener(listener,Handler(thread.looper))
                 prior=android.view.WindowManager.LayoutParams().apply {copyFrom(activity.window.attributes)}
                 @Suppress("DEPRECATION") val display=activity.windowManager.defaultDisplay
                 val current=display.mode
