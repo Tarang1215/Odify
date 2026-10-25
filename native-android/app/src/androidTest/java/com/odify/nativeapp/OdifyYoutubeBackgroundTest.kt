@@ -35,7 +35,7 @@ class OdifyYoutubeBackgroundTest {
             }
             assertTrue("Existing YouTube grant must restore without new consent",restored.await(12,TimeUnit.SECONDS))
             val results=runBlocking {OdifyYoutubeLibrary(context).search("NewJeans Hype Boy lyrics")}
-            val video=results.firstOrNull {it.channel.contains("Jaeguchi",true)} ?: OdifyYoutubeQuickPlay.first(results)
+            val video=results.firstOrNull {it.videoId=="T--6HBX2K4g"} ?: results.firstOrNull {it.channel.contains("Jaeguchi",true)} ?: OdifyYoutubeQuickPlay.first(results)
                 ?: error("No playback candidate")
             // DriveCatalog resolves duration only after opening the media; a
             // valid catalog entry therefore commonly has durationMs == 0.
@@ -61,6 +61,9 @@ class OdifyYoutubeBackgroundTest {
             }
             proof.put("handoffPlaying",nativePlaying).put("handoffId",nativeId)
         } finally {
+            val state=OdifyYoutubeRuntime.session.value.playback
+            proof.put("lastPlaying",state.playing).put("lastPosition",state.position).put("lastDuration",state.duration)
+                .put("lastReady",state.ready).put("lastError",state.error)
             File(context.filesDir,"youtube_background_test.json").writeText(proof.toString(2))
             test.runOnMainSync {controller?.pause();controller?.release();OdifyYoutubeRuntime.stop(context)}
             scenario.close()

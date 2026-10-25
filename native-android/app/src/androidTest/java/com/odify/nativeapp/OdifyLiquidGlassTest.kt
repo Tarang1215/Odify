@@ -27,8 +27,8 @@ class OdifyLiquidGlassTest {
             return IntArray(320*56).also {bitmap.getPixels(it,0,320,0,0,320,56);bitmap.recycle()}
         }
         val before=mask(.8399f);val after=mask(.8401f)
-        assertTrue("Pinch must converge to the two touching rounded lobes",
-            before.indices.count {before[it]!=after[it]}<20)
+        val difference=before.indices.count {before[it]!=after[it]}
+        assertTrue("Pinch must converge to the two touching rounded lobes (changed pixels=$difference)",difference<20)
         val separated=mask(1f)
         assertEquals("Gap between lobes must be transparent",0,separated[28*320+195])
         assertNotEquals("Transport lobe remains present",0,separated[28*320+260])
