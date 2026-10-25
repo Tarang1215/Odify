@@ -4,8 +4,6 @@ import android.annotation.SuppressLint
 import android.app.*
 import android.content.*
 import android.graphics.BitmapFactory
-import android.media.AudioAttributes
-import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.media.MediaMetadata
 import android.media.session.MediaSession
@@ -44,14 +42,12 @@ class OdifyYoutubePlaybackService:Service() {
     private val handler=Handler(Looper.getMainLooper())
     private var browser:WebView?=null
     private var media:MediaSession?=null
-    private var focus:AudioFocusRequest?=null
     private var activeId:String?=null
     private var generation=0
     private var consumedEnd=false
     private var handingOff=false
     private var lastNotificationState=""
     private var nativeController:MediaController?=null
-    private val audio by lazy {getSystemService(AudioManager::class.java)}
     private val wake by lazy {(getSystemService(POWER_SERVICE) as PowerManager).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK,"Odify:YoutubeAudio").apply {setReferenceCounted(false)}}
     private val noisy=object:BroadcastReceiver(){override fun onReceive(c:Context?,i:Intent?){command("odifyPause()")}}
     override fun onBind(intent:Intent?):IBinder?=null
@@ -69,9 +65,9 @@ class OdifyYoutubePlaybackService:Service() {
                 override fun onSkipToNext(){handoff()}
             });isActive=true
         }
-        focus=AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN).setAudioAttributes(
-            AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build())
-            .setOnAudioFocusChangeListener {if(it<0) command("odifyPause()")}.build()
+        // Chromium owns audio focus for its media element. A second service
+        // focus request receives LOSS when Chromium starts, and pauses the very
+        // same video. Let WebView handle interruptions; retain the noisy receiver.
         ContextCompat.registerReceiver(this,noisy,IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY),ContextCompat.RECEIVER_NOT_EXPORTED)
         startForeground(8002,notification())
     }
@@ -89,9 +85,6 @@ class OdifyYoutubePlaybackService:Service() {
     private fun load() {
         val video=OdifyYoutubeRuntime.session.value.video ?: return
         generation++;val request=generation;activeId=video.videoId;consumedEnd=false;handingOff=false
-        if(audio.requestAudioFocus(focus!!)!=AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
-            publish(YoutubeWebState(error="다른 오디오가 사용 중입니다."));return
-        }
         val web=browser ?: object:WebView(applicationContext) {
             // Preserve the playback document while the owning foreground service
             // handles lock-screen/background audio. No Activity is retained.
@@ -143,7 +136,6 @@ class OdifyYoutubePlaybackService:Service() {
         };handler.post(poll)
     }
     fun command(js:String) {
-        if(js=="odifyPlay()" && audio.requestAudioFocus(focus!!)!=AudioManager.AUDIOFOCUS_REQUEST_GRANTED) return
         browser?.evaluateJavascript(js,null)
     }
     private fun publish(state:YoutubeWebState) {
@@ -200,7 +192,6 @@ class OdifyYoutubePlaybackService:Service() {
         browser?.let {(it.parent as? ViewGroup)?.removeView(it);it.stopLoading();it.loadUrl("about:blank");it.destroy()};browser=null
         nativeController?.release();nativeController=null
         media?.release();media=null
-        focus?.let {audio.abandonAudioFocusRequest(it)}
         if(wake.isHeld) wake.release()
         runCatching {unregisterReceiver(noisy)}
         OdifyYoutubeRuntime.service=null

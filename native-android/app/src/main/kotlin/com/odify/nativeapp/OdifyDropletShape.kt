@@ -31,7 +31,7 @@ internal class OdifyDropletShape(
         val curl=cos(phase*2f*PI).toFloat()*motion
         val outerTop=r+breath*1.6f;val outerBottom=r-breath*1.6f
         val innerTop=r+curl*1.4f;val innerBottom=r-curl*1.4f
-        val top=motion+breath*.65f;val bottom=h-motion+breath*.45f
+        val top=0f;val bottom=h
         val ry=(bottom-top)/2f;val center=(top+bottom)/2f
         val k=.55228475f
         val path=Path()

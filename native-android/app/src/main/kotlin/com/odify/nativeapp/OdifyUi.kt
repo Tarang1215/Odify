@@ -831,7 +831,7 @@ private fun OdifyMiniPlayer(
         val width=compactWidth+(measuredWidth-compactWidth)*growth
         val height=43.dp+13.dp*growth
         val artSize=29.dp+11.dp*growth
-        val controlsWidth=37.dp+83.dp*growth
+        val controlsWidth=43.dp+77.dp*growth
         val gap=10.dp*fluidStage(split,.84f,1f)
         val leftWidth=width-controlsWidth-gap
         val density=LocalDensity.current

@@ -35,13 +35,18 @@ class OdifyYoutubeBackgroundTest {
             }
             assertTrue("Existing YouTube grant must restore without new consent",restored.await(12,TimeUnit.SECONDS))
             val results=runBlocking {OdifyYoutubeLibrary(context).search("NewJeans Hype Boy lyrics")}
-            val video=results.firstOrNull {it.videoId=="T--6HBX2K4g"} ?: results.firstOrNull {it.channel.contains("Jaeguchi",true)} ?: OdifyYoutubeQuickPlay.first(results)
-                ?: error("No playback candidate")
+            assertTrue("Search results required",results.isNotEmpty())
+            // Use the same public lyric video whose actual playback was
+            // verified on this device; API result order is not stable.
+            val video=YoutubeVideo("T--6HBX2K4g","NewJeans Hype Boy Lyrics","Jaeguchi","")
             // DriveCatalog resolves duration only after opening the media; a
             // valid catalog entry therefore commonly has durationMs == 0.
             val drive=DriveCatalog(context).tracks().firstOrNull {it.id.startsWith("gdrive:")}
                 ?: error("Existing owned Drive song required")
             proof.put("videoId",video.videoId).put("driveId",drive.id)
+            val future=MediaController.Builder(context,SessionToken(context,ComponentName(context,OdifyPlaybackService::class.java))).buildAsync()
+            controller=future.get(12,TimeUnit.SECONDS)
+            test.runOnMainSync {controller?.pause()}
             scenario.onActivity {OdifyYoutubeRuntime.play(it,video,listOf(drive))}
             await {val s=OdifyYoutubeRuntime.session.value.playback;s.playing && s.position>1000 && s.duration>10_000}
             val before=OdifyYoutubeRuntime.session.value.playback.position
@@ -50,8 +55,6 @@ class OdifyYoutubeBackgroundTest {
             val after=OdifyYoutubeRuntime.session.value.playback
             proof.put("backgroundBefore",before).put("backgroundAfter",after.position).put("backgroundPlaying",after.playing)
             assertTrue("Background playback stopped: $proof",after.playing && after.position>before+2000)
-            val future=MediaController.Builder(context,SessionToken(context,ComponentName(context,OdifyPlaybackService::class.java))).buildAsync()
-            controller=future.get(12,TimeUnit.SECONDS)
             test.runOnMainSync {OdifyYoutubeRuntime.command("odifySeek(${(after.duration-1500).coerceAtLeast(0)/1000.0})")}
             var nativePlaying=false
             var nativeId:String?=null
