@@ -36,7 +36,7 @@ class OdifyLibraryContinuityTest {
             requests.retryFailed()
             val restored=OdifyStreamingRequests(context,fileName).read()
             assertEquals("QUEUED_PHONE",restored.getJSONObject(0).getString("status"))
-            assertEquals(123000,restored.getJSONObject(0).getLong("duration_ms"))
+            assertEquals(123000L,restored.getJSONObject(0).getLong("duration_ms"))
             assertEquals("verified",restored.getJSONObject(1).getString("sha256"))
             assertEquals("SKIPPED_AGE",restored.getJSONObject(2).getString("status"))
         } finally {File(context.filesDir,fileName).delete()}

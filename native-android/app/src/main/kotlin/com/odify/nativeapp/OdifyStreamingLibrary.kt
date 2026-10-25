@@ -12,34 +12,40 @@ internal class OdifyStreamingLibrary(private val context:Context, name:String="o
     @Synchronized fun remember(video:YoutubeVideo,duration:Long=0) {
         require(Regex("[A-Za-z0-9_-]{11}").matches(video.videoId))
         val old=prefs.getString(video.videoId,null)?.let {JSONObject(it)}
+        if(old!=null && old.optString("title")==video.title && old.optString("artist")==video.channel && duration<=old.optLong("duration"))return
         prefs.edit().putString(video.videoId,(old ?: JSONObject()).put("id",video.videoId).put("title",video.title)
             .put("artist",video.channel).put("duration",maxOf(duration,old?.optLong("duration") ?: 0)).toString()).apply()
         version.value++
     }
     @Synchronized fun rememberAll(videos:List<YoutubeVideo>) {
         val editor=prefs.edit()
+        var changed=false
         videos.filter {Regex("[A-Za-z0-9_-]{11}").matches(it.videoId)}.forEach {video ->
             val old=prefs.getString(video.videoId,null)?.let {JSONObject(it)}
+            if(old!=null && old.optString("title")==video.title && old.optString("artist")==video.channel)return@forEach
+            changed=true
             editor.putString(video.videoId,(old ?: JSONObject()).put("id",video.videoId).put("title",video.title)
                 .put("artist",video.channel).put("duration",old?.optLong("duration") ?: 0).toString())
         }
-        editor.apply()
-        version.value++
+        if(changed){editor.apply();version.value++}
     }
+    private fun savedRows():Map<String,JSONObject> {
+        val rows=OdifyStreamingRequests(context).read()
+        return (0 until rows.length()).map {rows.getJSONObject(it)}.filter {it.optString("status")=="SAVED_PHONE"}.associateBy {it.optString("video_id")}
+    }
+    private fun decode(videoId:String,raw:String,record:JSONObject?):OdifySong?=runCatching {
+        val data=JSONObject(raw)
+        val local=record?.optString("local_path")?.takeIf {it.isNotBlank()}?.let {File(it)}?.takeIf {it.isFile}
+        val charts=data.optJSONArray("charts")
+        OdifySong("youtube:"+videoId,data.getString("title"),data.optString("artist"),"YouTube",(local ?: placeholder()).absolutePath,
+            File(context.cacheDir,"youtube_search_$videoId.jpg").takeIf {it.isFile}?.absolutePath,
+            durationMs=maxOf(data.optLong("duration"),record?.optLong("duration_ms") ?: 0),
+            chartAliases=(0 until (charts?.length() ?: 0)).map {charts!!.getString(it)})
+    }.getOrNull()
     fun find(id:String):OdifySong? {
-        if(!id.startsWith("youtube:")) return null
+        if(!id.startsWith("youtube:"))return null
         val videoId=id.removePrefix("youtube:")
-        return prefs.getString(videoId,null)?.let {raw -> runCatching {
-            val data=JSONObject(raw)
-            val record=OdifyStreamingRequests(context).read().let {rows -> (0 until rows.length()).map {rows.getJSONObject(it)}
-                .firstOrNull {it.optString("video_id")==videoId && it.optString("status")=="SAVED_PHONE"}}
-            val local=record?.optString("local_path")?.takeIf {it.isNotBlank()}?.let {File(it)}?.takeIf {it.isFile}
-            val charts=data.optJSONArray("charts")
-            OdifySong(id,data.getString("title"),data.optString("artist"),"YouTube",(local ?: placeholder()).absolutePath,
-                File(context.cacheDir,"youtube_search_$videoId.jpg").takeIf {it.isFile}?.absolutePath,
-                durationMs=maxOf(data.optLong("duration"),record?.optLong("duration_ms") ?: 0),
-                chartAliases=(0 until (charts?.length() ?: 0)).map {charts!!.getString(it)})
-        }.getOrNull()}
+        return prefs.getString(videoId,null)?.let {decode(videoId,it,savedRows()[videoId])}
     }
     // Media3 can prepare a mixed queue without treating a YouTube page as an audio URL.
     // PlaybackService intercepts this marker at the transition, before it can play.
@@ -55,11 +61,16 @@ internal class OdifyStreamingLibrary(private val context:Context, name:String="o
     @Synchronized fun associateChart(videoId:String,chartId:String) {
         val data=prefs.getString(videoId,null)?.let {JSONObject(it)} ?: return
         val charts=data.optJSONArray("charts") ?: JSONArray()
-        if((0 until charts.length()).none {charts.getString(it)==chartId}) charts.put(chartId)
+        if((0 until charts.length()).any {charts.getString(it)==chartId})return
+        charts.put(chartId)
         prefs.edit().putString(videoId,data.put("charts",charts).toString()).apply();version.value++
     }
     fun downloads():List<OdifySong> = prefs.all.keys.mapNotNull {find("youtube:"+it)}.filterNot {it.isYoutubeStream}
-    fun all():List<OdifySong> = prefs.all.keys.filter {Regex("[A-Za-z0-9_-]{11}").matches(it)}.mapNotNull {find("youtube:"+it)}
+    fun all():List<OdifySong> {
+        val saved=savedRows()
+        return prefs.all.entries.filter {Regex("[A-Za-z0-9_-]{11}").matches(it.key)}
+            .mapNotNull {(id,raw)->(raw as? String)?.let {decode(id,it,saved[id])}}
+    }
 }
 
 /** A portable PC collection outbox. Uploads remain deferred until explicitly resumed. */

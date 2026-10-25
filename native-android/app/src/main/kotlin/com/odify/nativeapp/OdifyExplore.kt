@@ -97,6 +97,7 @@ class OdifyExploreRepository(private val context:Context) {
                 .put("artistName",item.getString("artistName")).put("artworkUrl100",artwork)
                 .put("genres",org.json.JSONArray().apply {seed?.tracks?.firstOrNull {it.id==identity}?.genres?.forEach {put(JSONObject().put("name",it))}}))
         }
+        require(results.length()==100){"차트 100곡을 확인하지 못했습니다."}
         return JSONObject().put("feed",JSONObject().put("updated",java.time.Instant.now().toString()).put("results",results)).toString()
     }
     suspend fun load(country:String,force:Boolean=false):ExploreChart = withContext(Dispatchers.IO) {
