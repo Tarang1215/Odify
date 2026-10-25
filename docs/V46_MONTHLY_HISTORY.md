@@ -126,3 +126,41 @@ The source restriction must be cleared before new album audio can proceed.
 The V4.6 regression suite now passes 55 cases, including album cutoff/dedup,
 checksum reuse, changed-file protection, preserved existing links, global source
 gates versus per-track age gates, and cache-only selection without source calls.
+
+## Latest external-only continuation (2026-10-25)
+
+The operator changed their network and explicitly requested continuation. A normal
+one-recording canary succeeded; subsequent verified transfers reached 2,272 new
+chart files, 270 reused originals and 16 history reuses (2,558 ready of 2,759).
+The 111 missing-metadata and 90 held rows remain explicit. This supersedes the
+older 2,135-ready snapshot above; it is not complete chart coverage. No further
+Drive upload ran during this continuation.
+
+Only the exact old source-error fingerprints preceding that proven recovery are
+acknowledged. New authentication/rate-limit responses still stop source calls.
+A pure transient SSL EOF is distinguished from an authentication gate; a combined
+SSL/authentication error remains gated. Album metadata and audio run independently.
+The album worker can resume its existing queue without rebuilding all manifests.
+Album audio has now produced additional verified files under its release-year/month
+folders; use its live chart_status.json for counts, rather than treating all
+11,513 queued recordings as downloaded. The metadata-only runtime pass completed
+2,342 attempts, resolving 769 missing runtimes; remaining gaps are preserved.
+The V4.6 Python regression suite passes 58 cases.
+
+## User download controls
+
+Open `D:\Odify\음악 다운로드 관리.lnk` (the PowerShell entry point is
+`D:\Odify\Manage-Odify-Downloads.ps1`). The local window shows new downloads,
+verified reuses, active transfers, queued rows, missing metadata and held rows.
+Close the window without stopping the worker. Pause writes `Albums/control.json`;
+a controlled worker completes only its currently active files, then waits.
+Resume clears the flag or launches the resumable worker if it has exited. It does
+not delete/reset original files, row receipts, MASTER links or Drive content.
+The pause/resume handshake is exposed in `Albums/manager_status.json`; the
+full per-recording evidence remains in `chart_status.json` and month manifests.
+The legacy worker was replaced at an idle audio boundary, preserving its receipt;
+only outstanding read-only metadata probes were discarded during that handoff.
+The controlled batch size is at most its four active workers, so a pause does not
+start another queue of 20 behind those transfers. Source gates still stop audio
+requests; Resume does not silently authorize a gate bypass. No Drive upload step
+is present.

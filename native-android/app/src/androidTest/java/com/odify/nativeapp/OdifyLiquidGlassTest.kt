@@ -76,11 +76,15 @@ class OdifyLiquidGlassTest {
         shader.setFloatUniform("origin",48f,48f);shader.setFloatUniform("bounds",380f,56f)
         shader.setFloatUniform("corner",28f);shader.setFloatUniform("depth",10f)
         shader.setFloatUniform("leftCorner",28f)
+        shader.setFloatUniform("edgePass",0f)
         shader.setFloatUniform("strength",7f);shader.setFloatUniform("rightWidth",120f)
         shader.setFloatUniform("gap",8f)
         for(split in listOf(0f,.5f,1f)) {
             shader.setFloatUniform("split",split)
-            assertNotNull(android.graphics.RenderEffect.createRuntimeShaderEffect(shader,"content"))
+            for(pass in listOf(0f,1f)) {
+                shader.setFloatUniform("edgePass",pass)
+                assertNotNull(android.graphics.RenderEffect.createRuntimeShaderEffect(shader,"content"))
+            }
         }
     }
 }

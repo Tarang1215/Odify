@@ -7,6 +7,17 @@ spec=importlib.util.spec_from_file_location('album_music',Path(__file__).parents
 m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
 
 class AlbumMusicTests(unittest.TestCase):
+    def test_pause_preserves_rows_until_resume_then_reports_running(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);path=root/'control.json';path.write_text('{"paused":true}')
+            rows=[dict(id='one',status='DOWNLOADED_VERIFIED',sha256='protected')]
+            def resume(unused):
+                state=json.loads((root/'manager_status.json').read_text())
+                self.assertTrue(state['paused']);self.assertFalse(state['drive_upload'])
+                path.write_text('{"paused":false}')
+            with patch.object(m.time,'sleep',side_effect=resume):m.await_resume(root,rows)
+            self.assertEqual('protected',rows[0]['sha256'])
+            self.assertFalse(json.loads((root/'manager_status.json').read_text())['paused'])
     def test_catalog_dates_and_dedup_preserve_existing_links(self):
         with tempfile.TemporaryDirectory() as tmp:
             db=Path(tmp)/'catalog.db';root=Path(tmp)/'albums';c=m.m.a.h.connect(db);c.executescript(m.m.a.SCHEMA)

@@ -53,10 +53,12 @@ fun Modifier.odifyGlass(backdrop: OdifyBackdrop, shape: Shape,glow:Color=Color.T
     val shade=(.035f+1.08f*(1f-transparency)*(1f-transparency)).coerceAtMost(.88f)
     var coordinates by remember {mutableStateOf<LayoutCoordinates?>(null)}
     val crop=rememberGraphicsLayer()
-    val radius=with(LocalDensity.current) {(if(navigation)18.dp else 14.dp).toPx()}
+    val sharpCrop=rememberGraphicsLayer()
+    val radius=with(LocalDensity.current) {((if(navigation)4f+14f*(1f-transparency) else 3f+12f*(1f-transparency)).dp).toPx()}
     val bleed=ceil(radius*2).toInt()
     val effect=remember(radius) {BlurEffect(radius,radius,TileMode.Clamp)}
     val lens=remember {if(Build.VERSION.SDK_INT>=33) runCatching {android.graphics.RuntimeShader(OdifyGlassLens.source)}.getOrNull() else null}
+    val sharpLens=remember {if(Build.VERSION.SDK_INT>=33) runCatching {android.graphics.RuntimeShader(OdifyGlassLens.source)}.getOrNull() else null}
     val lensCache=remember {OdifyLensCache()}
     clip(shape).onGloballyPositioned {coordinates=it}.drawWithContent {
         @Suppress("UNUSED_VARIABLE") val frame=backdrop.frame
@@ -71,20 +73,29 @@ fun Modifier.odifyGlass(backdrop: OdifyBackdrop, shape: Shape,glow:Color=Color.T
                 val corner=(outline as? Outline.Rounded)?.roundRect?.topLeftCornerRadius?.x ?: size.height/2
                 val rightPx=rightWidth.toPx();val gapPx=gap.toPx()
                 val leftCorner=(shape as? OdifyDropletShape)?.leftRadius(size.height) ?: corner
-                if(lensCache.size!=size || lensCache.corner!=corner || lensCache.split!=split || lensCache.right!=rightPx || lensCache.gap!=gapPx || lensCache.leftCorner!=leftCorner) {
-                lens.setFloatUniform("origin",bleed.toFloat(),bleed.toFloat())
-                lens.setFloatUniform("bounds",size.width,size.height)
-                lens.setFloatUniform("corner",corner.coerceAtMost(size.height/2))
-                lens.setFloatUniform("depth",11.dp.toPx())
-                lens.setFloatUniform("leftCorner",leftCorner)
-                lens.setFloatUniform("strength",8.dp.toPx())
-                lens.setFloatUniform("split",split.coerceIn(0f,1f))
-                lens.setFloatUniform("rightWidth",rightPx)
-                lens.setFloatUniform("gap",gapPx)
+                if(lensCache.size!=size || lensCache.corner!=corner || lensCache.split!=split || lensCache.right!=rightPx || lensCache.gap!=gapPx || lensCache.leftCorner!=leftCorner || lensCache.radius!=radius) {
+                fun configure(shader:android.graphics.RuntimeShader,edgePass:Float) {
+                    shader.setFloatUniform("origin",bleed.toFloat(),bleed.toFloat())
+                    shader.setFloatUniform("bounds",size.width,size.height)
+                    shader.setFloatUniform("corner",corner.coerceAtMost(size.height/2))
+                    shader.setFloatUniform("depth",12.dp.toPx())
+                    shader.setFloatUniform("leftCorner",leftCorner)
+                    shader.setFloatUniform("strength",10.dp.toPx())
+                    shader.setFloatUniform("split",split.coerceIn(0f,1f))
+                    shader.setFloatUniform("rightWidth",rightPx)
+                    shader.setFloatUniform("gap",gapPx)
+                    shader.setFloatUniform("edgePass",edgePass)
+                }
+                configure(lens,0f)
                 lensCache.effect=android.graphics.RenderEffect.createChainEffect(
                     android.graphics.RenderEffect.createRuntimeShaderEffect(lens,"content"),
                     android.graphics.RenderEffect.createBlurEffect(radius,radius,android.graphics.Shader.TileMode.CLAMP)).asComposeRenderEffect()
-                lensCache.size=size;lensCache.corner=corner;lensCache.split=split;lensCache.right=rightPx;lensCache.gap=gapPx;lensCache.leftCorner=leftCorner
+                if(sharpLens!=null) {
+                    configure(sharpLens,1f)
+                    lensCache.sharpEffect=android.graphics.RenderEffect.createRuntimeShaderEffect(sharpLens,"content").asComposeRenderEffect()
+                }
+                lensCache.size=size;lensCache.corner=corner;lensCache.split=split;lensCache.right=rightPx
+                lensCache.gap=gapPx;lensCache.leftCorner=leftCorner;lensCache.radius=radius
                 }
                 crop.renderEffect=lensCache.effect
             } else crop.renderEffect=effect
@@ -98,14 +109,25 @@ fun Modifier.odifyGlass(backdrop: OdifyBackdrop, shape: Shape,glow:Color=Color.T
                 }
             }
             translate(-bleed.toFloat(),-bleed.toFloat()) {drawLayer(crop)}
+            // A second GPU layer samples the *unblurred* live page at the rim.
+            // Refracting only the blurred input erases the details that reveal glass.
+            if(Build.VERSION.SDK_INT>=33 && lensCache.sharpEffect!=null) {
+                sharpCrop.renderEffect=lensCache.sharpEffect
+                sharpCrop.record(size=IntSize(ceil(size.width).toInt()+bleed*2,
+                    ceil(size.height).toInt()+bleed*2)) {
+                    drawRect(OdifyPalette.background)
+                    clipRect {translate(bleed-offset.x,bleed-offset.y) {drawLayer(backdrop.layer)}}
+                }
+                translate(-bleed.toFloat(),-bleed.toFloat()) {drawLayer(sharpCrop)}
+            }
         } else drawRect(Color(0xE82B2E35))
         // A mild neutral tint preserves the blurred artwork's actual colors.
         drawRect(Color.Black.copy(alpha=shade))
         drawRect(Brush.linearGradient(listOf(Color.White.copy(alpha=.045f+(.72f-transparency)*.04f),
             Color.White.copy(alpha=.015f),Color.White.copy(alpha=.025f)),
             start=Offset.Zero,end=Offset(size.width,size.height)))
-        if(glow.alpha>0f) drawRect(Brush.radialGradient(listOf(glow.copy(alpha=.28f),
-            glow.copy(alpha=.09f),Color.Transparent),
+        if(glow.alpha>0f) drawRect(Brush.radialGradient(listOf(glow.copy(alpha=.13f),
+            glow.copy(alpha=.035f),Color.Transparent),
             center=Offset(size.width*.22f,size.height*.8f),radius=size.width*.85f))
         drawContent()
     }.border(.45.dp,Brush.verticalGradient(listOf(Color.White.copy(alpha=.22f),
@@ -126,6 +148,7 @@ internal object OdifyGlassLens {
         uniform float split;
         uniform float rightWidth;
         uniform float gap;
+        uniform float edgePass;
         float capsule(float2 p,float2 center,float2 halfSize,float r) {
             float2 q=abs(p-center)-halfSize+r;
             return length(max(q,0.0))+min(max(q.x,q.y),0.0)-r;
@@ -160,6 +183,10 @@ internal object OdifyGlassLens {
             half4 c=content.eval(coord+bend);
             c.r=content.eval(coord+bend*0.98).r;
             c.b=content.eval(coord+bend*1.02).b;
+            if(edgePass>0.5) {
+                float opacity=pow(rim,1.4)*0.78;
+                return half4(c.rgb*half(opacity),half(opacity));
+            }
             float fresnel=pow(clamp(1.0-inward/(depth*1.8),0.0,1.0),5.0);
             float facing=dot(n,normalize(float2(-0.65,-0.76)));
             float glare=pow(max(facing,0.0),3.0)*0.27+pow(max(-facing,0.0),4.0)*0.09;
@@ -178,5 +205,7 @@ private class OdifyLensCache {
     var split=Float.NaN
     var right=Float.NaN
     var gap=Float.NaN
+    var radius=Float.NaN
     var effect:RenderEffect?=null
+    var sharpEffect:RenderEffect?=null
 }

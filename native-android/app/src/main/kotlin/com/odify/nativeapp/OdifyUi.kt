@@ -17,6 +17,7 @@ import androidx.compose.animation.core.updateTransition
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.keyframes
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -805,7 +806,7 @@ private fun OdifyMiniPlayer(
     val measuredArtist=remember(song.artist,titleMeasurer,artistStyle){titleMeasurer.measure(song.artist,style=artistStyle,maxLines=1,softWrap=false)}
     val artistWidth=with(LocalDensity.current){measuredArtist.size.width.toDp()}
     val surfaceProgress by animateFloatAsState(if(compact)0f else 1f,
-        spring(dampingRatio=.88f,stiffness=650f,visibilityThreshold=.001f),label="droplet-split")
+        tween(720,easing=CubicBezierEasing(.22f,.12f,.26f,1f)),label="droplet-split")
     val split=surfaceProgress.coerceIn(0f,1f)
     val lifecycle=androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
     var visible by remember {mutableStateOf(lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED))}
@@ -850,7 +851,7 @@ private fun OdifyMiniPlayer(
         val motionPx=with(density){(1.1.dp*morphStrength*(1f-fluidStage(split,0f,.20f)+fluidStage(split,.84f,1f))).toPx()}
         val shape=remember(split,rightPx,gapPx,morph.value,motionPx){OdifyDropletShape(split,rightPx,gapPx,morph.value,motionPx)}
         Box(Modifier.width(width).height(height).onGloballyPositioned{coordinates=it}
-            .graphicsLayer {scaleX=1f+wobble.value*.012f+tension.value*.018f;scaleY=1f-wobble.value*.018f-tension.value*.024f}
+            .graphicsLayer {scaleX=1f+wobble.value*.006f+tension.value*.008f;scaleY=1f-wobble.value*.010f-tension.value*.012f}
             .shadow(9.dp,shape,ambientColor=glow.copy(alpha=.25f),spotColor=glow.copy(alpha=.22f))
             .odifyGlass(backdrop,shape,glow,split,controlsWidth,gap)
             .drawBehind {
@@ -867,7 +868,7 @@ private fun OdifyMiniPlayer(
                 }
             }
             .combinedClickable(interactionSource=remember {MutableInteractionSource()},indication=null,
-                onClick={onCompactChange(!compact);pulseSurface()},onLongClick={pulseSurface()})
+                onClick={onCompactChange(!compact)},onLongClick={pulseSurface()})
             .pointerInput(Unit) {
                 var drag=0f
                 detectVerticalDragGestures(onDragStart={drag=0f},onDragCancel={drag=0f},

@@ -13,6 +13,19 @@ from pathlib import Path
 spec=importlib.util.spec_from_file_location('album_history_music',Path(__file__).with_name('history_music.py'))
 m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
 READY={'DOWNLOADED_VERIFIED','REUSED_LOCAL','REUSED_HISTORY'}
+
+def manager_state(root,rows,paused=False,detail='Downloading'):
+    m.w.write_cache(root/'manager_status.json',dict(worker_pid=__import__('os').getpid(),paused=paused,
+        updated_at=datetime.now(timezone.utc).isoformat(),counts=dict(collections.Counter(r['status'] for r in rows)),
+        total=len(rows),detail=detail,drive_upload=False))
+
+def await_resume(root,rows):
+    while True:
+        path=root/'control.json'
+        paused=bool(json.loads(path.read_text('utf-8-sig')).get('paused',False)) if path.exists() else False
+        manager_state(root,rows,paused,'Paused; completed files preserved' if paused else 'Downloading')
+        if not paused:return
+        time.sleep(2)
 # These IDs are catalog hashes, not Apple IDs. Use the aliases already loaded
 # from album metadata instead of making two doomed iTunes lookups per song.
 m.w.variants=lambda row,root:row.get('aliases') or [(row['artist'],row['title'])]
@@ -208,28 +221,35 @@ def run(args):
         print('WAIT MONTHLY DOWNLOAD',args.wait_pid,flush=True);bg.wait_existing(args.root,args.wait_pid,True)
     with m.w.single_instance(args.root):
         rows=json.loads((args.root/'chart_status.json').read_text('utf-8'))['tracks']
+        await_resume(args.root,rows)
         reuse_history(rows,args.root,args.history);m.reuse(args.root,rows,args.external);persist(args.db,rows)
         if args.enrich_runtimes:enrich_missing(args.db,args.root,rows)
-        if source_paused(args.history):
+        if source_paused(args.history) or source_paused(args.root):
             cached_links(rows,args.root,args.history)
             m.save(args.root,rows,'Audio source requested verification; metadata/cached links saved, external only')
             persist(args.db,rows)
+            manager_state(args.root,rows,detail='Source verification required; no new audio requests')
             print('AUDIO PAUSED: monthly source requested verification; no new audio requests or Drive upload',flush=True)
             return
         count=0
         while any(r['status'] in ('QUEUED','LINK_SELECTED','DOWNLOADING') and r.get('duration_ms') for r in rows):
+            await_resume(args.root,rows)
             if args.limit and count>=args.limit:break
             free=__import__('shutil').disk_usage(args.root).free
             if free<2*1024**3:
                 print('PAUSED: external disk headroom below 2 GiB',flush=True);break
-            attempted=min(20,args.limit-count) if args.limit else 20
+            # No queued transfer behind the active workers: a pause takes effect
+            # as soon as the currently active files finish.
+            attempted=min(args.workers,args.limit-count) if args.limit else args.workers
             apply_album_runtimes(args.root,rows)
             m.run_download(args.root,rows,attempted,args.workers)
             persist(args.db,rows)
             count+=attempted
+            manager_state(args.root,rows)
             if any(m.w.access_blocked(r.get('error','')) and not m.w.age_restricted(r.get('error','')) for r in rows):
                 print('SOURCE PAUSED: no VPN rotation, cookie export or challenge bypass',flush=True);break
         m.save(args.root,rows,'Album audio queue saved; external only');persist(args.db,rows)
+        manager_state(args.root,rows,detail='Stopped; inspect held rows or resume queue')
 
 def main():
     for stream in (sys.stdout,sys.stderr):
