@@ -1,6 +1,6 @@
 """Monthly chart audio queue: reuse originals, download missing, keep month receipts."""
 from __future__ import annotations
-import argparse,collections,csv,hashlib,importlib.util,json,os,re,shutil,sqlite3,time
+import argparse,collections,csv,hashlib,importlib.util,json,os,re,shutil,sqlite3,sys,time
 from concurrent.futures import ThreadPoolExecutor,as_completed
 from pathlib import Path
 from types import SimpleNamespace

@@ -84,3 +84,45 @@ Offline regressions after the audio-request feature: 110 script tests and 50 V4.
 tests passed. Collector tests previously passed (16); Android request/URL/cache
 tests are included in the native build and device suite. Private databases,
 tokens, source caches, music files and APKs remain outside Git.
+
+## External-only continuation and album audio (2026-10-25)
+
+The subsequent authorized resume reached 1,853 newly downloaded recordings,
+270 reused originals and 12 recordings reused across history (2,135 ready).
+The remaining chart queue includes 434 queued, seven link-selected, 111 without
+reference metadata and 72 held entries. YouTube again returned bot-verification
+and 403 errors, so fresh audio extraction paused. These are incomplete counts,
+not a claim that all 2,759 chart songs were downloaded.
+
+The user explicitly deferred further Drive upload until later, after VPN use.
+The running local finalizer and saved resume command have no Drive configuration
+or upload step. Already uploaded files/receipts remain unchanged. No VPN server
+rotation, cookie export or authentication-challenge workaround is performed.
+
+The user then authorized album-track audio. `tools/v46/album_music.py` prepares
+cataloged, chart-associated albums released from 2024-01-01 through 2026-10-25,
+including Apple and KR/JP supplemental album links. This is not every album
+released worldwide. The initial combined queue contains 1,878 albums and 11,513
+distinct recordings. Future releases and pre-2024 albums are excluded. The
+year/month folders use album release month; repeated recordings reuse verified
+bytes, with each album retaining its own track manifest and playlist reference.
+
+Album audio is stored under `D:\Odify\Albums\YYYY\MM\Artist - Album [id]\Audio`.
+The external queue's `album_scope.json`, `chart_status.json`, album JSON and
+per-album download receipts expose missing metadata/links/files. Selected links
+and transfer evidence live in the separate `album_audio_evidence` SQLite table;
+existing MASTER/source approvals are never promoted or overwritten by this queue.
+The shared collector uses matching duration/title, rejects alternate/live uploads
+and prefers official then lyrics candidates according to the user's policy.
+
+The supervisor first reuses checksum-verified chart/original files, enriches
+missing runtimes from catalog metadata, and checks the chart source restriction
+before requesting new audio. If gated, it can still reconcile cached candidates
+without network extraction, save the DB and exit paused. Album metadata work is
+independent of the chat. The disk must stay connected and the PC awake; a stopped
+process is not described as running. New transfers reserve 2 GiB of disk space.
+The source restriction must be cleared before new album audio can proceed.
+
+The V4.6 regression suite now passes 55 cases, including album cutoff/dedup,
+checksum reuse, changed-file protection, preserved existing links, global source
+gates versus per-track age gates, and cache-only selection without source calls.

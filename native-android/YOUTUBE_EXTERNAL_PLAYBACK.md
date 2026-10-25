@@ -15,7 +15,7 @@ origin/Referer. No extracted stream URL or ReVanced account is used.
 
 The service owns the WebView across Activity recreation; the renderer sits
 behind the native artwork UI. A foreground mediaPlayback service, Android
-MediaSession, media notification, audio focus and bounded playback wake lock
+MediaSession, media notification, WebView-managed audio focus and bounded playback wake lock
 are implemented to support background playback. The service is not restarted
 after process death or force-stop. Actual background/screen-off playback still
 requires device verification; a foreground service alone does not prove that
@@ -99,8 +99,10 @@ Android 13+, then draws sharp foreground controls. Android 12 uses blur without
 the lens. Mini-player and navigation retain the same artwork-derived glow.
 The full-player lower surface uses the same glass modifier.
 
-The expanded mini-player has a title-measured information lobe and a fixed
-120dp transport lobe. The information lobe has a capped title width and marquee;
+The expanded mini-player has a title-measured information lobe at the left
+screen inset and a fixed 120dp transport lobe at the right screen inset. A short
+title increases the space between the lobes rather than centering their group.
+The information lobe has a capped title width and clipped marquee;
 the heart sits beside that text. Transport controls are centered in their own
 lobe, independently of weighted text. Expansion keeps the same cover/text/play
 nodes mounted. A continuous contour pinches to zero before a gap opens, with
@@ -108,6 +110,15 @@ the reverse sequence on collapse. A short touch/release tension effect starts
 immediately. While playing in the foreground, the left surface (compact surface
 when collapsed) morphs subtly without moving its text or controls. Idle/background
 states stop that loop; disabled system animations disable the continuous effect.
+
+Version 33 keeps the top and bottom of both lobes aligned throughout playback;
+only the information lobe's corner curvature changes. The compact transport
+region is at least one capsule-height wide, preventing an intersecting cap.
+It also removes a second service audio-focus request. Real-device logs showed
+Chromium's focus gain triggering LOSS on that service listener, which paused
+the same video at 187ms; tapping Play reversed that focus conflict. Chromium
+now owns focus for the media element, while the service retains headphone
+disconnect handling and the native Media3 player is paused before web playback.
 
 References are visual/implementation research, not bundled web dependencies:
 [GlassiFy](https://github.com/Saviru/GlassiFy),
@@ -130,6 +141,18 @@ The Compose path and AGSL code here are original implementations.
   background playback followed by Drive handoff. Their execution and visual
   review are pending the user's next device-review window. Do not describe
   unexecuted tests as successful background playback.
+- Version 32 device follow-up: five existing playback/storage regressions passed.
+  The contour assertion flipped 36 raster edge pixels at a near-zero gap; the
+  strengthened test distinguishes a lost interior area from one-pixel edge
+  rounding. The YouTube focus conflict and mismatched lobe heights described
+  above were reproduced. Version 34 contains the focus/height fixes and opposite
+  edge placement. Its permanent signature is verified; 39 JVM tests, compilation
+  and seven emulator instrumentation cases passed (two lens/contour plus five
+  playback/storage regressions). The user's phone was disconnected before the
+  corrected build could be installed, so actual YouTube background playback,
+  automatic Drive handoff and the revised visual layout remain unverified on
+  that phone. APK and a hash-pinned data-preserving installer are archived in
+  the external Android/Odify-v34 folder for the next connection.
 
 References: [Android WebView versus Custom Tabs](https://developer.android.com/develop/ui/views/layout/webapps),
 [WebView provider requirements](https://chromium.googlesource.com/chromium/src.git/+/master/android_webview/docs/webview-providers.md),
