@@ -47,7 +47,10 @@ fun Modifier.recordOdifyBackdrop(backdrop: OdifyBackdrop): Modifier =
 
 /** Replays the real page region through a bounded blur layer; foreground stays sharp. */
 fun Modifier.odifyGlass(backdrop: OdifyBackdrop, shape: Shape,glow:Color=Color.Transparent,split:Float=0f,
-    rightWidth:Dp=120.dp,gap:Dp=8.dp): Modifier = composed {
+    rightWidth:Dp=120.dp,gap:Dp=8.dp,navigation:Boolean=false): Modifier = composed {
+    val preferences=LocalOdifyGlassPreferences.current
+    val transparency=(if(navigation)preferences?.navigation else preferences?.player) ?: .72f
+    val shade=(.035f+1.08f*(1f-transparency)*(1f-transparency)).coerceAtMost(.88f)
     var coordinates by remember {mutableStateOf<LayoutCoordinates?>(null)}
     val crop=rememberGraphicsLayer()
     val radius=with(LocalDensity.current) {24.dp.toPx()}
@@ -95,8 +98,8 @@ fun Modifier.odifyGlass(backdrop: OdifyBackdrop, shape: Shape,glow:Color=Color.T
             translate(-bleed.toFloat(),-bleed.toFloat()) {drawLayer(crop)}
         } else drawRect(Color(0xE82B2E35))
         // A mild neutral tint preserves the blurred artwork's actual colors.
-        drawRect(Color.Black.copy(alpha=.12f))
-        drawRect(Brush.linearGradient(listOf(Color.White.copy(alpha=.14f),
+        drawRect(Color.Black.copy(alpha=shade))
+        drawRect(Brush.linearGradient(listOf(Color.White.copy(alpha=.14f+(.72f-transparency)*.08f),
             Color.White.copy(alpha=.015f),Color.White.copy(alpha=.07f)),
             start=Offset.Zero,end=Offset(size.width,size.height)))
         if(glow.alpha>0f) drawRect(Brush.radialGradient(listOf(glow.copy(alpha=.28f),

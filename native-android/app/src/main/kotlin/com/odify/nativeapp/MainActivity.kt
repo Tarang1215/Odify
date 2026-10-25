@@ -68,7 +68,7 @@ class MainActivity : ComponentActivity() {
                 // Surface keeps inherited text/icons readable on every route.
                 Surface(Modifier.fillMaxSize(), color = OdifyPalette.background,
                     contentColor = OdifyPalette.text) {
-                    NativeOdify()
+                    OdifyGlassPreferencesProvider {NativeOdify()}
                 }
             }
         }

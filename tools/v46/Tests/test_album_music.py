@@ -66,4 +66,22 @@ class AlbumMusicTests(unittest.TestCase):
                 m.cached_links([row],root,root)
             self.assertEqual('QUEUED',row['status'])
 
+    def test_proven_recovery_acknowledges_only_prior_errors(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);error=dict(id='old',error="Sign in to confirm you're not a bot")
+            (root/'chart_status.json').write_text(json.dumps(dict(tracks=[error])))
+            fingerprint=m.m.hashlib.sha256((error['id']+'|'+error['error']).encode()).hexdigest()
+            (root/'source_access.json').write_text(json.dumps(dict(acknowledged_errors=[fingerprint])))
+            self.assertFalse(m.source_paused(root))
+            (root/'chart_status.json').write_text(json.dumps(dict(tracks=[error,dict(id='new',error=error['error'])])))
+            self.assertTrue(m.source_paused(root))
+
+    def test_runtime_cache_never_rewrites_verified_audio(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);(root/'runtime_metadata.json').write_text(json.dumps(dict(one=dict(duration_ms=180000),two=dict(duration_ms=200000))))
+            rows=[dict(id='one',duration_ms=0,status='NEED_METADATA'),dict(id='two',duration_ms=180000,status='DOWNLOADED_VERIFIED')]
+            m.apply_album_runtimes(root,rows)
+            self.assertEqual('QUEUED',rows[0]['status']);self.assertEqual(180000,rows[0]['duration_ms'])
+            self.assertEqual('DOWNLOADED_VERIFIED',rows[1]['status']);self.assertEqual(180000,rows[1]['duration_ms'])
+
 if __name__=='__main__':unittest.main()

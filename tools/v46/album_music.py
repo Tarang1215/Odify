@@ -99,10 +99,23 @@ def reuse_history(rows,root,history):
         if row.get('duration_ms') and source.get('duration_ms') and abs(row['duration_ms']-source['duration_ms'])>5000:continue
         m.place(root,row,path);row.update(status='REUSED_HISTORY',duration_ms=row.get('duration_ms') or source.get('duration_ms',0),error='',reused_from=str(path))
 
-def enrich_missing(db,root,rows):
+def apply_album_runtimes(root,rows):
+    path=root/'runtime_metadata.json'
+    if not path.exists():return
+    data=json.loads(path.read_text('utf-8'))
+    for row in rows:
+        found=data.get(row['id'])
+        if not found or row.get('duration_ms'):continue
+        row.update(duration_ms=found['duration_ms'],artwork=row.get('artwork') or found.get('artwork',''),duration_source=found.get('source',''))
+        if row['status']=='NEED_METADATA':row.update(status='QUEUED',error='')
+
+def enrich_missing(db,root,rows,concurrent=False):
     """Catalog metadata only; never asks the gated audio source for a stream."""
     con=m.a.h.connect(db)
     api=m.a.Apple(m.ROOT/'.local/history2024/album-runtime-cache')
+    cache_path=root/'runtime_metadata.json'
+    runtimes=json.loads(cache_path.read_text('utf-8')) if cache_path.exists() else {}
+    apply_album_runtimes(root,rows)
     pending=[r for r in rows if not r.get('duration_ms') and r['status']=='NEED_METADATA']
     for i,row in enumerate(pending,1):
         try:
@@ -118,16 +131,23 @@ def enrich_missing(db,root,rows):
                 row.update(duration_ms=int(selected['trackTimeMillis']),status='QUEUED',error='',
                     artwork=row.get('artwork') or selected.get('artworkUrl100',''),
                     duration_source=selected.get('trackViewUrl','itunes lookup'))
+                runtimes[row['id']]=dict(duration_ms=row['duration_ms'],artwork=row['artwork'],source=row['duration_source'])
             print('ALBUM RUNTIME',i,'/',len(pending),row['id'],row['status'],flush=True)
         except Exception as error:print('ALBUM METADATA DEFER',row['id'],str(error)[-150:],flush=True)
         if i%25==0 or i==len(pending):
-            m.save(root,rows,'Album runtime metadata enrichment; audio access may be paused');persist(db,rows)
+            m.w.write_cache(cache_path,runtimes)
+            m.w.write_cache(root/'runtime_progress.json',dict(processed=i,total=len(pending),resolved=len(runtimes),updated_at=datetime.now(timezone.utc).isoformat()))
+            if not concurrent:
+                m.save(root,rows,'Album runtime metadata enrichment; audio access may be paused');persist(db,rows)
     con.close()
 
 def source_paused(history):
     path=history/'chart_status.json'
     if not path.exists():return False
-    return any(m.w.access_blocked(r.get('error','')) and not m.w.age_restricted(r.get('error',''))
+    health=history/'source_access.json'
+    acknowledged=set(json.loads(health.read_text('utf-8')).get('acknowledged_errors',[])) if health.exists() else set()
+    return any(m.hashlib.sha256((r.get('id','')+'|'+r.get('error','')).encode()).hexdigest() not in acknowledged
+               and m.w.access_blocked(r.get('error','')) and not m.w.age_restricted(r.get('error',''))
                for r in json.loads(path.read_text('utf-8'))['tracks'])
 
 def cached_links(rows,root,history):
@@ -163,6 +183,10 @@ def cached_links(rows,root,history):
 
 def run(args):
     args.root.mkdir(parents=True,exist_ok=True)
+    if args.metadata_only:
+        rows=json.loads((args.root/'chart_status.json').read_text('utf-8'))['tracks']
+        enrich_missing(args.db,args.root,rows,concurrent=True)
+        return
     if args.expand_db:
         # Bounded retry of cataloged album pages; no new unrelated artist crawl.
         result=subprocess.run([sys.executable,'-u','scripts/odify_recent_albums.py','--db',str(args.db),'--catalog-only','--retry-incomplete'],cwd=m.ROOT)
@@ -190,6 +214,7 @@ def run(args):
             if free<2*1024**3:
                 print('PAUSED: external disk headroom below 2 GiB',flush=True);break
             attempted=min(20,args.limit-count) if args.limit else 20
+            apply_album_runtimes(args.root,rows)
             m.run_download(args.root,rows,attempted,args.workers)
             persist(args.db,rows)
             count+=attempted
@@ -209,6 +234,7 @@ def main():
     p.add_argument('--workers',type=int,choices=range(1,5),default=4);p.add_argument('--limit',type=int,default=0)
     p.add_argument('--prepare-only',action='store_true');p.add_argument('--expand-db',action='store_true')
     p.add_argument('--enrich-runtimes',action='store_true')
+    p.add_argument('--metadata-only',action='store_true',help='Produce runtime metadata without locking or replacing the audio queue')
     args=p.parse_args();date.fromisoformat(args.cutoff)
     import os
     kernel=None

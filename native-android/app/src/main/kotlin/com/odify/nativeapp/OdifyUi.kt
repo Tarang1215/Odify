@@ -710,7 +710,7 @@ private fun OdifyBottomBar(
     ) {
         Row(
             Modifier.widthIn(max = 480.dp).fillMaxWidth().height(58.dp)
-                .odifyGlass(backdrop,RoundedCornerShape(21.dp),glow)
+                .odifyGlass(backdrop,RoundedCornerShape(21.dp),glow,navigation=true)
                 .selectableGroup().padding(horizontal = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -1280,7 +1280,9 @@ private fun OdifyProfile(
                     color = grey, fontSize = 11.sp)
             }
         }
-        Spacer(Modifier.height(33.dp))
+        Spacer(Modifier.height(24.dp))
+        OdifyGlassSettingsCard()
+        Spacer(Modifier.height(28.dp))
         Text("음악 소스 및 연결", color = ink, fontSize = 14.sp,
             fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.height(13.dp))

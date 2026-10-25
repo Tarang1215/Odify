@@ -102,6 +102,8 @@ fun OdifyNowPlaying(
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val playerBackdrop=rememberOdifyBackdrop()
+    val glassTransparency=LocalOdifyGlassPreferences.current?.player ?: .72f
+    val glassShade=(.72f-glassTransparency)*.36f
     var dragOffset by remember { mutableFloatStateOf(0f) }
     val threshold = with(LocalDensity.current) { 125.dp.toPx() }
     val scrollState = rememberScrollState()
@@ -191,7 +193,9 @@ fun OdifyNowPlaying(
             fallbackKey = song.id.hashCode(),muted=false,
             contentScale = androidx.compose.ui.layout.ContentScale.FillBounds)
         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(
-            Color(0x24101216), Color(0x44101216), Color(0xB8101216)))))
+            Color(0xFF101216).copy(alpha=(.14f+glassShade).coerceIn(.04f,.70f)),
+            Color(0xFF101216).copy(alpha=(.27f+glassShade).coerceIn(.08f,.78f)),
+            Color(0xFF101216).copy(alpha=(.72f+glassShade).coerceIn(.50f,.94f))))))
         }
         BoxWithConstraints(
             Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()
