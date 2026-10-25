@@ -437,23 +437,8 @@ private fun NativeOdify() {
         }
     }
 
-    // Prime waveform caches while the user browses the library, rather than
-    // starting a multi-minute PCM decode when Now Playing is first opened.
-    // Analyze one track at a time off the UI thread; prioritize the current
-    // track and cap work to protect large music libraries/battery.
-    LaunchedEffect(songs, playback.mediaId) {
-        val active = songs.firstOrNull { it.id == playback.mediaId }
-        // Never prefetch the entire remote collection. Only analyze the one
-        // currently requested Drive track, and keep that expensive read off UI.
-        // Streaming range playback must not cause a second unauthenticated
-        // full-track decode. Local files get true pre-analyzed waveforms.
-        val candidates = (listOfNotNull(active?.takeIf { it.sourceUri == null }) +
-            songs.filterNot { it.sourceUri != null || it.id == active?.id }).take(8)
-        for (track in candidates) {
-            OdifyWaveformRepository.load(context.applicationContext, track)
-            kotlinx.coroutines.yield()
-        }
-    }
+    // Now Playing uses the chosen design waveform patterns. Do not decode
+    // whole local songs in the background for an unused PCM waveform cache.
 
     // Connect only to our own foreground Media3 service. No vendor player init.
     DisposableEffect(Unit) {
