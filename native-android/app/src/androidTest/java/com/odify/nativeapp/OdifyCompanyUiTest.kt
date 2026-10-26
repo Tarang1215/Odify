@@ -138,6 +138,7 @@ class OdifyCompanyUiTest {
     }
     private fun waitFor(label:String):AccessibilityNodeInfo {
         repeat(50) {node(label)?.let {return it};Thread.sleep(100)}
+        capture("missing-ui")
         error("Missing UI: $label")
     }
     private fun tap(label:String,pause:Long=450) {
@@ -271,6 +272,12 @@ class OdifyCompanyUiTest {
             typeName("My renamed collection");tap("저장");waitFor("My renamed collection");capture("playlist-renamed")
             tap("플레이리스트 커버 변경");Thread.sleep(500)
             test.uiAutomation.executeShellCommand("input keyevent 4").close();Thread.sleep(450)
+            repeat(3) {
+                if(node("My renamed collection")==null) {
+                    test.uiAutomation.executeShellCommand("input keyevent 4").close();Thread.sleep(650)
+                }
+            }
+            waitFor("My renamed collection")
             main {screen.value="explore"}
             waitFor("한국 Top 100");tap("일본");waitFor("일본 Top 100")
             tap("미국");waitFor("미국 Top 100");capture("explore")

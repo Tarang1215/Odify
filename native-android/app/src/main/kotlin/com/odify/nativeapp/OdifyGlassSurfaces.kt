@@ -121,6 +121,7 @@ internal suspend fun odifyModalSnapshot(window:Window):OdifyModalSnapshot? {
 
 /** One retained glass surface grows from its control and returns on dismissal.
  * A single snapshot is shared for the whole gesture, including queue reorders. */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable internal fun OdifyGlassSheet(onDismiss:()->Unit,tint:Color=LocalOdifyModalTint.current,
     maxHeightFraction:Float=.82f,visible:Boolean=true,anchor:Offset?=null,content:@Composable ColumnScope.()->Unit) {
     val host=LocalView.current
@@ -141,31 +142,25 @@ internal suspend fun odifyModalSnapshot(window:Window):OdifyModalSnapshot? {
         }
     }
     if(!mounted)return
-    Dialog(onDismissRequest={if(visible)currentDismiss()},properties=DialogProperties(usePlatformDefaultWidth=false,decorFitsSystemWindows=false)) {
-        val view=LocalView.current
-        DisposableEffect(view) {
-            val window=(view.parent as? DialogWindowProvider)?.window
-            window?.setBackgroundDrawable(ColorDrawable(android.graphics.Color.TRANSPARENT))
-            window?.setDimAmount(0f)
-            window?.attributes=window?.attributes?.apply {windowAnimations=0}
-            onDispose {}
-        }
-        Box(Modifier.fillMaxSize()) {
-        Box(Modifier.matchParentSize().background(Color.Black.copy(alpha=.20f*progress.value))
-            .clickable(interactionSource=remember {MutableInteractionSource()},indication=null) {if(visible)currentDismiss()})
+    val density=LocalDensity.current
+    // Start at the final Material anchor: our glass morph owns the entrance,
+    // while Material still provides the tested window geometry and safe insets.
+    val state=remember(density) {SheetState(skipPartiallyExpanded=true,density=density,initialValue=SheetValue.Expanded)}
+    ModalBottomSheet(onDismissRequest={if(visible)currentDismiss()},sheetState=state,
+        modifier=Modifier.padding(horizontal=12.dp),containerColor=Color.Transparent,
+        scrimColor=Color.Black.copy(alpha=.20f*progress.value),tonalElevation=0.dp,
+        shape=RoundedCornerShape(30.dp),dragHandle=null,contentWindowInsets={WindowInsets(0,0,0,0)}) {
         val backdrop=rememberOdifyBackdrop()
         var origin by remember {mutableStateOf(Offset.Zero)}
-        val density=LocalDensity.current
         var panelSize by remember {mutableStateOf(IntSize.Zero)}
         val circlePx=with(density) {50.dp.toPx()}
         val radiusPx=with(density) {30.dp.toPx()}
         val p=progress.value
-        val shape=GenericShape {size,_ ->
-            addRoundRect(RoundRect(Rect(0f,0f,size.width,size.height),CornerRadius(
-                size.width/2+(radiusPx-size.width/2)*p,size.height/2+(radiusPx-size.height/2)*p)))
-        }
-        Box(Modifier.align(Alignment.BottomCenter).padding(start=12.dp,end=12.dp,bottom=bottomInset+10.dp)
-            .onGloballyPositioned {origin=it.positionOnScreen();panelSize=it.size}) {
+        val initialRadius=with(density) {minOf(panelSize.width,panelSize.height).toDp()/2}
+        // Outline.Rounded supplies the correct radius to the refraction shader;
+        // a generic path otherwise falls back to a giant circular lens.
+        val shape=RoundedCornerShape(30.dp+(initialRadius-30.dp)*(1-p))
+        Box(Modifier.onGloballyPositioned {origin=it.positionOnScreen();panelSize=it.size}) {
         Box(Modifier.fillMaxWidth().graphicsLayer {
             val width=panelSize.width.toFloat().coerceAtLeast(1f)
             val height=panelSize.height.toFloat().coerceAtLeast(1f)
@@ -201,7 +196,7 @@ internal suspend fun odifyModalSnapshot(window:Window):OdifyModalSnapshot? {
             }
         }
         }
-        }
+        Spacer(Modifier.height(bottomInset+10.dp))
     }
 }
 
