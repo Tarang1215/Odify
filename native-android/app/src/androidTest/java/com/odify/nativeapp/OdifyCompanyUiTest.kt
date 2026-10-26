@@ -47,7 +47,7 @@ class OdifyCompanyUiTest {
         val frame=OdifyModalSnapshot(source.asImageBitmap(),Offset.Zero,androidx.compose.ui.unit.IntSize(64,64),frost.asImageBitmap())
         val surface=OdifyModalRaster.surface(frame,Offset.Zero,androidx.compose.ui.unit.IntSize(64,64),10f,1f,.76f)
         assertEquals(255,android.graphics.Color.alpha(surface.getPixel(32,32)))
-        assertEquals(0,android.graphics.Color.alpha(surface.getPixel(0,0)))
+        assertEquals(255,android.graphics.Color.alpha(surface.getPixel(0,0)))
         assertTrue(android.graphics.Color.red(surface.getPixel(32,32)) in 30..220)
         surface.recycle();frost.recycle();source.recycle()
     }
@@ -184,6 +184,26 @@ class OdifyCompanyUiTest {
         assertTrue("Not clickable: $label",target?.performAction(AccessibilityNodeInfo.ACTION_CLICK)==true)
         Thread.sleep(pause)
     }
+    private fun waitForOpenSurface() {
+        // Older APKs have no readiness semantics; settle identically when profiling.
+        if(InstrumentationRegistry.getArguments().getString("benchmark")=="true") {Thread.sleep(950);return}
+        fun open(value:AccessibilityNodeInfo?):Boolean {
+            if(value==null)return false
+            if(value.stateDescription?.toString()=="열림")return true
+            for(i in 0 until value.childCount)if(open(value.getChild(i)))return true
+            return false
+        }
+        repeat(50) {if(open(test.uiAutomation.rootInActiveWindow))return;Thread.sleep(100)}
+        error("Glass surface did not finish opening")
+    }
+    private fun performancePhase(name:String?) {
+        if(InstrumentationRegistry.getArguments().getString("benchmark")!="true")return
+        fun shell(command:String)=android.os.ParcelFileDescriptor.AutoCloseInputStream(test.uiAutomation.executeShellCommand(command))
+            .use {it.bufferedReader().readText()}
+        if(name!=null)File(context.cacheDir,"company-performance-$name.txt")
+            .writeText(shell("dumpsys gfxinfo ${context.packageName} framestats"))
+        shell("dumpsys gfxinfo ${context.packageName} reset")
+    }
     private fun capture(name:String) {
         if(InstrumentationRegistry.getArguments().getString("screenshots")=="false")return
         val image=test.uiAutomation.takeScreenshot() ?: error("Screenshot unavailable")
@@ -310,20 +330,24 @@ class OdifyCompanyUiTest {
                 }
             }}
             waitFor("곡 옵션 열기");capture("player")
+            performancePhase(null)
             waitFor("음원 출처: Local")
             swipeFooter(true)
             waitFor("다음 곡: Track 1")
             capture("player-next")
             swipeFooter(false);waitFor("음원 출처: Local")
             swipeFooter(true);waitFor("다음 곡: Track 1")
+            performancePhase("footer")
             tap("가사 열기");waitFor("앨범커버 보기");Thread.sleep(300);capture("lyrics");tap("앨범커버 보기")
-            tap("곡 옵션 열기");waitFor("음원 교체");capture("player-options")
+            performancePhase("lyrics")
+            tap("곡 옵션 열기");waitFor("음원 교체");waitForOpenSurface();capture("player-options")
             if(!benchmark) {
                 val bounds=Rect();waitFor("플레이리스트에 추가").getBoundsInScreen(bounds)
                 assertTrue("Overflow should open beside its top button",bounds.centerY()<context.resources.displayMetrics.heightPixels/2)
             }
             back();Thread.sleep(400)
-            tap("다음 재생 열기");waitFor("Track 1 순서 이동");Thread.sleep(350)
+            performancePhase("options")
+            tap("다음 재생 열기");waitFor("Track 1 순서 이동");waitForOpenSurface()
             drag("Track 1 순서 이동","Track 3 순서 이동")
             main {
                 observedOrder=keys.value.take(4);observedMoves=moves
@@ -342,13 +366,14 @@ class OdifyCompanyUiTest {
             Thread.sleep(500)
             assertNull("Sheet must release its window after closing",node("대기열 닫기"))
             waitFor("다음 곡: Track 2");capture("next-track-updated")
+            performancePhase("queue")
             if(benchmark) {
                 main {assertEquals(0,plays);assertEquals(1,observedMoves)}
                 return
             }
             main {screen.value="player-empty"}
             waitFor("No lyrics yet")
-            tap("가사 열기");waitFor("가사 추가·수정");Thread.sleep(300);capture("lyrics-empty")
+            tap("가사 열기");waitFor("가사 추가·수정");waitForOpenSurface();capture("lyrics-empty")
             assertNull(node("전체 화면으로 보기"))
             back();Thread.sleep(500)
             main {sheet.value=false;screen.value="playlist"}
@@ -367,9 +392,9 @@ class OdifyCompanyUiTest {
             waitFor("한국 Top 100");tap("일본");waitFor("일본 Top 100")
             tap("미국");waitFor("미국 Top 100");capture("explore")
             main {screen.value="home"}
-            tap("A very long artist name with a collection for quiet evenings");waitFor("컬렉션 닫기");Thread.sleep(400);capture("home-collection")
+            tap("A very long artist name with a collection for quiet evenings");waitFor("컬렉션 닫기");waitForOpenSurface();capture("home-collection")
             tap("컬렉션 닫기");Thread.sleep(450)
-            tap("Odify Artist");waitFor("내 음악 1곡 · 더 많은 곡 60")
+            tap("Odify Artist");waitFor("내 음악 1곡 · 더 많은 곡 60");waitForOpenSurface()
             pullHandle(true);waitFor("New artist song 1");capture("artist-expanded")
             tap("New artist song 1")
             main {

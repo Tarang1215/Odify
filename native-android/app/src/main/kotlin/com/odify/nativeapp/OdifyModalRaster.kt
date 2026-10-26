@@ -41,7 +41,7 @@ internal object OdifyModalRaster {
     }
 
     fun surface(frame:OdifyModalSnapshot,origin:Offset,size:IntSize,cornerPx:Float,density:Float,transparency:Float):Bitmap {
-        val width=size.width.coerceAtMost(720).coerceAtLeast(1)
+        val width=size.width.coerceAtMost(480).coerceAtLeast(1)
         val scale=width.toFloat()/size.width.coerceAtLeast(1)
         val height=(size.height*scale).roundToInt().coerceAtLeast(1)
         val source=frame.image.asAndroidBitmap();val blurred=frame.frost.asAndroidBitmap()
@@ -62,8 +62,9 @@ internal object OdifyModalRaster {
             val qx=abs(dx)-width/2f+radius;val qy=abs(dy)-height/2f+radius
             val ox=max(qx,0f);val oy=max(qy,0f);val length=sqrt(ox*ox+oy*oy)
             val distance=length+min(max(qx,qy),0f)-radius
-            if(distance>0)continue
-            val inward=-distance
+            // The native shape clips the image. Keeping its full rectangle
+            // opaque avoids stretched transparent corners during expansion.
+            val inward=max(-distance,0f)
             val sourceX=startX+x*step;val sourceY=startY+y*step
             var color=sample(soft,sourceX,sourceY)
             var red=(color shr 16 and 255).toFloat();var green=(color shr 8 and 255).toFloat();var blue=(color and 255).toFloat()

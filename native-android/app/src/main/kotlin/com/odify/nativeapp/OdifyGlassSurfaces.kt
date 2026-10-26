@@ -43,6 +43,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import androidx.compose.ui.window.PopupPositionProvider
@@ -81,7 +82,7 @@ private tailrec fun Context.modalActivity():Activity?=when(this) {
 internal suspend fun odifyModalSnapshot(window:Window,transparency:Float=.76f):OdifyModalSnapshot? {
     val view=window.decorView
     if(view.width<=0 || view.height<=0)return null
-    val width=view.width.coerceAtMost(720)
+    val width=view.width.coerceAtMost(480)
     val bitmap=Bitmap.createBitmap(width,(view.height.toFloat()*width/view.width).roundToInt().coerceAtLeast(1),Bitmap.Config.ARGB_8888)
     val location=IntArray(2);view.getLocationOnScreen(location)
     val captured=suspendCancellableCoroutine<OdifyModalSnapshot?> {continuation ->
@@ -142,6 +143,7 @@ internal suspend fun odifyModalSnapshot(window:Window,transparency:Float=.76f):O
     var mounted by remember {mutableStateOf(false)}
     var backgroundReady by remember {mutableStateOf(false)}
     val progress=remember {Animatable(0f)}
+    val fullyOpen by remember {derivedStateOf {progress.value>=.999f}}
     val currentDismiss by rememberUpdatedState(onDismiss)
     LaunchedEffect(visible,source) {
         if(visible) {
@@ -184,7 +186,7 @@ internal suspend fun odifyModalSnapshot(window:Window,transparency:Float=.76f):O
         // full-size RenderEffects every frame. Only the outer GPU clip morphs.
         val shape=remember {RoundedCornerShape(30.dp)}
         Box(Modifier.onGloballyPositioned {origin=it.positionOnScreen();panelSize=it.size}) {
-        Box(Modifier.fillMaxWidth().graphicsLayer {
+        Box(Modifier.fillMaxWidth().semantics {stateDescription=if(fullyOpen)"열림" else "전환 중"}.graphicsLayer {
             val p=progress.value
             val width=panelSize.width.toFloat().coerceAtLeast(1f)
             val height=panelSize.height.toFloat().coerceAtLeast(1f)
@@ -287,6 +289,7 @@ internal suspend fun odifyModalSnapshot(window:Window,transparency:Float=.76f):O
     var mounted by remember {mutableStateOf(false)}
     var backgroundReady by remember {mutableStateOf(false)}
     val motion=remember {Animatable(0f)}
+    val fullyOpen by remember {derivedStateOf {motion.value>=.999f}}
     LaunchedEffect(expanded) {
         if(expanded) {
             if(!mounted) {backgroundReady=false;snapshot=source?.let {odifyModalSnapshot(it)};mounted=true}
@@ -307,6 +310,7 @@ internal suspend fun odifyModalSnapshot(window:Window,transparency:Float=.76f):O
         var origin by remember {mutableStateOf(Offset.Zero)}
         val shape=RoundedCornerShape(26.dp)
         Box(Modifier.width(310.dp).heightIn(max=LocalConfiguration.current.screenHeightDp.dp*.78f)
+            .semantics {stateDescription=if(fullyOpen)"열림" else "전환 중"}
             .onGloballyPositioned {origin=it.positionOnScreen()}.graphicsLayer {
                 transformOrigin=TransformOrigin(1f,0f);scaleX=.90f+.10f*motion.value;scaleY=.90f+.10f*motion.value
                 alpha=motion.value;this.shape=shape;clip=true
