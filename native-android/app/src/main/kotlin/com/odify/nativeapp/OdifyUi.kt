@@ -269,11 +269,21 @@ fun OdifyRoot(
     val context = androidx.compose.ui.platform.LocalContext.current
     val pageBackdrop = rememberOdifyBackdrop()
     val exploreRepository=remember {OdifyExploreRepository(context.applicationContext)}
+    val artistCatalog=remember {OdifyArtistCatalog(context.applicationContext)}
+    val discoveryCharts=remember {mutableStateMapOf<String,ExploreChart>()}
+    val discoveryTracks=remember(discoveryCharts.values.toList()) {
+        (0 until 100).flatMap {rank ->listOf("kr","jp","us").mapNotNull {discoveryCharts[it]?.tracks?.getOrNull(rank)}}
+    }
     val chartIndex by produceState(OdifyChartMatching.buildIndex(emptyList()),songs) {
         value=withContext(Dispatchers.Default) {OdifyChartMatching.buildIndex(songs)}
     }
     LaunchedEffect(exploreRepository) {
-        for(country in listOf("kr","jp","us")) exploreRepository.cached(country)
+        for(country in listOf("kr","jp","us")) exploreRepository.cached(country)?.let {discoveryCharts[country]=it}
+        for(country in listOf("kr","jp","us")) launch {
+            try {discoveryCharts[country]=exploreRepository.load(country)}
+            catch(cancel:kotlinx.coroutines.CancellationException) {throw cancel}
+            catch(_:Exception) { /* Cached charts remain available offline. */ }
+        }
     }
     val prefs = remember { context.getSharedPreferences("odify_native_ui", 0) }
     val playlistStore = remember { OdifyPlaylists(context.applicationContext) }
@@ -487,6 +497,11 @@ fun OdifyRoot(
                     onExplore = { navigateTo(OdifyTab.Explore) },
                     onSaveMix = ::saveMix,
                     onPlay = ::playList,
+                    catalogSongs=songs,
+                    discoveryTracks=discoveryTracks,
+                    loadArtistTracks=artistCatalog::tracks,
+                    onPlayOnline={track ->onExternalTrack(track.artist,track.title,track.id)},
+                    onArtistSearch={artist ->searchQuery=artist;navigateTo(OdifyTab.Search)},
                     playlists = playlists,
                     onPlaylistPlay = { list ->
                         val tracks = playlistStore.resolved(list, songs)

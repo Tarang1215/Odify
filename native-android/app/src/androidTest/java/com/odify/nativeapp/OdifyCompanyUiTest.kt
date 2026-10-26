@@ -34,6 +34,18 @@ class OdifyCompanyUiTest {
     private val context get()=test.targetContext
     private fun main(block:()->Unit)=test.runOnMainSync(block)
 
+    @Test fun artistCatalogRejectsOtherArtistsAndNonSongsAndDeduplicatesAlbums() {
+        val raw="""{"results":[
+          {"kind":"song","trackId":1,"trackName":"Song","artistName":"Vaundy","primaryGenreName":"J-Pop"},
+          {"kind":"song","trackId":2,"trackName":"SONG","artistName":"Vaundy"},
+          {"kind":"song","trackId":3,"trackName":"Unrelated","artistName":"Vaundy Tribute"},
+          {"kind":"music-video","trackId":4,"trackName":"Video","artistName":"Vaundy"},
+          {"kind":"song","trackId":5,"trackName":"Another song","artistName":"Vaundy"}]}"""
+        val tracks=OdifyArtistCatalog(context).decode(raw,"Vaundy")
+        assertEquals(listOf("Song","Another song"),tracks.map {it.title})
+        assertTrue(tracks.all {it.artwork.isEmpty()})
+    }
+
     @Test fun nativeQueueReorderKeepsCurrentPositionAndMakesMovedEntryNextWithoutPlaying() {
         main {
             val player=ExoPlayer.Builder(context).build()
@@ -148,6 +160,7 @@ class OdifyCompanyUiTest {
         Thread.sleep(pause)
     }
     private fun capture(name:String) {
+        if(InstrumentationRegistry.getArguments().getString("screenshots")=="false")return
         val image=test.uiAutomation.takeScreenshot() ?: error("Screenshot unavailable")
         File(context.cacheDir,"company-$name.png").outputStream().use {image.compress(Bitmap.CompressFormat.PNG,100,it)}
         image.recycle()
@@ -204,7 +217,24 @@ class OdifyCompanyUiTest {
         send(MotionEvent.ACTION_UP,end,began+340);Thread.sleep(550)
     }
 
+    private fun pullHandle(up:Boolean) {
+        val label=if(up)"전체 화면으로 펼치기" else "작은 창으로 접기"
+        val bounds=Rect();waitFor(label).getBoundsInScreen(bounds)
+        val start=bounds.centerY().toFloat()
+        val end=(start+if(up)-720 else 720).coerceIn(140f,context.resources.displayMetrics.heightPixels-180f)
+        val began=SystemClock.uptimeMillis()
+        fun send(action:Int,y:Float,at:Long) {
+            val event=MotionEvent.obtain(began,at,action,bounds.centerX().toFloat(),y,0)
+            event.source=android.view.InputDevice.SOURCE_TOUCHSCREEN
+            test.uiAutomation.injectInputEvent(event,true);event.recycle()
+        }
+        send(MotionEvent.ACTION_DOWN,start,began)
+        for(step in 1..24) {send(MotionEvent.ACTION_MOVE,start+(end-start)*step/24,began+step*16L);Thread.sleep(16)}
+        send(MotionEvent.ACTION_UP,end,began+400);Thread.sleep(500)
+    }
+
     @Test fun playerSheetsQueueDragPlaylistAndCountryChangesNeverInvokePlayback() {
+        val benchmark=InstrumentationRegistry.getArguments().getString("benchmark")=="true"
         val cover=File(context.cacheDir,"company-fixture-cover.png")
         val bitmap=Bitmap.createBitmap(400,400,Bitmap.Config.ARGB_8888)
         Canvas(bitmap).drawRect(0f,0f,400f,400f,Paint().apply {shader=LinearGradient(0f,0f,400f,400f,
@@ -221,6 +251,7 @@ class OdifyCompanyUiTest {
         var plays=0;var moves=0
         var observedOrder:List<String> = emptyList()
         var observedMoves=0
+        var onlineSelected:String?=null
         val noPlay:()->Unit={plays++}
         ActivityScenario.launch(MainActivity::class.java).use {scenario ->
             scenario.onActivity {activity -> activity.setContent {
@@ -239,8 +270,11 @@ class OdifyCompanyUiTest {
                             "explore" -> OdifyExplore(OdifyChartMatching.buildIndex(emptyList()),OdifyExploreRepository(context),{},
                                 {_,_->plays++},{plays++},{_,_->},{},{_,_->})
                             "home" -> Box(Modifier.fillMaxSize().statusBarsPadding()) {
-                                OdifyPersonalHome(fixture,false,listOf(OdifyMix("fixture","A very long artist name with a collection for quiet evenings",
-                                    "A long collection description that stays inside its glass surface",fixture)),emptyList(),{},{},{},{},{_,_->plays++},{},{})
+                                OdifyPersonalHome(fixture.take(1),false,listOf(OdifyMix("fixture","A very long artist name with a collection for quiet evenings",
+                                    "A long collection description that stays inside its glass surface",fixture)),emptyList(),{},{},{},{},{_,_->plays++},{},{},
+                                    catalogSongs=fixture.take(1),loadArtistTracks={artist ->(1..60).map {
+                                        ExploreTrack("online-$it","New artist song $it",artist,"",listOf("Pop"),it)
+                                    }},onPlayOnline={onlineSelected=it.id})
                             }
                         }
                         OdifyQueueDialog(queue.value,0,onMove={from,to ->
@@ -259,6 +293,10 @@ class OdifyCompanyUiTest {
             swipeFooter(true);waitFor("다음 곡: Track 1")
             tap("가사 열기");waitFor("앨범커버 보기");Thread.sleep(300);capture("lyrics");tap("앨범커버 보기")
             tap("곡 옵션 열기");waitFor("음원 교체");capture("player-options")
+            if(!benchmark) {
+                val bounds=Rect();waitFor("플레이리스트에 추가").getBoundsInScreen(bounds)
+                assertTrue("Overflow should open beside its top button",bounds.centerY()<context.resources.displayMetrics.heightPixels/2)
+            }
             back();Thread.sleep(400)
             tap("다음 재생 열기");waitFor("Track 1 순서 이동");Thread.sleep(350)
             drag("Track 1 순서 이동","Track 3 순서 이동")
@@ -266,11 +304,23 @@ class OdifyCompanyUiTest {
                 observedOrder=keys.value.take(4);observedMoves=moves
             }
             capture("queue")
+            if(!benchmark) {
+                val small=Rect();waitFor("대기열 닫기").getBoundsInScreen(small)
+                pullHandle(true);waitFor("작은 창으로 접기")
+                val full=Rect();waitFor("대기열 닫기").getBoundsInScreen(full)
+                assertTrue("Dragging up should expand the sheet toward the top",full.top<small.top-100)
+                capture("queue-expanded")
+                pullHandle(false);waitFor("전체 화면으로 펼치기")
+            }
             tap("대기열 닫기",90)
             assertNotNull("Sheet must remain mounted during its closing motion",node("대기열 닫기"))
             Thread.sleep(500)
             assertNull("Sheet must release its window after closing",node("대기열 닫기"))
             waitFor("다음 곡: Track 2");capture("next-track-updated")
+            if(benchmark) {
+                main {assertEquals(0,plays);assertEquals(1,observedMoves)}
+                return
+            }
             main {screen.value="player-empty"}
             waitFor("No lyrics yet")
             tap("가사 열기");waitFor("가사 추가·수정");Thread.sleep(300);capture("lyrics-empty")
@@ -293,8 +343,13 @@ class OdifyCompanyUiTest {
             tap("미국");waitFor("미국 Top 100");capture("explore")
             main {screen.value="home"}
             tap("A very long artist name with a collection for quiet evenings");waitFor("컬렉션 닫기");Thread.sleep(400);capture("home-collection")
+            tap("컬렉션 닫기");Thread.sleep(450)
+            tap("Odify Artist");waitFor("내 음악 1곡 · 더 많은 곡 60")
+            pullHandle(true);waitFor("New artist song 1");capture("artist-expanded")
+            tap("New artist song 1")
             main {
                 assertEquals(0,plays)
+                assertEquals("online-1",onlineSelected)
                 assertEquals(1,observedMoves)
                 assertEquals(listOf("entry:0","entry:2","entry:3","entry:1"),observedOrder)
             }

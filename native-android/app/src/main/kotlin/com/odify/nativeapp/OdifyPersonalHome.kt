@@ -14,6 +14,7 @@ import androidx.compose.ui.graphics.*
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.*
+import kotlinx.coroutines.CancellationException
 
 private val homeInk = OdifyPalette.text
 private val homeGrey = OdifyPalette.muted
@@ -24,12 +25,37 @@ fun OdifyPersonalHome(
     recent: List<OdifySong>, hasHistory: Boolean, mixes: List<OdifyMix>,
     playlists: List<OdifyPlaylist>, onProfile: () -> Unit, onExplore: () -> Unit,
     onSearch: () -> Unit, onLibrary: () -> Unit, onPlay: (List<OdifySong>, Int) -> Unit,
-    onSaveMix: (OdifyMix) -> Unit, onPlaylistPlay: (OdifyPlaylist) -> Unit
+    onSaveMix: (OdifyMix) -> Unit, onPlaylistPlay: (OdifyPlaylist) -> Unit,
+    catalogSongs:List<OdifySong> = recent+mixes.flatMap {it.songs},
+    discoveryTracks:List<ExploreTrack> = emptyList(),
+    loadArtistTracks:suspend (String)->List<ExploreTrack> = {emptyList()},
+    onPlayOnline:(ExploreTrack)->Unit = {},onArtistSearch:(String)->Unit = {}
 ) {
     var selectedMix by remember { mutableStateOf<OdifyMix?>(null) }
+    var artistTracks by remember {mutableStateOf<List<ExploreTrack>>(emptyList())}
+    var artistLoading by remember {mutableStateOf(false)}
+    var artistError by remember {mutableStateOf(false)}
+    var artistRetry by remember {mutableIntStateOf(0)}
+    val artistName=selectedMix?.key?.takeIf {it.startsWith("artist:")}?.removePrefix("artist:")
+    val latestArtistLoader by rememberUpdatedState(loadArtistTracks)
+    LaunchedEffect(artistName,artistRetry) {
+        artistTracks=emptyList();artistError=false;artistLoading=false
+        val name=artistName ?: return@LaunchedEffect
+        artistLoading=true
+        try {artistTracks=latestArtistLoader(name)}
+        catch(cancel:CancellationException) {throw cancel}
+        catch(_:Exception) {artistError=true}
+        finally {artistLoading=false}
+    }
+    val newTracks=remember(discoveryTracks,catalogSongs) {OdifyDiscovery.newTracks(discoveryTracks,catalogSongs)}
+    val moodMixes=remember(catalogSongs) {OdifyDiscovery.moods.associate {mood ->mood.key to
+        OdifyMix("mood:${mood.key}",mood.name,mood.description,
+            OdifySongPresentation.visible(catalogSongs).filter {OdifyDiscovery.matches(mood,listOf(it.genre))}.take(40))}}
+    val moodOnline=remember(newTracks) {OdifyDiscovery.moods.associate {mood ->mood.key to
+        newTracks.filter {OdifyDiscovery.matches(mood,it.genres)}.take(30)}}
     var category by remember {mutableStateOf("daily")}
     val hero = mixes.firstOrNull {it.key==category} ?: mixes.firstOrNull()
-    val artists=remember(recent,mixes) {(recent+mixes.flatMap {it.songs}).filter {it.artist.isNotBlank() && (it.id.startsWith("gdrive:") || it.id.startsWith("youtube:"))}
+    val artists=remember(recent,catalogSongs) {(recent+catalogSongs).distinctBy {it.id}.filter {it.artist.isNotBlank()}
         .groupBy {it.artist}.entries.take(8)}
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(22.dp, 14.dp, 22.dp, 160.dp)) {
         item {
@@ -91,18 +117,11 @@ fun OdifyPersonalHome(
             }
             Spacer(Modifier.height(28.dp))
         }
-        item {
-            Row(Modifier.fillMaxWidth(), verticalAlignment=Alignment.CenterVertically) {
-                Text("Made for you",fontSize=20.sp,fontWeight=FontWeight.Bold,color=homeInk,modifier=Modifier.weight(1f))
-                Icon(Icons.Outlined.AutoAwesome,null,tint=homeGrey,modifier=Modifier.size(18.dp))
-            }
-            Text("들을수록 가까워지는 취향",fontSize=11.sp,color=homeGrey,modifier=Modifier.padding(top=4.dp,bottom=14.dp))
-        }
         if(artists.isNotEmpty()) item {
             Text("More from your artists",fontSize=20.sp,fontWeight=FontWeight.Bold,color=homeInk,modifier=Modifier.padding(top=24.dp,bottom=13.dp))
             LazyRow(horizontalArrangement=Arrangement.spacedBy(16.dp)) {
                 items(artists,key={it.key}) {entry ->
-                    Column(Modifier.width(90.dp).clickable {selectedMix=OdifyMix("artist:${entry.key}",entry.key,"내 음악에서 이어 듣는 아티스트 컬렉션",entry.value.distinctBy {it.id})},
+                    Column(Modifier.width(90.dp).clickable {selectedMix=OdifyMix("artist:${entry.key}",entry.key,"내 음악과 이 아티스트의 더 많은 곡 · 저장하지 않은 곡은 YouTube로",entry.value.distinctBy {it.id})},
                         horizontalAlignment=Alignment.CenterHorizontally) {
                         AlbumArt(entry.value.first(),Modifier.size(82.dp),radius=androidx.compose.foundation.shape.CircleShape)
                         Text(entry.key,fontSize=11.sp,color=homeInk,maxLines=1,overflow=TextOverflow.Ellipsis,modifier=Modifier.padding(top=8.dp))
@@ -112,6 +131,11 @@ fun OdifyPersonalHome(
             Spacer(Modifier.height(30.dp))
         }
         if (mixes.isNotEmpty()) item {
+            Row(Modifier.fillMaxWidth(), verticalAlignment=Alignment.CenterVertically) {
+                Text("Made for you",fontSize=20.sp,fontWeight=FontWeight.Bold,color=homeInk,modifier=Modifier.weight(1f))
+                Icon(Icons.Outlined.AutoAwesome,null,tint=homeGrey,modifier=Modifier.size(18.dp))
+            }
+            Text("들을수록 가까워지는 취향",fontSize=11.sp,color=homeGrey,modifier=Modifier.padding(top=4.dp,bottom=14.dp))
             LazyRow(horizontalArrangement=Arrangement.spacedBy(13.dp)) {
                 items(mixes,key={it.key}) { mix ->
                     Column(Modifier.width(132.dp).clickable {selectedMix=mix}) {
@@ -129,18 +153,27 @@ fun OdifyPersonalHome(
         }
         item {
             Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
-                Text("Saved for later",fontSize=20.sp,color=homeInk,fontWeight=FontWeight.Bold,modifier=Modifier.weight(1f))
-                TextButton(onClick=onLibrary) {Text("보관함",fontSize=12.sp,color=homeGrey)}
+                Text("Find your mood",fontSize=20.sp,color=homeInk,fontWeight=FontWeight.Bold,modifier=Modifier.weight(1f))
+            }
+            Text("장르로 고르는 지금의 기분 · 내 음악과 새로운 곡",fontSize=11.sp,color=homeGrey,modifier=Modifier.padding(top=5.dp,bottom=14.dp))
+            LazyRow(horizontalArrangement=Arrangement.spacedBy(12.dp)) {
+                items(OdifyDiscovery.moods,key={it.key}) {mood ->
+                    val owned=moodMixes.getValue(mood.key)
+                    val count=owned.songs.size+moodOnline.getValue(mood.key).size
+                    Column(Modifier.width(190.dp).height(116.dp).odifyNeutralPanel(22)
+                        .clickable {selectedMix=owned}.padding(17.dp),verticalArrangement=Arrangement.SpaceBetween) {
+                        Icon(when(mood.key) {"focus"->Icons.Outlined.Headphones;"energy"->Icons.Outlined.Bolt;"night"->Icons.Outlined.NightsStay;else->Icons.Outlined.Spa},null,tint=homeGrey,modifier=Modifier.size(23.dp))
+                        Text(mood.name,fontSize=14.sp,fontWeight=FontWeight.SemiBold,color=homeInk,maxLines=1)
+                        Text(if(count>0)"${count}곡 · 장르 기반" else "장르에 맞는 곡을 찾아보세요",fontSize=10.sp,color=homeGrey,maxLines=1)
+                    }
+                }
             }
         }
-        if(playlists.isEmpty()) item {
-            Text("믹스를 열고 저장하면 보관함에서 언제든 다시 만나요.",fontSize=12.sp,color=homeGrey,
-                modifier=Modifier.padding(vertical=12.dp))
-        } else items(playlists.take(3),key={it.id}) { list ->
-            ListItem(headlineContent={Text(list.name,fontSize=14.sp)},supportingContent={Text("${list.songIds.size}곡",fontSize=11.sp)},
-                leadingContent={Icon(Icons.Outlined.QueueMusic,null,tint=homeGrey)},
-                trailingContent={Icon(Icons.Outlined.PlayArrow,null,tint=homeInk)},
-                colors=ListItemDefaults.colors(containerColor=OdifyPalette.background),modifier=Modifier.clickable {onPlaylistPlay(list)})
+        if(newTracks.isNotEmpty()) item {
+            Spacer(Modifier.height(28.dp))
+            Text("Beyond your collection",fontSize=20.sp,color=homeInk,fontWeight=FontWeight.Bold)
+            Text("한국 · 일본 · 미국 차트에서 찾은, 아직 없는 음악",fontSize=11.sp,color=homeGrey,modifier=Modifier.padding(top=5.dp,bottom=14.dp))
+            newTracks.take(5).forEach {track -> HomeOnlineTrack(track) {onPlayOnline(track)}}
         }
         item {
             Spacer(Modifier.height(24.dp))
@@ -156,27 +189,45 @@ fun OdifyPersonalHome(
             TextButton(onClick=onSearch,modifier=Modifier.padding(top=8.dp)) {Text("떠오르는 노래나 가사로 검색",color=homeGrey,fontSize=12.sp)}
         }
     }
-    OdifyRetainedGlassSheet(selectedMix,onDismiss={selectedMix=null},maxHeightFraction=.84f) {mix ->
+    OdifyRetainedGlassSheet(selectedMix,onDismiss={selectedMix=null},maxHeightFraction=.84f,transparency=.46f) {mix ->
+        val online=when {
+            mix.key.startsWith("artist:") -> OdifyDiscovery.newTracks(artistTracks,catalogSongs)
+            mix.key.startsWith("mood:") -> moodOnline[mix.key.removePrefix("mood:")].orEmpty()
+            else -> emptyList()
+        }
         Row(Modifier.fillMaxWidth().padding(bottom=14.dp),verticalAlignment=Alignment.CenterVertically) {
             AlbumArt(mix.coverSong(),Modifier.size(62.dp),if(mix.key.startsWith("artist:")) androidx.compose.foundation.shape.CircleShape else RoundedCornerShape(16.dp))
             Column(Modifier.weight(1f).padding(start=13.dp,end=4.dp)) {
                 Text(mix.name,fontSize=19.sp,lineHeight=24.sp,fontWeight=FontWeight.SemiBold,maxLines=2,overflow=TextOverflow.Ellipsis)
-                Text("${mix.songs.size}곡 · 내 컬렉션",fontSize=11.sp,color=homeGrey,modifier=Modifier.padding(top=5.dp))
+                Text("내 음악 ${mix.songs.size}곡"+(if(online.isNotEmpty())" · 더 많은 곡 ${online.size}" else ""),fontSize=11.sp,color=homeGrey,modifier=Modifier.padding(top=5.dp))
             }
             IconButton(onClick={selectedMix=null},modifier=Modifier.size(42.dp)) {Icon(Icons.Outlined.Close,"컬렉션 닫기",Modifier.size(21.dp))}
         }
         Text(mix.reason,fontSize=12.sp,lineHeight=18.sp,color=homeGrey,maxLines=2,overflow=TextOverflow.Ellipsis,
             modifier=Modifier.fillMaxWidth().padding(start=4.dp,bottom=16.dp))
         Row(Modifier.fillMaxWidth().padding(bottom=16.dp),horizontalArrangement=Arrangement.spacedBy(10.dp)) {
-            Button(onClick={onPlay(mix.songs,0);selectedMix=null},modifier=Modifier.weight(1f).height(44.dp),
+            Button(onClick={if(mix.songs.isNotEmpty())onPlay(mix.songs,0) else online.firstOrNull()?.let(onPlayOnline);selectedMix=null},
+                enabled=mix.songs.isNotEmpty() || online.isNotEmpty(),modifier=Modifier.weight(1f).height(44.dp),
                 contentPadding=PaddingValues(horizontal=10.dp),colors=ButtonDefaults.buttonColors(containerColor=Color.White,contentColor=Color.Black)) {
-                Icon(Icons.Outlined.PlayArrow,null,Modifier.size(19.dp));Spacer(Modifier.width(5.dp));Text("모두 재생",fontSize=12.sp,maxLines=1)
+                Icon(Icons.Outlined.PlayArrow,null,Modifier.size(19.dp));Spacer(Modifier.width(5.dp));Text(if(mix.songs.isEmpty())"YouTube로 듣기" else "내 음악 재생",fontSize=12.sp,maxLines=1)
             }
-            OutlinedButton(onClick={onSaveMix(mix)},modifier=Modifier.weight(1f).height(44.dp),contentPadding=PaddingValues(horizontal=10.dp)) {
-                Icon(Icons.Outlined.PlaylistAdd,null,Modifier.size(19.dp));Spacer(Modifier.width(5.dp));Text("목록에 저장",fontSize=12.sp,maxLines=1)
+            OutlinedButton(onClick={onSaveMix(mix)},enabled=mix.songs.isNotEmpty(),modifier=Modifier.weight(1f).height(44.dp),contentPadding=PaddingValues(horizontal=10.dp)) {
+                Icon(Icons.Outlined.PlaylistAdd,null,Modifier.size(19.dp));Spacer(Modifier.width(5.dp));Text("내 음악 저장",fontSize=12.sp,maxLines=1)
             }
         }
-        LazyColumn(Modifier.fillMaxWidth().heightIn(max=380.dp),contentPadding=PaddingValues(bottom=10.dp)) {
+        LazyColumn(Modifier.fillMaxWidth().weight(1f,fill=LocalOdifySheetExpanded.current)
+            .heightIn(max=if(LocalOdifySheetExpanded.current) androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp else 380.dp),contentPadding=PaddingValues(bottom=10.dp)) {
+            if(artistLoading) item {Row(Modifier.fillMaxWidth().padding(12.dp),verticalAlignment=Alignment.CenterVertically) {
+                CircularProgressIndicator(Modifier.size(17.dp),strokeWidth=2.dp,color=homeGrey);Spacer(Modifier.width(10.dp));Text("아티스트의 곡을 찾고 있어요",fontSize=12.sp,color=homeGrey)
+            }}
+            if(mix.key.startsWith("artist:") && !artistLoading && (artistError || online.isEmpty())) item {
+                Text(if(artistError)"곡 목록에 연결하지 못했어요. 내 음악은 계속 볼 수 있어요." else "추가 곡을 찾지 못했어요. YouTube에서 더 찾아볼 수 있어요.",
+                    fontSize=12.sp,color=homeGrey,modifier=Modifier.padding(8.dp))
+                Row {
+                    if(artistError) TextButton(onClick={artistRetry++}) {Text("다시 시도")}
+                    TextButton(onClick={onArtistSearch(mix.name);selectedMix=null}) {Text("YouTube에서 더 찾기")}
+                }
+            }
             itemsIndexed(mix.songs,key={_,song->song.id}) {index,song ->
                 Row(Modifier.fillMaxWidth().height(66.dp).clip(RoundedCornerShape(13.dp))
                     .clickable {onPlay(mix.songs,index);selectedMix=null}.padding(horizontal=5.dp),verticalAlignment=Alignment.CenterVertically) {
@@ -188,7 +239,26 @@ fun OdifyPersonalHome(
                     if(song.durationMs>0) Text("${song.durationMs/60000}:${(song.durationMs/1000%60).toString().padStart(2,'0')}",fontSize=10.sp,color=homeGrey)
                 }
             }
+            if(online.isNotEmpty()) item {Text("더 많은 곡 · YouTube로 듣기",fontSize=12.sp,color=homeGrey,modifier=Modifier.padding(top=18.dp,bottom=8.dp))}
+            items(online,key={"online:${it.id}"}) {track ->HomeOnlineTrack(track) {onPlayOnline(track);selectedMix=null}}
+            if(mix.songs.isEmpty() && online.isEmpty() && !mix.key.startsWith("artist:")) item {
+                Text("아직 이 장르의 곡이 없어요. 검색에서 취향을 더해 보세요.",fontSize=13.sp,color=homeGrey,modifier=Modifier.padding(12.dp))
+                TextButton(onClick={onSearch();selectedMix=null}) {Text("음악 찾아보기")}
+            }
         }
+    }
+}
+
+@Composable private fun HomeOnlineTrack(track:ExploreTrack,onClick:()->Unit) {
+    Row(Modifier.fillMaxWidth().height(66.dp).clip(RoundedCornerShape(13.dp)).clickable(onClick=onClick).padding(horizontal=6.dp),verticalAlignment=Alignment.CenterVertically) {
+        Box(Modifier.size(42.dp).background(Color.White.copy(alpha=.055f),RoundedCornerShape(11.dp)),contentAlignment=Alignment.Center) {
+            Icon(Icons.Outlined.MusicNote,null,tint=homeGrey,modifier=Modifier.size(21.dp))
+        }
+        Column(Modifier.weight(1f).padding(horizontal=12.dp)) {
+            Text(track.title,fontSize=13.sp,fontWeight=FontWeight.Medium,color=homeInk,maxLines=1,overflow=TextOverflow.Ellipsis)
+            Text(track.artist,fontSize=11.sp,color=homeGrey,maxLines=1,overflow=TextOverflow.Ellipsis,modifier=Modifier.padding(top=4.dp))
+        }
+        Text("YouTube",fontSize=9.sp,color=homeGrey)
     }
 }
 

@@ -129,7 +129,8 @@ fun OdifyQueueDialog(items:List<OdifySong>,currentIndex:Int,
         }
         if(upcoming.isEmpty()) {
             Text("다음 곡이 없습니다",fontSize=14.sp,color=Color.White.copy(alpha=.72f),modifier=Modifier.padding(vertical=30.dp))
-        } else LazyColumn(state=list,modifier=Modifier.fillMaxWidth().heightIn(max=420.dp),contentPadding=PaddingValues(bottom=12.dp)) {
+        } else LazyColumn(state=list,modifier=Modifier.fillMaxWidth().weight(1f,fill=LocalOdifySheetExpanded.current)
+            .heightIn(max=if(LocalOdifySheetExpanded.current) androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp else 420.dp),contentPadding=PaddingValues(bottom=12.dp)) {
             items(ordered,key={it.key}) {queued ->
                 val selected=dragging==queued.key || settling==queued.key
                 val lift by animateFloatAsState(if(selected)1f else 0f,spring(dampingRatio=1f,stiffness=380f),label="queue-lift")

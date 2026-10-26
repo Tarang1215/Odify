@@ -13,8 +13,6 @@ import androidx.compose.ui.graphics.layer.GraphicsLayer
 import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.translate
-import androidx.compose.ui.graphics.drawscope.scale
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
@@ -96,8 +94,7 @@ fun Modifier.recordOdifyBackdrop(backdrop: OdifyBackdrop): Modifier =
 
 /** Replays the real page region through a bounded blur layer; foreground stays sharp. */
 fun Modifier.odifyGlass(backdrop: OdifyBackdrop, shape: Shape,glow:Color=Color.Transparent,split:Float=0f,
-    rightWidth:Dp=120.dp,gap:Dp=8.dp,navigation:Boolean=false,transparencyOverride:Float?=null,
-    maxRasterWidth:Int?=null): Modifier = composed {
+    rightWidth:Dp=120.dp,gap:Dp=8.dp,navigation:Boolean=false,transparencyOverride:Float?=null): Modifier = composed {
     val preferences=LocalOdifyGlassPreferences.current
     val transparency=transparencyOverride ?: (if(navigation)preferences?.navigation else preferences?.player) ?: .72f
     val shade=(.035f+1.08f*(1f-transparency)*(1f-transparency)).coerceAtMost(.88f)
@@ -105,6 +102,8 @@ fun Modifier.odifyGlass(backdrop: OdifyBackdrop, shape: Shape,glow:Color=Color.T
     val crop=rememberGraphicsLayer()
     val sharpCrop=rememberGraphicsLayer()
     val radius=with(LocalDensity.current) {((if(navigation)4f+14f*(1f-transparency) else 3f+12f*(1f-transparency)).dp).toPx()}
+    val bleed=ceil(radius*2).toInt()
+    val effect=remember(radius) {BlurEffect(radius,radius,TileMode.Clamp)}
     val lens=remember {if(Build.VERSION.SDK_INT>=33) runCatching {android.graphics.RuntimeShader(OdifyGlassLens.source)}.getOrNull() else null}
     val sharpLens=remember {if(Build.VERSION.SDK_INT>=33) runCatching {android.graphics.RuntimeShader(OdifyGlassLens.source)}.getOrNull() else null}
     val lensCache=remember {OdifyLensCache()}
@@ -112,13 +111,6 @@ fun Modifier.odifyGlass(backdrop: OdifyBackdrop, shape: Shape,glow:Color=Color.T
         this.shape=(shape as? OdifyDropletShape)?.frameShape() ?: shape
         clip=true
     }.onGloballyPositioned {coordinates=it}.drawWithContent {
-        // Modal inputs are already bounded to 720 px. Filtering millions of
-        // extra interpolated pixels adds GPU work without extra source detail.
-        // Foreground, border and layout remain at the phone's native resolution.
-        val rasterScale=(maxRasterWidth?.let {it/size.width} ?: 1f).coerceIn(.25f,1f)
-        val rasterSize=Size(size.width*rasterScale,size.height*rasterScale)
-        val filterRadius=radius*rasterScale
-        val bleed=ceil(filterRadius*2).toInt()
         val frame=backdrop.frame
         val target=coordinates?.takeIf {it.isAttached}
         val source=backdrop.coordinates?.takeIf {it.isAttached}
@@ -128,17 +120,17 @@ fun Modifier.odifyGlass(backdrop: OdifyBackdrop, shape: Shape,glow:Color=Color.T
             val offset=source.localPositionOf(target,Offset.Zero)
             if(Build.VERSION.SDK_INT>=33 && lens!=null) {
                 val outline=shape.createOutline(size,layoutDirection,this)
-                val corner=((outline as? Outline.Rounded)?.roundRect?.topLeftCornerRadius?.x ?: size.height/2)*rasterScale
-                val rightPx=rightWidth.toPx()*rasterScale;val gapPx=gap.toPx()*rasterScale
-                val leftCorner=if(split<=0f) corner else (shape as? OdifyDropletShape)?.leftRadius(size.height)?.times(rasterScale) ?: corner
-                if(lensCache.size!=rasterSize || lensCache.corner!=corner || lensCache.split!=split || lensCache.right!=rightPx || lensCache.gap!=gapPx || lensCache.leftCorner!=leftCorner || lensCache.radius!=filterRadius) {
+                val corner=(outline as? Outline.Rounded)?.roundRect?.topLeftCornerRadius?.x ?: size.height/2
+                val rightPx=rightWidth.toPx();val gapPx=gap.toPx()
+                val leftCorner=if(split<=0f) corner else (shape as? OdifyDropletShape)?.leftRadius(size.height) ?: corner
+                if(lensCache.size!=size || lensCache.corner!=corner || lensCache.split!=split || lensCache.right!=rightPx || lensCache.gap!=gapPx || lensCache.leftCorner!=leftCorner || lensCache.radius!=radius) {
                 fun configure(shader:android.graphics.RuntimeShader,edgePass:Float) {
                     shader.setFloatUniform("origin",bleed.toFloat(),bleed.toFloat())
-                    shader.setFloatUniform("bounds",rasterSize.width,rasterSize.height)
-                    shader.setFloatUniform("corner",corner.coerceAtMost(rasterSize.height/2))
-                    shader.setFloatUniform("depth",12.dp.toPx()*rasterScale)
+                    shader.setFloatUniform("bounds",size.width,size.height)
+                    shader.setFloatUniform("corner",corner.coerceAtMost(size.height/2))
+                    shader.setFloatUniform("depth",12.dp.toPx())
                     shader.setFloatUniform("leftCorner",leftCorner)
-                    shader.setFloatUniform("strength",10.dp.toPx()*rasterScale)
+                    shader.setFloatUniform("strength",10.dp.toPx())
                     shader.setFloatUniform("split",split.coerceIn(0f,1f))
                     shader.setFloatUniform("rightWidth",rightPx)
                     shader.setFloatUniform("gap",gapPx)
@@ -147,50 +139,36 @@ fun Modifier.odifyGlass(backdrop: OdifyBackdrop, shape: Shape,glow:Color=Color.T
                 configure(lens,0f)
                 lensCache.effect=android.graphics.RenderEffect.createChainEffect(
                     android.graphics.RenderEffect.createRuntimeShaderEffect(lens,"content"),
-                    android.graphics.RenderEffect.createBlurEffect(filterRadius,filterRadius,android.graphics.Shader.TileMode.CLAMP)).asComposeRenderEffect()
+                    android.graphics.RenderEffect.createBlurEffect(radius,radius,android.graphics.Shader.TileMode.CLAMP)).asComposeRenderEffect()
                 if(sharpLens!=null) {
                     configure(sharpLens,1f)
                     lensCache.sharpEffect=android.graphics.RenderEffect.createRuntimeShaderEffect(sharpLens,"content").asComposeRenderEffect()
                 }
-                lensCache.size=rasterSize;lensCache.corner=corner;lensCache.split=split;lensCache.right=rightPx
-                lensCache.gap=gapPx;lensCache.leftCorner=leftCorner;lensCache.radius=filterRadius
+                lensCache.size=size;lensCache.corner=corner;lensCache.split=split;lensCache.right=rightPx
+                lensCache.gap=gapPx;lensCache.leftCorner=leftCorner;lensCache.radius=radius
                 }
                 crop.renderEffect=lensCache.effect
-            } else {
-                if(lensCache.size!=rasterSize || lensCache.radius!=filterRadius) {
-                    lensCache.effect=BlurEffect(filterRadius,filterRadius,TileMode.Clamp)
-                    lensCache.size=rasterSize;lensCache.radius=filterRadius
-                }
-                crop.renderEffect=lensCache.effect
-            }
-            val captureSize=IntSize(ceil(rasterSize.width).toInt()+bleed*2,ceil(rasterSize.height).toInt()+bleed*2)
+            } else crop.renderEffect=effect
+            val captureSize=IntSize(ceil(size.width).toInt()+bleed*2,ceil(size.height).toInt()+bleed*2)
             val refreshCapture=lensCache.captureFrame!=frame || lensCache.captureOffset!=offset || lensCache.captureSize!=captureSize
             if(refreshCapture) crop.record(size=captureSize) {
                 // The snapshot must be opaque. Blurring transparent glyphs
                 // over the original page leaves the original text sharp.
                 drawRect(OdifyPalette.background)
                 clipRect {
-                    scale(rasterScale,rasterScale,pivot=Offset.Zero) {
-                        translate(bleed/rasterScale-offset.x,bleed/rasterScale-offset.y) {drawLayer(backdrop.layer)}
-                    }
+                    translate(bleed-offset.x,bleed-offset.y) {drawLayer(backdrop.layer)}
                 }
             }
-            scale(1f/rasterScale,1f/rasterScale,pivot=Offset.Zero) {
-                translate(-bleed.toFloat(),-bleed.toFloat()) {drawLayer(crop)}
-            }
+            translate(-bleed.toFloat(),-bleed.toFloat()) {drawLayer(crop)}
             // A second GPU layer samples the *unblurred* live page at the rim.
             // Refracting only the blurred input erases the details that reveal glass.
             if(Build.VERSION.SDK_INT>=33 && lensCache.sharpEffect!=null) {
                 sharpCrop.renderEffect=lensCache.sharpEffect
                 if(refreshCapture) sharpCrop.record(size=captureSize) {
                     drawRect(OdifyPalette.background)
-                    clipRect {scale(rasterScale,rasterScale,pivot=Offset.Zero) {
-                        translate(bleed/rasterScale-offset.x,bleed/rasterScale-offset.y) {drawLayer(backdrop.layer)}
-                    }}
+                    clipRect {translate(bleed-offset.x,bleed-offset.y) {drawLayer(backdrop.layer)}}
                 }
-                scale(1f/rasterScale,1f/rasterScale,pivot=Offset.Zero) {
-                    translate(-bleed.toFloat(),-bleed.toFloat()) {drawLayer(sharpCrop)}
-                }
+                translate(-bleed.toFloat(),-bleed.toFloat()) {drawLayer(sharpCrop)}
             }
             lensCache.captureFrame=frame;lensCache.captureOffset=offset;lensCache.captureSize=captureSize
         } else drawRect(Color(0xE82B2E35))

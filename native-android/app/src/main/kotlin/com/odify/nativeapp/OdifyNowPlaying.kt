@@ -269,9 +269,8 @@ fun OdifyNowPlaying(
                             Icon(Icons.Default.MoreVert, "곡 옵션 열기",
                                 tint = playerWhite)
                         }
-                        OdifyGlassMenu(
+                        OdifyGlassAnchoredMenu(
                             expanded = actionsOpen,
-                            anchor=actionsAnchor,
                             onDismissRequest = { actionsOpen = false }
                         ) {
                             OdifySheetTrackHeader(song)
