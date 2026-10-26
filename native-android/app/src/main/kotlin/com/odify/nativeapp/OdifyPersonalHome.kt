@@ -217,8 +217,12 @@ fun OdifyPersonalHome(
                 Icon(Icons.Outlined.PlaylistAdd,null,Modifier.size(19.dp));Spacer(Modifier.width(5.dp));Text("내 음악 저장",fontSize=12.sp,maxLines=1)
             }
         }
+        // Reserve the artist list's space while fetching so results never shove
+        // an already-open sheet abruptly up the screen.
+        val bodySize=if(mix.key.startsWith("artist:") && !LocalOdifySheetExpanded.current)Modifier.height(380.dp)
+            else Modifier.heightIn(max=if(LocalOdifySheetExpanded.current) androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp else 380.dp)
         LazyColumn(Modifier.fillMaxWidth().weight(1f,fill=LocalOdifySheetExpanded.current)
-            .heightIn(max=if(LocalOdifySheetExpanded.current) androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp else 380.dp),contentPadding=PaddingValues(bottom=10.dp)) {
+            .then(bodySize),contentPadding=PaddingValues(bottom=10.dp)) {
             if(artistLoading) item {Row(Modifier.fillMaxWidth().padding(12.dp),verticalAlignment=Alignment.CenterVertically) {
                 CircularProgressIndicator(Modifier.size(17.dp),strokeWidth=2.dp,color=homeGrey);Spacer(Modifier.width(10.dp));Text("아티스트의 곡을 찾고 있어요",fontSize=12.sp,color=homeGrey)
             }}
