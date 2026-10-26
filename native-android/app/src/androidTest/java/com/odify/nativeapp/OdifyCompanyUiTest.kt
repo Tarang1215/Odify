@@ -207,7 +207,7 @@ class OdifyCompanyUiTest {
                 MaterialTheme(typography=OdifyTypography,colorScheme=darkColorScheme()) {
                     Surface(Modifier.fillMaxSize(),color=Color(0xFF0C0E12),contentColor=Color.White) {
                         when(screen.value) {
-                            "player" -> OdifyNowPlaying(song=fixture[0],glow=Color(0xFF8BAECC),previousSong=null,nextSong=fixture[1],
+                            "player" -> OdifyNowPlaying(song=fixture[0],glow=Color(0xFF8BAECC),previousSong=null,nextSong=queue.value.getOrNull(1),
                                 playing=false,position=20000,duration=240000,liked=false,shuffleEnabled=false,repeatOne=false,
                                 onDismiss={},onToggle=noPlay,onPrevious=noPlay,onNext=noPlay,onSeek={plays++},onLike={},onShuffle={},onRepeat={},
                                 onShowQueue={sheet.value=true},onQueueAnchor={anchor.value=it},onAddToPlaylist={},onSaveDevice={},onAudioRequest={_,_,_->},onReplaceAudio={})
@@ -230,6 +230,7 @@ class OdifyCompanyUiTest {
                 }
             }}
             waitFor("곡 옵션 열기");capture("player")
+            waitFor("다음 곡: Track 1")
             tap("가사 열기");waitFor("가사 닫기");Thread.sleep(300);capture("lyrics")
             tap("전체 화면으로 보기");waitFor("앨범커버 보기");Thread.sleep(300);capture("lyrics-fullscreen");tap("앨범커버 보기")
             tap("곡 옵션 열기");waitFor("음원 교체");capture("player-options")
@@ -244,6 +245,7 @@ class OdifyCompanyUiTest {
             assertNotNull("Sheet must remain mounted during its closing motion",node("대기열 닫기"))
             Thread.sleep(500)
             assertNull("Sheet must release its window after closing",node("대기열 닫기"))
+            waitFor("다음 곡: Track 2");capture("next-track-updated")
             main {sheet.value=false;screen.value="playlist"}
             waitFor("Evening collection");Thread.sleep(300);capture("playlist")
             tap("플레이리스트 옵션");tap("이름 수정");waitFor("플레이리스트 이름")

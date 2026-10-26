@@ -156,6 +156,8 @@ fun OdifyNowPlaying(
     var actionsOpen by remember { mutableStateOf(false) }
     var actionsAnchor by remember {mutableStateOf<Offset?>(null)}
     var lyricsAnchor by remember {mutableStateOf<Offset?>(null)}
+    var queueControlAnchor by remember {mutableStateOf(Offset.Zero)}
+    var nextPreviewAnchor by remember {mutableStateOf(Offset.Zero)}
     var audioRequestOpen by remember(song.id) { mutableStateOf(false) }
     if (audioRequestOpen) CompositionLocalProvider(LocalOdifyModalTint provides glow) {
         OdifyAudioRequestDialog(song, { audioRequestOpen = false }, onAudioRequest)
@@ -491,18 +493,25 @@ Box(
                         contentAlignment=Alignment.Center) {
                         Icon(if(showLyrics)Icons.Default.Album else Icons.Default.Subtitles,null,tint=playerWhite,modifier=Modifier.size(21.dp))
                     }
-                    val source=when {externalPlayback || song.isYoutubeStream->"YouTube";song.isCloud->"Drive";song.isPhoneFolder->"휴대폰";else->"오프라인"}
-                    val format=if(externalPlayback || song.isYoutubeStream)"" else java.io.File(song.filePath).extension.uppercase()
-                        .takeIf {it in listOf("FLAC","MP3","M4A","AAC","WAV","OGG","OPUS")} .orEmpty()
-                    Column(Modifier.weight(1f).heightIn(min=48.dp).clickable {showInfo=true}.padding(horizontal=8.dp),
-                        horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.Center) {
-                        Text(source, fontSize=11.sp,fontWeight=FontWeight.Medium,color=playerWhite.copy(alpha=.70f),maxLines=1,overflow=TextOverflow.Ellipsis)
-                        Text(format.ifBlank {"곡 정보"},fontSize=9.sp,letterSpacing=1.sp,color=playerWhite.copy(alpha=.40f),modifier=Modifier.padding(top=4.dp))
+                    val upcomingSong=if(repeatOne)song else nextSong
+                    Row(Modifier.weight(1f).heightIn(min=50.dp).clip(RoundedCornerShape(18.dp))
+                        .semantics {contentDescription="다음 곡: ${upcomingSong?.title ?: "없음"}"}
+                        .onGloballyPositioned {nextPreviewAnchor=it.positionOnScreen()+Offset(it.size.width/2f,it.size.height/2f)}
+                        .clickable {onQueueAnchor(nextPreviewAnchor);onShowQueue()}.padding(horizontal=16.dp),verticalAlignment=Alignment.CenterVertically,
+                        horizontalArrangement=Arrangement.Center) {
+                        if(upcomingSong!=null) AlbumArt(upcomingSong,Modifier.size(30.dp),RoundedCornerShape(8.dp))
+                        Column(Modifier.weight(1f,fill=false).padding(start=if(upcomingSong!=null)9.dp else 0.dp)) {
+                            Text(if(repeatOne)"한 곡 반복" else "다음 곡",fontSize=9.sp,color=playerWhite.copy(alpha=.44f),maxLines=1)
+                            Text(upcomingSong?.title ?: "대기열이 비어 있어요",fontSize=11.sp,fontWeight=FontWeight.Medium,
+                                color=playerWhite.copy(alpha=.76f),maxLines=1,overflow=TextOverflow.Ellipsis,modifier=Modifier.padding(top=3.dp))
+                        }
                     }
                     Box(Modifier.size(50.dp)
-                        .onGloballyPositioned {onQueueAnchor(it.positionOnScreen()+Offset(it.size.width/2f,it.size.height/2f))}
+                        .onGloballyPositioned {queueControlAnchor=it.positionOnScreen()+Offset(it.size.width/2f,it.size.height/2f)}
                         .odifyGlass(playerBackdrop,CircleShape,glow,transparencyOverride=.78f)
-                        .semantics {contentDescription="다음 재생 열기"}.clickable(onClick=onShowQueue),contentAlignment=Alignment.Center) {
+                        .semantics {contentDescription="다음 재생 열기"}.clickable {
+                            onQueueAnchor(queueControlAnchor);onShowQueue()
+                        },contentAlignment=Alignment.Center) {
                         Icon(Icons.Default.QueueMusic,null,tint=playerWhite,modifier=Modifier.size(21.dp))
                     }
                 }

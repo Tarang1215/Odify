@@ -4,7 +4,7 @@ The product's core visual principle is gentle, connected motion. Screen destinat
 
 - Playlist destinations fade, lift and expand over 520 ms; outgoing content survives the 420 ms return transition.
 - Player controls use 50 dp glass circles with accessible icon descriptions. Lyrics, queue and options grow from their measured control position over 520 ms and return over 400 ms. Modal refraction samples the background once per opening.
-- The center shows the actual transport source and a known file extension when available. It does not infer a bitrate or make a lossless claim.
+- The center shows a small cover and the next scheduled track, or the current track for repeat-one. Tapping it opens the queue from the preview's position. Transport source remains in track information.
 - Playlist names can be changed from library card options and the full destination. Existing identity, order and songs are preserved; empty or conflicting names are rejected.
 - Covers can be chosen from the destination image button or options, and restored to track artwork. Images are copied privately, bounded to 20 MB input and 1024 px output, with unique files; failed imports preserve the previous image. Original track art is never modified. Names and cover references survive restart and legacy catalogs remain readable.
 - Queue occurrence keys remain stable. Drag placement fades are disabled and the lifted item settles into its destination before its layer is released. Only one controller reorder is submitted on release.
