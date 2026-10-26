@@ -53,6 +53,8 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.shadow
@@ -138,6 +140,32 @@ private object OdifyCoverMemory {
     }
 }
 
+@Composable private fun rememberBlurredCover(image:ImageBitmap?,coverPath:String?,backgroundBlur:androidx.compose.ui.unit.Dp):ImageBitmap? {
+    // Full-screen player scenery is static. Prepare its blur once at source
+    // resolution instead of filtering the phone's entire display every frame.
+    val configuration=androidx.compose.ui.platform.LocalConfiguration.current
+    val sceneScale=image?.let {maxOf(configuration.screenWidthDp.toFloat()/it.width,
+        configuration.screenHeightDp.toFloat()/it.height)} ?: 1f
+    val thumbnailScale=image?.let {(256f/maxOf(it.width,it.height)).coerceAtMost(1f)} ?: 1f
+    val blurRadius=(backgroundBlur.value/sceneScale*thumbnailScale*.6f).roundToInt().coerceAtLeast(1)
+    val blurKey=if(backgroundBlur.value>0 && coverPath!=null)"scene:$coverPath:$blurRadius" else null
+    val scene=remember(blurKey) {mutableStateOf(OdifyCoverMemory.peek(blurKey))}
+    LaunchedEffect(blurKey,image) {
+        val original=image
+        if(blurKey!=null && original!=null && scene.value==null) {
+            scene.value=withContext(Dispatchers.Default) {
+                val source=original.asAndroidBitmap()
+                val thumbnail=android.graphics.Bitmap.createScaledBitmap(source,
+                    (source.width*thumbnailScale).roundToInt().coerceAtLeast(1),
+                    (source.height*thumbnailScale).roundToInt().coerceAtLeast(1),true)
+                try {OdifyModalRaster.blur(thumbnail,blurRadius).asImageBitmap().also {OdifyCoverMemory.put(blurKey,it)}}
+                finally {if(thumbnail!==source)thumbnail.recycle()}
+            }
+        }
+    }
+    return scene.value
+}
+
 @Composable
 fun AlbumArt(
     song: OdifySong?,
@@ -145,7 +173,8 @@ fun AlbumArt(
     radius: androidx.compose.ui.graphics.Shape = RoundedCornerShape(14.dp),
     fallbackKey: Int = 0,
     muted: Boolean = false,
-    contentScale: ContentScale = ContentScale.Crop
+    contentScale: ContentScale = ContentScale.Crop,
+    backgroundBlur:androidx.compose.ui.unit.Dp=0.dp
 ) {
     val context=androidx.compose.ui.platform.LocalContext.current
     val remoteCover=if(song?.id?.startsWith("youtube:")==true && song.artworkPath.isNullOrBlank()) {
@@ -192,6 +221,7 @@ fun AlbumArt(
         }
     }
     val image = imageState.value
+    val scene=if(backgroundBlur.value>0)rememberBlurredCover(image,coverPath,backgroundBlur) else null
     val neutralPalette = listOf(
         listOf(Color(0xFF393D44), Color(0xFF858C94)),
         listOf(Color(0xFF242E39), Color(0xFF868A88)),
@@ -203,10 +233,11 @@ fun AlbumArt(
         modifier.clip(radius).background(Brush.linearGradient(swatch)),
         contentAlignment = Alignment.Center
     ) {
-        val bitmap = image
+        val bitmap = if(backgroundBlur.value>0)scene ?: image else image
         if (bitmap != null) {
             Image(bitmap = bitmap, contentDescription = song?.album ?: song?.title,
-                contentScale = contentScale, modifier = Modifier.fillMaxSize(),
+                contentScale = contentScale, modifier = Modifier.fillMaxSize().then(
+                    if(backgroundBlur.value>0 && scene==null)Modifier.blur(backgroundBlur) else Modifier),
                 colorFilter = if (muted) ColorFilter.colorMatrix(
                     ColorMatrix().apply { setToSaturation(0.20f) }
                 ) else null)

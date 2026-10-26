@@ -207,8 +207,7 @@ fun OdifyNowPlaying(
         // partial-height reflected layer created visible color bands instead.
         Box(Modifier.fillMaxSize().recordOdifyBackdrop(playerBackdrop)) {
         AlbumArt(song, Modifier.fillMaxSize()
-            .graphicsLayer { scaleX = 1.18f; scaleY = 1.18f;alpha=.94f }
-            .blur(28.dp), radius = RoundedCornerShape(0.dp),
+            .graphicsLayer { scaleX = 1.18f; scaleY = 1.18f;alpha=.94f }, radius = RoundedCornerShape(0.dp),backgroundBlur=28.dp,
             fallbackKey = song.id.hashCode(),muted=false,
             contentScale = androidx.compose.ui.layout.ContentScale.Crop)
         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(
