@@ -1,3 +1,5 @@
+> **현재 네이티브 앱 작업 재개:** [2026-10-26 회사 → 집 인계](docs/HANDOFF_20261026_COMPANY_TO_HOME.md). 아래는 초기 Flutter 프로젝트 설명이므로 현재 앱 ID/설치/검증 상태는 인계 문서를 우선 확인하세요.
+
 # Odify — SpotiFLAC 기반 Android 음악 앱
 
 SpotiFLAC Mobile의 MIT 라이선스를 준수하는 **고정 업스트림 + Odify 변경사항(overlay)** 구조입니다. 기존 Flutter/Rust/Android 프로젝트를 처음부터 다시 구현하지 않습니다.
