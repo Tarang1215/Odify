@@ -15,6 +15,8 @@ The product's core visual principle is gentle, connected motion. Screen destinat
 
 Static artwork and modal snapshots must not run the live-scroll backdrop refresh loop. Keep the glass shader's rounded-rectangle geometry stable during morphs; transform and clip the outer GPU layer instead of rebuilding blur/refraction effects every frame. Animation progress used only for rendering belongs in draw/graphicsLayer callbacks. Derive endpoint visibility to avoid recomposing the entire player on each lyric/player transition frame. Queue lift and placement offsets likewise stay in render callbacks.
 
+Modal background filters use at most 720 px of raster width, matching their existing snapshot input. Scale blur radius, lens geometry and refraction distances consistently, then composite into native-resolution foreground and borders. Small live player/navigation glass remains native resolution.
+
 Measure on the physical device with the same office-safe gestures and `dumpsys gfxinfo ... framestats`; keep startup/cache effects and changing window counts in mind when comparing. Do not infer a constant frame rate from a single run.
 
 ## Company verification constraint
