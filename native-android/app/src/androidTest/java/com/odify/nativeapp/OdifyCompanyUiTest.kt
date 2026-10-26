@@ -86,6 +86,7 @@ class OdifyCompanyUiTest {
         val began=SystemClock.uptimeMillis()
         fun event(action:Int,x:Float,y:Float,at:Long) {
             val event=MotionEvent.obtain(began,at,action,x,y,0)
+            event.source=android.view.InputDevice.SOURCE_TOUCHSCREEN
             test.uiAutomation.injectInputEvent(event,true);event.recycle()
         }
         event(MotionEvent.ACTION_DOWN,start.centerX().toFloat(),start.centerY().toFloat(),began)
@@ -135,6 +136,7 @@ class OdifyCompanyUiTest {
                 }
             }}
             waitFor("곡 옵션 열기");capture("player")
+            tap("가사");waitFor("앨범커버");capture("lyrics");tap("앨범커버")
             tap("곡 옵션 열기");waitFor("음원 교체");capture("player-options")
             test.uiAutomation.executeShellCommand("input keyevent 4").close();Thread.sleep(400)
             tap("다음 재생");waitFor("Track 1 순서 이동")
