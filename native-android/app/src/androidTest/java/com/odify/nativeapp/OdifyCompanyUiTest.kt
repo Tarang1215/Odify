@@ -35,6 +35,57 @@ class OdifyCompanyUiTest {
     private val context get()=test.targetContext
     private fun main(block:()->Unit)=test.runOnMainSync(block)
 
+    @Test fun officialRecordingPresentationPersistsWithoutChangingVideoOrAudioIdentity() {
+        val name="company-recording-${System.nanoTime()}"
+        val store=OdifyStreamingLibrary(context,name)
+        val cover=File(context.cacheDir,"$name.jpg").apply {writeBytes(byteArrayOf(1))}
+        try {
+            val video=YoutubeVideo("abcdefghijk","ROSÉ Messy Lyrics","Lemonade","")
+            store.remember(video)
+            val music=OdifyMusicIdentity("123","Messy","ROSÉ","F1 The Album","","1406242696","","",180000)
+            store.presentation(video.videoId,music,null)
+            assertNull(store.find("youtube:${video.videoId}")!!.artworkPath)
+            store.presentation(video.videoId,music,cover.absolutePath)
+            store.remember(video,185000)
+            val song=OdifyStreamingLibrary(context,name).find("youtube:${video.videoId}")!!
+            assertEquals("Messy",song.title);assertEquals("ROSÉ",song.artist);assertEquals("F1 The Album",song.album)
+            assertEquals(cover.absolutePath,song.artworkPath);assertEquals(185000L,song.durationMs)
+            assertEquals(video,store.video(song));assertTrue(song.isYoutubeStream)
+        } finally {context.deleteSharedPreferences(name);cover.delete()}
+    }
+
+    @Test fun pausedMediaCardRefreshesMetadataAndRoutesEveryControlWithoutStartingAnyPlayer() {
+        val calls=java.util.concurrent.CopyOnWriteArrayList<Pair<String,Long>>()
+        var card:OdifyYoutubeMediaCard?=null
+        try {
+            main {
+                card=OdifyYoutubeMediaCard(context,8099) {action,position ->calls.add(action to position)}
+                val video=YoutubeVideo("abcdefghijk","Video title","Uploader","")
+                val song=OdifySong("youtube:abcdefghijk","Messy","ROSÉ","F1 The Album","",durationMs=180000)
+                val value=YoutubeSessionState(video,playback=YoutubeWebState(ready=true),presentation=song,following=listOf(song))
+                card!!.update(value)
+                val controller=android.media.session.MediaController(context,card!!.session.sessionToken)
+                assertEquals("Messy",controller.metadata!!.getString(android.media.MediaMetadata.METADATA_KEY_TITLE))
+                assertEquals("ROSÉ",controller.metadata!!.getString(android.media.MediaMetadata.METADATA_KEY_ARTIST))
+                assertEquals(android.media.session.PlaybackState.STATE_PAUSED,controller.playbackState!!.state)
+                assertEquals(180000L,controller.metadata!!.getLong(android.media.MediaMetadata.METADATA_KEY_DURATION))
+                card!!.update(value.copy(playback=value.playback.copy(duration=185000),presentation=song.copy(title="Updated title")))
+                assertEquals("Updated title",controller.metadata!!.getString(android.media.MediaMetadata.METADATA_KEY_TITLE))
+                assertEquals(185000L,controller.metadata!!.getLong(android.media.MediaMetadata.METADATA_KEY_DURATION))
+                val notification=card!!.notification()
+                assertNotNull(notification.deleteIntent)
+                assertEquals(0,notification.flags and android.app.Notification.FLAG_ONGOING_EVENT)
+                controller.transportControls.apply {play();pause();seekTo(42000);skipToNext();skipToPrevious();stop()}
+            }
+            val deadline=SystemClock.elapsedRealtime()+3000
+            while(calls.size<6 && SystemClock.elapsedRealtime()<deadline)SystemClock.sleep(20)
+            assertEquals(listOf("play","pause","seek","next","previous","stop"),calls.map {it.first})
+            assertEquals(42000L,calls.first {it.first=="seek"}.second)
+            main {card!!.dismiss();assertFalse(card!!.session.isActive)}
+            assertFalse(context.getSystemService(android.app.NotificationManager::class.java).activeNotifications.any {it.id==8099})
+        } finally {main {card?.close()}}
+    }
+
     @Test fun immutableGlassRasterBlursTheSceneAndKeepsItsInteriorOpaque() {
         val source=Bitmap.createBitmap(64,64,Bitmap.Config.ARGB_8888)
         Canvas(source).apply {

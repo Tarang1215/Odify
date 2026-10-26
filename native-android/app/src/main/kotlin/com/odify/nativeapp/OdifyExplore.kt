@@ -34,7 +34,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 import kotlin.math.abs
 
-data class ExploreTrack(val id:String,val title:String,val artist:String,val artwork:String,val genres:List<String>,val rank:Int)
+data class ExploreTrack(val id:String,val title:String,val artist:String,val artwork:String,val genres:List<String>,val rank:Int,val music:OdifyMusicIdentity?=null)
 data class ExploreChart(val country:String,val updated:String,val fetchedAt:Long,val tracks:List<ExploreTrack>,val cached:Boolean=false)
 
 /** Public chart metadata. Playback always resolves to an owned, identified file. */
@@ -149,7 +149,7 @@ private fun java.io.InputStream.readBytesBounded(limit:Int):ByteArray {
 }
 
 @Composable
-private fun ExploreCover(track:ExploreTrack,modifier:Modifier) {
+internal fun ExploreCover(track:ExploreTrack,modifier:Modifier) {
     val context=LocalContext.current
     val cover by produceState<ImageBitmap?>(ExploreArtworkMemory.peek(track.artwork),track.artwork) {
         if(value!=null)return@produceState

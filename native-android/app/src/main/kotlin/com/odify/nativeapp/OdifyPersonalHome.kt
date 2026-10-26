@@ -30,7 +30,8 @@ fun OdifyPersonalHome(
     discoveryTracks:List<ExploreTrack> = emptyList(),
     loadArtistTracks:suspend (String)->List<ExploreTrack> = {emptyList()},
     onPlayOnline:(ExploreTrack)->Unit = {},onArtistSearch:(String)->Unit = {},
-    loadMoodTracks:suspend (String)->List<ExploreTrack> = {emptyList()}
+    loadMoodTracks:suspend (String)->List<ExploreTrack> = {emptyList()},
+    loadArtistPortrait:suspend (String)->String? = {null}
 ) {
     var selectedMix by remember { mutableStateOf<OdifyMix?>(null) }
     var artistTracks by remember {mutableStateOf<List<ExploreTrack>>(emptyList())}
@@ -127,7 +128,7 @@ fun OdifyPersonalHome(
                 items(artists,key={it.key}) {entry ->
                     Column(Modifier.width(90.dp).clickable {selectedMix=OdifyMix("artist:${entry.key}",entry.key,"내 음악과 이 아티스트의 더 많은 곡 · 저장하지 않은 곡은 YouTube로",entry.value.distinctBy {it.id})},
                         horizontalAlignment=Alignment.CenterHorizontally) {
-                        AlbumArt(entry.value.first(),Modifier.size(82.dp),radius=androidx.compose.foundation.shape.CircleShape)
+                        HomeArtistPortrait(entry.key,loadArtistPortrait,Modifier.size(82.dp))
                         Text(entry.key,fontSize=11.sp,color=homeInk,maxLines=1,overflow=TextOverflow.Ellipsis,modifier=Modifier.padding(top=8.dp))
                     }
                 }
@@ -202,7 +203,8 @@ fun OdifyPersonalHome(
             else -> emptyList()
         }
         Row(Modifier.fillMaxWidth().padding(bottom=14.dp),verticalAlignment=Alignment.CenterVertically) {
-            AlbumArt(mix.coverSong(),Modifier.size(62.dp),if(mix.key.startsWith("artist:")) androidx.compose.foundation.shape.CircleShape else RoundedCornerShape(16.dp))
+            if(mix.key.startsWith("artist:"))HomeArtistPortrait(mix.name,loadArtistPortrait,Modifier.size(62.dp))
+            else AlbumArt(mix.coverSong(),Modifier.size(62.dp),RoundedCornerShape(16.dp))
             Column(Modifier.weight(1f).padding(start=13.dp,end=4.dp)) {
                 Text(mix.name,fontSize=19.sp,lineHeight=24.sp,fontWeight=FontWeight.SemiBold,maxLines=2,overflow=TextOverflow.Ellipsis)
                 Text("내 음악 ${mix.songs.size}곡"+(if(online.isNotEmpty())" · 더 많은 곡 ${online.size}" else ""),fontSize=11.sp,color=homeGrey,modifier=Modifier.padding(top=5.dp))
@@ -265,14 +267,24 @@ fun OdifyPersonalHome(
 
 @Composable private fun HomeOnlineTrack(track:ExploreTrack,onClick:()->Unit) {
     Row(Modifier.fillMaxWidth().height(66.dp).clip(RoundedCornerShape(13.dp)).clickable(onClick=onClick).padding(horizontal=6.dp),verticalAlignment=Alignment.CenterVertically) {
-        Box(Modifier.size(42.dp).background(Color.White.copy(alpha=.055f),RoundedCornerShape(11.dp)),contentAlignment=Alignment.Center) {
-            Icon(Icons.Outlined.MusicNote,null,tint=homeGrey,modifier=Modifier.size(21.dp))
-        }
+        ExploreCover(track,Modifier.size(44.dp))
         Column(Modifier.weight(1f).padding(horizontal=12.dp)) {
             Text(track.title,fontSize=13.sp,fontWeight=FontWeight.Medium,color=homeInk,maxLines=1,overflow=TextOverflow.Ellipsis)
             Text(track.artist,fontSize=11.sp,color=homeGrey,maxLines=1,overflow=TextOverflow.Ellipsis,modifier=Modifier.padding(top=4.dp))
         }
         Text("YouTube",fontSize=9.sp,color=homeGrey)
+    }
+}
+
+@Composable private fun HomeArtistPortrait(name:String,loader:suspend (String)->String?,modifier:Modifier) {
+    val latestLoader by rememberUpdatedState(loader)
+    val portrait by produceState<String?>(null,name) {
+        try {value=latestLoader(name)} catch(cancel:CancellationException){throw cancel} catch(_:Exception) {value=null}
+    }
+    val shape=androidx.compose.foundation.shape.CircleShape
+    Box(modifier.clip(shape).background(OdifyPalette.surface),contentAlignment=Alignment.Center) {
+        portrait?.let {AlbumArt(OdifySong("portrait:$name",name,"","","",artworkPath=it),Modifier.fillMaxSize(),shape)}
+            ?: Icon(Icons.Outlined.Person,null,tint=homeGrey,modifier=Modifier.fillMaxSize(.48f))
     }
 }
 

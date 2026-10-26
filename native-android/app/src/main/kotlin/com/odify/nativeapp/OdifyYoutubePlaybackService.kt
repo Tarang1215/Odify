@@ -15,6 +15,7 @@ import android.webkit.*
 import androidx.core.content.ContextCompat
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
+import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 import org.json.JSONObject
@@ -22,7 +23,8 @@ import org.json.JSONObject
 internal data class YoutubeSessionState(val video:YoutubeVideo?=null,
     val playback:YoutubeWebState=YoutubeWebState(),val following:List<OdifySong> = emptyList(),val repeat:Boolean=false,val shuffle:Boolean=false,
     val presentation:OdifySong?=null,val entryKey:String=java.util.UUID.randomUUID().toString(),
-    val followingKeys:List<String> = following.map {java.util.UUID.randomUUID().toString()}) {
+    val followingKeys:List<String> = following.map {java.util.UUID.randomUUID().toString()},
+    val previous:List<OdifySong> = emptyList()) {
     fun moved(fromKey:String,toKey:String):YoutubeSessionState {
         val from=followingKeys.indexOf(fromKey);val to=followingKeys.indexOf(toKey)
         if(from !in following.indices || to !in following.indices || from==to)return this
@@ -40,9 +42,9 @@ internal object OdifyYoutubeRuntime {
     var service:OdifyYoutubePlaybackService?=null
     fun play(context:Context,video:YoutubeVideo,following:List<OdifySong>,presentation:OdifySong?=null,
         followingKeys:List<String> = following.map {java.util.UUID.randomUUID().toString()},
-        shuffle:Boolean=false,repeat:Boolean=false) {
-        session.value=YoutubeSessionState(video,following=following,presentation=presentation,
-            followingKeys=followingKeys,shuffle=shuffle,repeat=repeat)
+        shuffle:Boolean=false,repeat:Boolean=false,previous:List<OdifySong> = emptyList()) {
+        session.value=YoutubeSessionState(video,following=following,presentation=presentation ?: OdifyStreamingLibrary(context).find("youtube:${video.videoId}"),
+            followingKeys=followingKeys,shuffle=shuffle,repeat=repeat,previous=previous)
         ContextCompat.startForegroundService(context,Intent(context,OdifyYoutubePlaybackService::class.java).setAction("load"))
     }
     fun move(fromKey:String,toKey:String) {session.update {it.moved(fromKey,toKey)}}
@@ -58,12 +60,14 @@ internal object OdifyYoutubeRuntime {
 class OdifyYoutubePlaybackService:Service() {
     private val handler=Handler(Looper.getMainLooper())
     private var browser:WebView?=null
-    private var media:MediaSession?=null
+    private var card:OdifyYoutubeMediaCard?=null
+    private val metadataScope=CoroutineScope(SupervisorJob()+Dispatchers.Main.immediate)
+    private var metadataJob:Job?=null
+    private var foreground=true
     private var activeId:String?=null
     private var generation=0
     private var consumedEnd=false
     private var handingOff=false
-    private var lastNotificationState=""
     private var nativeController:MediaController?=null
     private var listenClock=OdifyListenClock()
     private var collectionQueued=false
@@ -72,17 +76,15 @@ class OdifyYoutubePlaybackService:Service() {
     override fun onBind(intent:Intent?):IBinder?=null
     override fun onCreate() {
         super.onCreate();OdifyYoutubeRuntime.service=this
-        getSystemService(NotificationManager::class.java).createNotificationChannel(
-            NotificationChannel("odify_youtube_audio","YouTube 재생",NotificationManager.IMPORTANCE_LOW))
-        media=MediaSession(this,"Odify YouTube").apply {
-            setCallback(object:MediaSession.Callback(){
-                override fun onPlay(){command("odifyPlay()")}
-                override fun onPause(){command("odifyPause()")}
-                override fun onStop(){OdifyYoutubeRuntime.stop(this@OdifyYoutubePlaybackService)}
-                override fun onSeekTo(pos:Long){command("odifySeek(${pos.coerceAtLeast(0)/1000.0})")}
-                override fun onSkipToPrevious(){command("odifySeek(0)")}
-                override fun onSkipToNext(){handoff()}
-            });isActive=true
+        card=OdifyYoutubeMediaCard(this) {action,position ->
+            when(action) {
+                "play" -> command("odifyPlay()")
+                "pause" -> command("odifyPause()")
+                "stop" -> OdifyYoutubeRuntime.stop(this)
+                "seek" -> command("odifySeek(${position/1000.0})")
+                "previous" -> previous()
+                "next" -> handoff()
+            }
         }
         // Chromium owns audio focus for its media element. A second service
         // focus request receives LOSS when Chromium starts, and pauses the very
@@ -96,6 +98,7 @@ class OdifyYoutubePlaybackService:Service() {
             "pause" -> command("odifyPause()")
             "play" -> command("odifyPlay()")
             "next" -> handoff()
+            "previous" -> previous()
             "stop" -> OdifyYoutubeRuntime.stop(this)
         }
         return START_NOT_STICKY
@@ -122,6 +125,23 @@ class OdifyYoutubePlaybackService:Service() {
         web.onResume()
         web.loadDataWithBaseURL("https://$packageName/",OdifyYoutubeWebPage.html(video.videoId,"https://$packageName"),"text/html","UTF-8",null)
         publish(YoutubeWebState())
+        val entry=OdifyYoutubeRuntime.session.value.entryKey
+        metadataJob?.cancel()
+        metadataJob=metadataScope.launch {
+            try {
+                val store=OdifyStreamingLibrary(applicationContext)
+                try {if(!store.verified(video.videoId))OdifyMusicCatalog(applicationContext).enrich(store,video)}
+                catch(cancel:CancellationException){throw cancel}
+                catch(error:Exception){android.util.Log.w("OdifyMetadata","Official metadata unavailable",error)}
+                if(store.identity(video.videoId)==null)youtubeArtwork(applicationContext,video.videoId)
+                OdifyYoutubeRuntime.session.update {current ->
+                    if(current.entryKey==entry && (current.presentation==null || current.presentation.id=="youtube:${video.videoId}"))
+                        current.copy(presentation=store.find("youtube:${video.videoId}")) else current
+                }
+                if(OdifyYoutubeRuntime.session.value.entryKey==entry)publish(OdifyYoutubeRuntime.session.value.playback)
+            } catch(cancel:CancellationException){throw cancel}
+            catch(error:Exception){android.util.Log.w("OdifyMetadata","Music metadata unavailable",error)}
+        }
         val began=SystemClock.elapsedRealtime()
         handler.removeCallbacksAndMessages(null)
         val poll=object:Runnable {
@@ -174,35 +194,26 @@ class OdifyYoutubePlaybackService:Service() {
             }.onFailure {android.util.Log.w("OdifyCollection","Could not save pending collection request",it)}
         }
         if(state.playing) {if(!wake.isHeld) wake.acquire(6*60*60*1000L)} else if(wake.isHeld) wake.release()
-        media?.setPlaybackState(PlaybackState.Builder().setActions(PlaybackState.ACTION_PLAY or PlaybackState.ACTION_PAUSE or
-            PlaybackState.ACTION_SEEK_TO or PlaybackState.ACTION_SKIP_TO_NEXT or PlaybackState.ACTION_SKIP_TO_PREVIOUS or PlaybackState.ACTION_STOP)
-            .setState(if(state.error.isNotBlank()) PlaybackState.STATE_ERROR else if(state.playing) PlaybackState.STATE_PLAYING else if(!state.ready) PlaybackState.STATE_BUFFERING else PlaybackState.STATE_PAUSED,
-                state.position,if(state.playing)1f else 0f,SystemClock.elapsedRealtime()).build())
-        val key="${value.video?.videoId}:${state.playing}:${state.ready}:${state.error}"
-        if(key!=lastNotificationState) {
-            lastNotificationState=key
-            val cover=value.presentation?.artworkPath?.let {BitmapFactory.decodeFile(it)}
-                ?: if(value.presentation==null)value.video?.let {BitmapFactory.decodeFile(java.io.File(cacheDir,"youtube_search_${it.videoId}.jpg").absolutePath)} else null
-            media?.setMetadata(MediaMetadata.Builder().putString(MediaMetadata.METADATA_KEY_TITLE,value.presentation?.title ?: value.video?.title)
-                .putString(MediaMetadata.METADATA_KEY_ARTIST,value.presentation?.artist ?: value.video?.channel).putLong(MediaMetadata.METADATA_KEY_DURATION,state.duration)
-                .putBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART,cover).build())
-            getSystemService(NotificationManager::class.java).notify(8002,notification())
+        card?.update(OdifyYoutubeRuntime.session.value)
+        val needsForeground=state.playing || !state.ready && state.error.isBlank()
+        if(needsForeground && !foreground){startForeground(8002,notification());foreground=true}
+        else if(!needsForeground && foreground){stopForeground(STOP_FOREGROUND_DETACH);foreground=false}
+    }
+    private fun notification():Notification=card!!.notification()
+    fun previous() {
+        val current=OdifyYoutubeRuntime.session.value
+        val previous=current.previous.lastOrNull()
+        if(current.playback.position>3000 || previous==null) {command("odifySeek(0)");return}
+        if(!previous.isYoutubeStream) {
+            if(!handingOff){handingOff=true;handoffNative(current,true)}
+            return
         }
+        val present=current.presentation ?: current.video?.let {OdifyStreamingLibrary(this).find("youtube:${it.videoId}")}
+        command("odifyPause()")
+        OdifyYoutubeRuntime.play(this,OdifyStreamingLibrary(this).video(previous),listOfNotNull(present)+current.following,
+            presentation=previous,previous=current.previous.dropLast(1),shuffle=current.shuffle,repeat=current.repeat)
     }
-    private fun action(name:String,code:Int)=PendingIntent.getService(this,code,
-        Intent(this,OdifyYoutubePlaybackService::class.java).setAction(name),PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-    private fun notification():Notification {
-        val value=OdifyYoutubeRuntime.session.value
-        val open=PendingIntent.getActivity(this,8002,Intent(this,MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        return Notification.Builder(this,"odify_youtube_audio").setSmallIcon(android.R.drawable.ic_media_play)
-            .setContentTitle(value.presentation?.title ?: value.video?.title ?: "Odify").setContentText(value.playback.error.ifBlank {value.presentation?.artist ?: value.video?.channel ?: "YouTube 연결 중"})
-            .setContentIntent(open).setVisibility(Notification.VISIBILITY_PUBLIC).setOnlyAlertOnce(true)
-            .setStyle(Notification.MediaStyle().setMediaSession(media?.sessionToken).setShowActionsInCompactView(0,1))
-            .addAction(Notification.Action.Builder(if(value.playback.playing)android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play,
-                if(value.playback.playing)"일시정지" else "재생",action(if(value.playback.playing)"pause" else "play",1)).build())
-            .addAction(Notification.Action.Builder(android.R.drawable.ic_media_next,"다음 곡",action("next",2)).build())
-            .addAction(Notification.Action.Builder(android.R.drawable.ic_menu_close_clear_cancel,"재생 종료",action("stop",3)).build()).build()
-    }
+    fun next()=handoff()
     private fun handoff() {
         if(handingOff) return
         val current=OdifyYoutubeRuntime.session.value
@@ -212,18 +223,29 @@ class OdifyYoutubePlaybackService:Service() {
         if(queue.first().isYoutubeStream) {
             command("odifyPause()")
             OdifyYoutubeRuntime.play(this,OdifyStreamingLibrary(this).video(queue.first()),queue.drop(1),
-                presentation=queue.first(),followingKeys=current.followingKeys.drop(1),shuffle=current.shuffle,repeat=current.repeat)
+                presentation=queue.first(),followingKeys=current.followingKeys.drop(1),shuffle=current.shuffle,repeat=current.repeat,
+                previous=(current.previous+listOfNotNull(current.presentation)).takeLast(100))
             return
         }
+        handoffNative(current,false)
+    }
+    private fun handoffNative(current:YoutubeSessionState,back:Boolean) {
         val future=MediaController.Builder(this,SessionToken(this,ComponentName(this,OdifyPlaybackService::class.java))).buildAsync()
         future.addListener({runCatching {
-            val player=future.get();nativeController=player
+            val player=future.get()
             command("odifyPause()")
             // Resolve the current queue after the asynchronous controller connects.
             val latest=OdifyYoutubeRuntime.session.value
-            if(latest.entryKey!=current.entryKey)return@runCatching
+            if(latest.entryKey!=current.entryKey){player.release();return@runCatching}
+            nativeController?.release();nativeController=player
+            val present=listOfNotNull(latest.presentation ?: latest.video?.let {OdifyStreamingLibrary(this).find("youtube:${it.videoId}")})
+            val queue=latest.previous+present+latest.following
+            val index=if(back)latest.previous.lastIndex else latest.previous.size+present.size
+            if(index !in queue.indices){handingOff=false;return@runCatching}
             player.shuffleModeEnabled=latest.shuffle
-            player.setMediaItems(latest.following.map {it.mediaItem()},0,0L);player.prepare();player.play()
+            player.repeatMode=if(latest.repeat)androidx.media3.common.Player.REPEAT_MODE_ONE else androidx.media3.common.Player.REPEAT_MODE_OFF
+            player.setMediaItems(queue.map {it.mediaItem()},index,0L);player.prepare();player.play()
+            card?.dismiss();stopForeground(STOP_FOREGROUND_REMOVE);foreground=false
             OdifyYoutubeRuntime.session.value=YoutubeSessionState()
             handler.postDelayed({if(OdifyYoutubeRuntime.session.value.video==null)stopSelf()},2000)
         }.onFailure {handingOff=false;publish(OdifyYoutubeRuntime.session.value.playback.copy(error="Drive 다음 곡을 연결하지 못했습니다."))}},ContextCompat.getMainExecutor(this))
@@ -233,7 +255,9 @@ class OdifyYoutubePlaybackService:Service() {
         OdifyYoutubeRuntime.view.value=null
         browser?.let {(it.parent as? ViewGroup)?.removeView(it);it.stopLoading();it.loadUrl("about:blank");it.destroy()};browser=null
         nativeController?.release();nativeController=null
-        media?.release();media=null
+        metadataScope.cancel();card?.close();card=null
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        getSystemService(NotificationManager::class.java).cancel(8002)
         if(wake.isHeld) wake.release()
         runCatching {unregisterReceiver(noisy)}
         OdifyYoutubeRuntime.service=null
