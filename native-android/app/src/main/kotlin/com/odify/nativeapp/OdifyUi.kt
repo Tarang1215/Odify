@@ -23,6 +23,9 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.foundation.*
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.gestures.*
@@ -284,9 +287,18 @@ fun OdifyRoot(
         onDispose { listeningStore.preferences.unregisterOnSharedPreferenceChangeListener(listener) }
     }
     var playlistVersion by remember { mutableIntStateOf(0) }
+    DisposableEffect(playlistStore) {
+        val listener=android.content.SharedPreferences.OnSharedPreferenceChangeListener {_,_->playlistVersion++}
+        playlistStore.preferences.registerOnSharedPreferenceChangeListener(listener)
+        onDispose {playlistStore.preferences.unregisterOnSharedPreferenceChangeListener(listener)}
+    }
     val playlists = remember(playlistVersion) { playlistStore.all() }
     var selectedPlaylistId by rememberSaveable {mutableStateOf<String?>(null)}
     val openedPlaylist=playlists.firstOrNull {it.id==selectedPlaylistId}
+    var retainedPlaylist by remember {mutableStateOf<OdifyPlaylist?>(null)}
+    SideEffect {if(openedPlaylist!=null)retainedPlaylist=openedPlaylist}
+    val playlistVisible=remember {MutableTransitionState(false)}
+    playlistVisible.targetState=openedPlaylist!=null
     var playlistDialogTrack by remember { mutableStateOf<OdifySong?>(null) }
     var replacementTrack by remember {mutableStateOf<OdifySong?>(null)}
     var openLibraryPlaylists by rememberSaveable { mutableIntStateOf(0) }
@@ -295,6 +307,9 @@ fun OdifyRoot(
         playlistVersion++
         ""
     }.getOrElse { it.message ?: "플레이리스트 생성 실패" }
+    fun renamePlaylist(id:String,name:String):String=runCatching {
+        playlistStore.rename(id,name);playlistVersion++;""
+    }.getOrElse {it.message ?: "이름을 저장하지 못했습니다."}
     fun addToPlaylist(playlistId: String, songId: String): String = runCatching {
         val added = playlistStore.addSong(playlistId, songId)
         playlistVersion++
@@ -318,6 +333,7 @@ fun OdifyRoot(
             tabHistory.removeAt(tabHistory.lastIndex) else OdifyTab.Home
     }
     var queueOpen by remember { mutableStateOf(false) }
+    var queueAnchor by remember {mutableStateOf<Offset?>(null)}
     var youtubeOpen by remember { mutableStateOf(false) }
     BackHandler(enabled = queueOpen || expanded || selectedPlaylistId!=null ||
         selectedTab != OdifyTab.Home || tabHistory.isNotEmpty()) {
@@ -389,7 +405,7 @@ fun OdifyRoot(
 
     // Both controls live in a stable overlay. Animating layout height caused
     // the old mini-player to snap down after the navigation animation finished.
-    val navShown = navVisible && selectedPlaylistId==null
+    val navShown = navVisible && !playlistVisible.currentState && !playlistVisible.targetState
     val navFraction by animateFloatAsState(
         targetValue = if (navShown) 1f else 0f,
         animationSpec = spring(dampingRatio = .95f, stiffness = 420f),
@@ -510,6 +526,7 @@ fun OdifyRoot(
                     onOpenYoutube = { youtubeOpen = true },
                     playlists = playlists, playlistFocus = openLibraryPlaylists,currentSongId=playback.mediaId,
                     onOpenPlaylist={selectedPlaylistId=it.id},
+                    onRenamePlaylist=::renamePlaylist,
                     onCreatePlaylist = ::createPlaylist,
                     onDeletePlaylist = { id ->
                         playlistStore.delete(id); playlistVersion++
@@ -531,9 +548,19 @@ fun OdifyRoot(
                 }
             }
             }
-            openedPlaylist?.let {playlist ->
+            AnimatedVisibility(visibleState=playlistVisible,
+                enter=fadeIn(tween(460))+slideInVertically(tween(520,easing=FastOutSlowInEasing)) {it/14}+scaleIn(tween(520,easing=FastOutSlowInEasing),initialScale=.96f),
+                exit=fadeOut(tween(340))+slideOutVertically(tween(420,easing=FastOutSlowInEasing)) {it/18}+scaleOut(tween(420),targetScale=.97f),
+                label="playlist-destination") {
+                val playlist=openedPlaylist ?: retainedPlaylist ?: return@AnimatedVisibility
                 val tracks=remember(playlist,songs) {playlistStore.resolved(playlist,songs)}
                 OdifyPlaylistDetail(playlist,tracks,playback.mediaId,onDismiss={selectedPlaylistId=null},onPlay=::playList,
+                    onRename={renamePlaylist(playlist.id,it)},
+                    onCoverChange={uri ->
+                        val result=withContext(Dispatchers.IO) {runCatching {playlistStore.changeCover(playlist.id,uri);""}.getOrElse {it.message ?: "커버를 저장하지 못했습니다."}}
+                        if(result.isBlank())playlistVersion++
+                        result
+                    },
                     onDelete={playlistStore.delete(playlist.id);playlistVersion++;selectedPlaylistId=null},
                     onRemoveSong={playlistStore.removeSong(playlist.id,it);playlistVersion++})
             }
@@ -648,6 +675,7 @@ fun OdifyRoot(
                     onShuffle = onShuffle,
                     onRepeat = onRepeat,
                     onShowQueue = { queueOpen = true },
+                    onQueueAnchor={queueAnchor=it},
                     onAddToPlaylist = { playlistDialogTrack = active },
                     onSaveDevice = { onSaveDevice(active) },
                     onAudioRequest = { kind, link, reason -> onAudioRequest(active, kind, link, reason) },
@@ -669,7 +697,7 @@ fun OdifyRoot(
         replacementTrack?.let {target -> CompositionLocalProvider(LocalOdifyModalTint provides sharedGlow) {OdifyAudioReplaceDialog(target,onSelect={video ->
             replacementTrack=null;onReplaceAudio(target,video)
         },onClose={replacementTrack=null})}}
-        if (queueOpen) {
+        run {
             OdifyQueueDialog(
                 items=remember(playback.queueIds, songIndex) { playback.queueIds.map { id ->
                     songIndex[id]
@@ -679,7 +707,7 @@ fun OdifyRoot(
                 currentIndex=playback.currentQueueIndex,
                 onMove=onMoveQueue,
                 onSelect={ index -> onSelectQueue(index); queueOpen=false },
-                onClose={ queueOpen=false },glow=sharedGlow
+                onClose={ queueOpen=false },glow=sharedGlow,visible=queueOpen,anchor=queueAnchor
             )
         }
         playlistDialogTrack?.let { target ->
@@ -1044,7 +1072,7 @@ private fun OdifyLibraryScreen(
     onCreatePlaylist: (String) -> String,
     onDeletePlaylist: (String) -> Unit,
     onRemoveFromPlaylist: (String, String) -> Unit,currentSongId:String?=null,
-    onOpenPlaylist:(OdifyPlaylist)->Unit
+    onOpenPlaylist:(OdifyPlaylist)->Unit,onRenamePlaylist:(String,String)->String
 ) {
     var editingSong by remember { mutableStateOf<OdifySong?>(null) }
     var selection by rememberSaveable { mutableStateOf("Playlists") }
@@ -1095,7 +1123,7 @@ private fun OdifyLibraryScreen(
             OdifyPlaylistLibrary(
                 playlists = playlists, songs = songs,
                 onCreate = onCreatePlaylist, onDelete = onDeletePlaylist,
-                onOpenPlaylist=onOpenPlaylist
+                onOpenPlaylist=onOpenPlaylist,onRename=onRenamePlaylist
             )
         } else {
         Text(

@@ -1,6 +1,8 @@
 package com.odify.nativeapp
 
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -25,6 +27,9 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
+import androidx.compose.ui.geometry.Offset
 
 private data class QueuedTrack(val key:String,val song:OdifySong)
 
@@ -33,7 +38,8 @@ private data class QueuedTrack(val key:String,val song:OdifySong)
 @Composable
 fun OdifyQueueDialog(items:List<OdifySong>,currentIndex:Int,
     onMove:(String,String)->Unit,onSelect:(Int)->Unit,onClose:()->Unit,
-    entryKeys:List<String> = emptyList(),glow:Color=Color.Transparent) {
+    entryKeys:List<String> = emptyList(),glow:Color=Color.Transparent,
+    visible:Boolean=true,anchor:Offset?=null) {
     val incoming=remember(items,entryKeys) {
         items.mapIndexed {index,song -> QueuedTrack(entryKeys.getOrNull(index) ?: "${song.id}#$index",song)}
     }
@@ -45,6 +51,10 @@ fun OdifyQueueDialog(items:List<OdifySong>,currentIndex:Int,
     var pointerY by remember {mutableFloatStateOf(0f)}
     var dragTop by remember {mutableFloatStateOf(0f)}
     var pending by remember {mutableStateOf<List<String>?>(null)}
+    var settling by remember {mutableStateOf<String?>(null)}
+    val dropOffset=remember {Animatable(0f)}
+    val scope=rememberCoroutineScope()
+    var dropJob by remember {mutableStateOf<Job?>(null)}
     val list=rememberLazyListState()
     val density=LocalDensity.current
     val rowPx=with(density) {68.dp.toPx()}
@@ -94,9 +104,16 @@ fun OdifyQueueDialog(items:List<OdifySong>,currentIndex:Int,
             pending=ordered.map {it.key}
             latestOnMove(key,latestUpcoming[to].key)
         } else {ordered=latestUpcoming;pending=null}
-        dragging=null
+        val offset=dragTop-(list.layoutInfo.visibleItemsInfo.firstOrNull {it.key==key}?.offset ?: dragTop.toInt())
+        dropJob?.cancel()
+        dropJob=scope.launch {
+            dropOffset.snapTo(offset)
+            settling=key;dragging=null
+            dropOffset.animateTo(0f,spring(dampingRatio=1f,stiffness=320f))
+            settling=null
+        }
     }
-    OdifyGlassSheet(onClose,tint=glow,maxHeightFraction=.84f) {
+    OdifyGlassSheet(onClose,tint=glow,maxHeightFraction=.84f,visible=visible,anchor=anchor) {
         Row(Modifier.fillMaxWidth().padding(start=4.dp,bottom=14.dp),verticalAlignment=Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text("다음 재생",fontSize=19.sp,fontWeight=FontWeight.SemiBold)
@@ -112,13 +129,14 @@ fun OdifyQueueDialog(items:List<OdifySong>,currentIndex:Int,
             Text("다음 곡이 없습니다",fontSize=14.sp,color=Color.White.copy(alpha=.72f),modifier=Modifier.padding(vertical=30.dp))
         } else LazyColumn(state=list,modifier=Modifier.fillMaxWidth().heightIn(max=420.dp),contentPadding=PaddingValues(bottom=12.dp)) {
             items(ordered,key={it.key}) {queued ->
-                val selected=dragging==queued.key
+                val selected=dragging==queued.key || settling==queued.key
+                val lift by animateFloatAsState(if(selected)1f else 0f,spring(dampingRatio=1f,stiffness=380f),label="queue-lift")
                 val info=list.layoutInfo.visibleItemsInfo.firstOrNull {it.key==queued.key}
                 Row(Modifier.fillMaxWidth().height(68.dp)
-                    .animateItem(placementSpec=if(selected)null else spring(dampingRatio=.88f,stiffness=500f))
+                    .animateItem(fadeInSpec=null,fadeOutSpec=null,placementSpec=if(selected)null else spring(dampingRatio=1f,stiffness=340f))
                     .zIndex(if(selected)1f else 0f)
-                    .graphicsLayer {translationY=if(selected)dragTop-(info?.offset ?: 0) else 0f;scaleX=if(selected)1.015f else 1f;scaleY=if(selected)1.015f else 1f}
-                    .background(Color.White.copy(alpha=if(selected).14f else 0f),RoundedCornerShape(16.dp))
+                    .graphicsLayer {translationY=when(queued.key) {dragging->dragTop-(info?.offset ?: 0);settling->dropOffset.value;else->0f};scaleX=1f+.015f*lift;scaleY=1f+.015f*lift}
+                    .background(Color.White.copy(alpha=.12f*lift),RoundedCornerShape(16.dp))
                     .clickable(enabled=dragging==null) {val index=incoming.indexOfFirst {it.key==queued.key};if(index>=0)onSelect(index)}
                     .padding(start=8.dp,end=2.dp),verticalAlignment=Alignment.CenterVertically) {
                     AlbumArt(queued.song,Modifier.size(43.dp),RoundedCornerShape(10.dp))
@@ -136,7 +154,7 @@ fun OdifyQueueDialog(items:List<OdifySong>,currentIndex:Int,
                     }.pointerInput(queued.key) {
                         detectDragGestures(onDragStart={position ->
                             val row=list.layoutInfo.visibleItemsInfo.firstOrNull {it.key==queued.key}
-                            if(row!=null) {dragging=queued.key;dragTop=row.offset.toFloat();pointerY=dragTop+position.y}
+                            if(row!=null) {dropJob?.cancel();settling=null;dragging=queued.key;dragTop=row.offset.toFloat();pointerY=dragTop+position.y}
                         },onDragCancel={finish(false)},onDragEnd={finish(true)},onDrag={change,movement ->
                             change.consume();dragTop+=movement.y;pointerY+=movement.y;updateTarget()
                         })

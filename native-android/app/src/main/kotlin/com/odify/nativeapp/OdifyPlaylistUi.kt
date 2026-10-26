@@ -96,12 +96,14 @@ fun OdifyPlaylistPicker(
 /** Saved collections open as full library destinations, above the regular tab chrome. */
 @Composable
 fun OdifyPlaylistLibrary(playlists:List<OdifyPlaylist>,songs:List<OdifySong>,
-    onCreate:(String)->String,onDelete:(String)->Unit,onOpenPlaylist:(OdifyPlaylist)->Unit) {
+    onCreate:(String)->String,onDelete:(String)->Unit,onOpenPlaylist:(OdifyPlaylist)->Unit,
+    onRename:(String,String)->String={_,_->""}) {
     var creating by remember {mutableStateOf(false)}
     var name by remember {mutableStateOf("")}
     var error by remember {mutableStateOf("")}
     var options by remember {mutableStateOf<OdifyPlaylist?>(null)}
     var deletePending by remember {mutableStateOf<OdifyPlaylist?>(null)}
+    var renamePending by remember {mutableStateOf<OdifyPlaylist?>(null)}
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(top=5.dp,bottom=15.dp),verticalAlignment=Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
@@ -124,7 +126,7 @@ fun OdifyPlaylistLibrary(playlists:List<OdifyPlaylist>,songs:List<OdifySong>,
             horizontalArrangement=Arrangement.spacedBy(16.dp),verticalArrangement=Arrangement.spacedBy(24.dp)) {
             items(playlists,key={it.id}) {playlist ->
                 Column(Modifier.clip(RoundedCornerShape(18.dp)).clickable {onOpenPlaylist(playlist)}) {
-                    AlbumArt(playlist.songIds.firstNotNullOfOrNull {OdifyChartMatching.storedReference(it,songs)},
+                    AlbumArt(playlist.coverSong(playlist.songIds.mapNotNull {OdifyChartMatching.storedReference(it,songs)}),
                         Modifier.fillMaxWidth().aspectRatio(1f),RoundedCornerShape(18.dp),fallbackKey=playlist.name.hashCode())
                     Row(Modifier.fillMaxWidth().padding(top=7.dp),verticalAlignment=Alignment.CenterVertically) {
                         Column(Modifier.weight(1f).padding(start=2.dp)) {
@@ -139,11 +141,14 @@ fun OdifyPlaylistLibrary(playlists:List<OdifyPlaylist>,songs:List<OdifySong>,
             }
         }
     }
-    options?.let {playlist -> OdifyGlassSheet(onDismiss={options=null},maxHeightFraction=.4f) {
+    OdifyRetainedGlassSheet(options,onDismiss={options=null},maxHeightFraction=.5f) {playlist ->
         Text(playlist.name,fontSize=16.sp,fontWeight=FontWeight.SemiBold,modifier=Modifier.fillMaxWidth().padding(10.dp))
+        DropdownMenuItem(text={Text("이름 수정")},leadingIcon={Icon(Icons.Default.Edit,null,Modifier.size(20.dp))},
+            onClick={options=null;renamePending=playlist})
         DropdownMenuItem(text={Text("플레이리스트 삭제",fontSize=14.sp)},leadingIcon={Icon(Icons.Default.DeleteOutline,null,Modifier.size(20.dp))},
             onClick={options=null;deletePending=playlist})
-    }}
+    }
+    renamePending?.let {playlist -> OdifyPlaylistRenameDialog(playlist.name,{onRename(playlist.id,it)},{renamePending=null})}
     if(creating) OdifyGlassAlertDialog(onDismissRequest={creating=false},
         title={Text("새 플레이리스트",fontSize=18.sp)},text={Column {
             OutlinedTextField(value=name,onValueChange={name=it.take(80)},label={Text("이름")},singleLine=true,modifier=Modifier.fillMaxWidth())
@@ -155,4 +160,15 @@ fun OdifyPlaylistLibrary(playlists:List<OdifyPlaylist>,songs:List<OdifySong>,
         title={Text("플레이리스트를 삭제할까요?",fontSize=18.sp)},text={Text("목록만 삭제되며 음악 파일은 유지됩니다.",fontSize=13.sp)},
         confirmButton={TextButton(onClick={deletePending=null;onDelete(playlist.id)}){Text("삭제")}},
         dismissButton={TextButton(onClick={deletePending=null}){Text("취소")}})}
+}
+
+@Composable internal fun OdifyPlaylistRenameDialog(initialName:String,onSave:(String)->String,onDismiss:()->Unit) {
+    var name by remember(initialName) {mutableStateOf(initialName)}
+    var error by remember {mutableStateOf("")}
+    OdifyGlassAlertDialog(onDismissRequest=onDismiss,title={Text("플레이리스트 이름",fontSize=18.sp)},text={Column {
+        OutlinedTextField(value=name,onValueChange={name=it.take(80);error=""},singleLine=true,label={Text("이름")},modifier=Modifier.fillMaxWidth())
+        if(error.isNotBlank()) Text(error,fontSize=12.sp,color=MaterialTheme.colorScheme.error,modifier=Modifier.padding(top=8.dp))
+    }},confirmButton={TextButton(enabled=name.isNotBlank(),onClick={
+        error=onSave(name);if(error.isBlank())onDismiss()
+    }) {Text("저장")}},dismissButton={TextButton(onClick=onDismiss) {Text("취소")}})
 }

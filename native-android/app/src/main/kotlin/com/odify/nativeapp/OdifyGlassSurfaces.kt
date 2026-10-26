@@ -16,6 +16,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.GenericShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -35,6 +36,12 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.RoundRect
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
@@ -112,28 +119,64 @@ internal suspend fun odifyModalSnapshot(window:Window):OdifyModalSnapshot? {
     }
 }
 
-/** Bottom sheet positioning, insets and swipe dismissal are owned by Material;
- * the visible panel uses the same app-rendered refraction as the mini-player. */
-@OptIn(ExperimentalMaterial3Api::class)
+/** One retained glass surface grows from its control and returns on dismissal.
+ * A single snapshot is shared for the whole gesture, including queue reorders. */
 @Composable internal fun OdifyGlassSheet(onDismiss:()->Unit,tint:Color=LocalOdifyModalTint.current,
-    maxHeightFraction:Float=.82f,content:@Composable ColumnScope.()->Unit) {
+    maxHeightFraction:Float=.82f,visible:Boolean=true,anchor:Offset?=null,content:@Composable ColumnScope.()->Unit) {
     val host=LocalView.current
     val context=LocalContext.current
     val source=(host.parent as? DialogWindowProvider)?.window ?: context.modalActivity()?.window
     val bottomInset=WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding().coerceAtLeast(16.dp)
     var snapshot by remember(source) {mutableStateOf<OdifyModalSnapshot?>(null)}
-    var captured by remember(source) {mutableStateOf(false)}
-    LaunchedEffect(source) {snapshot=source?.let {odifyModalSnapshot(it)};captured=true}
-    if(!captured)return
-    val state=rememberModalBottomSheetState(skipPartiallyExpanded=true)
-    ModalBottomSheet(onDismissRequest=onDismiss,sheetState=state,
-        modifier=Modifier.padding(horizontal=12.dp),containerColor=Color.Transparent,
-        scrimColor=Color.Black.copy(alpha=.20f),tonalElevation=0.dp,
-        shape=RoundedCornerShape(30.dp),dragHandle=null,
-        contentWindowInsets={WindowInsets(0,0,0,0)}) {
+    var mounted by remember {mutableStateOf(false)}
+    val progress=remember {Animatable(0f)}
+    val currentDismiss by rememberUpdatedState(onDismiss)
+    LaunchedEffect(visible,source) {
+        if(visible) {
+            if(!mounted) {snapshot=source?.let {odifyModalSnapshot(it)};mounted=true}
+            progress.animateTo(1f,tween(520,easing=CubicBezierEasing(.20f,.75f,.18f,1f)))
+        } else {
+            progress.animateTo(0f,tween(400,easing=FastOutSlowInEasing))
+            mounted=false;snapshot=null
+        }
+    }
+    if(!mounted)return
+    Dialog(onDismissRequest={if(visible)currentDismiss()},properties=DialogProperties(usePlatformDefaultWidth=false,decorFitsSystemWindows=false)) {
+        val view=LocalView.current
+        DisposableEffect(view) {
+            val window=(view.parent as? DialogWindowProvider)?.window
+            window?.setBackgroundDrawable(ColorDrawable(android.graphics.Color.TRANSPARENT))
+            window?.setDimAmount(0f)
+            window?.attributes=window?.attributes?.apply {windowAnimations=0}
+            onDispose {}
+        }
+        Box(Modifier.fillMaxSize()) {
+        Box(Modifier.matchParentSize().background(Color.Black.copy(alpha=.20f*progress.value))
+            .clickable(interactionSource=remember {MutableInteractionSource()},indication=null) {if(visible)currentDismiss()})
         val backdrop=rememberOdifyBackdrop()
         var origin by remember {mutableStateOf(Offset.Zero)}
-        Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(30.dp)).onGloballyPositioned {origin=it.positionOnScreen()}) {
+        val density=LocalDensity.current
+        var panelSize by remember {mutableStateOf(IntSize.Zero)}
+        val circlePx=with(density) {50.dp.toPx()}
+        val radiusPx=with(density) {30.dp.toPx()}
+        val p=progress.value
+        val shape=GenericShape {size,_ ->
+            addRoundRect(RoundRect(Rect(0f,0f,size.width,size.height),CornerRadius(
+                size.width/2+(radiusPx-size.width/2)*p,size.height/2+(radiusPx-size.height/2)*p)))
+        }
+        Box(Modifier.align(Alignment.BottomCenter).padding(start=12.dp,end=12.dp,bottom=bottomInset+10.dp)
+            .onGloballyPositioned {origin=it.positionOnScreen();panelSize=it.size}) {
+        Box(Modifier.fillMaxWidth().graphicsLayer {
+            val width=panelSize.width.toFloat().coerceAtLeast(1f)
+            val height=panelSize.height.toFloat().coerceAtLeast(1f)
+            val start=anchor ?: Offset(origin.x+width/2,origin.y+height+circlePx)
+            transformOrigin=TransformOrigin.Center
+            scaleX=circlePx/width+(1-circlePx/width)*p
+            scaleY=circlePx/height+(1-circlePx/height)*p
+            translationX=(start.x-(origin.x+width/2))*(1-p)
+            translationY=(start.y-(origin.y+height/2))*(1-p)
+            alpha=(p*4).coerceIn(0f,1f)
+        }.clip(shape)) {
             Canvas(Modifier.matchParentSize().recordOdifyBackdrop(backdrop)) {
                 drawRect(Color(0xFF171A21))
                 snapshot?.let {frame -> drawImage(frame.image,
@@ -141,18 +184,34 @@ internal suspend fun odifyModalSnapshot(window:Window):OdifyModalSnapshot? {
                     dstSize=frame.size)}
             }
             Column(Modifier.fillMaxWidth().heightIn(max=LocalConfiguration.current.screenHeightDp.dp*maxHeightFraction)
-                .odifyGlass(backdrop,RoundedCornerShape(30.dp),tint,transparencyOverride=.76f)
+                .odifyGlass(backdrop,shape,tint,transparencyOverride=.78f)
                 .padding(horizontal=16.dp,vertical=12.dp),horizontalAlignment=Alignment.CenterHorizontally) {
-                Box(Modifier.fillMaxWidth().height(22.dp),contentAlignment=androidx.compose.ui.Alignment.TopCenter) {
+                var pulled by remember {mutableFloatStateOf(0f)}
+                Box(Modifier.fillMaxWidth().height(22.dp).pointerInput(visible) {
+                    detectVerticalDragGestures(onDragStart={pulled=0f},onDragEnd={if(pulled>circlePx)currentDismiss()},
+                        onVerticalDrag={change,amount ->change.consume();pulled+=amount})
+                },contentAlignment=androidx.compose.ui.Alignment.TopCenter) {
                     Box(Modifier.size(32.dp,4.dp).background(Color.White.copy(alpha=.30f),RoundedCornerShape(2.dp)))
                 }
                 CompositionLocalProvider(LocalContentColor provides Color(0xFFF5F6F7)) {
-                    ProvideTextStyle(MaterialTheme.typography.bodyMedium.copy(fontSize=14.sp)) {content()}
+                    Column(Modifier.graphicsLayer {alpha=((p-.22f)/.78f).coerceIn(0f,1f)}) {
+                        ProvideTextStyle(MaterialTheme.typography.bodyMedium.copy(fontSize=14.sp)) {content()}
+                    }
                 }
             }
         }
-        Spacer(Modifier.height(bottomInset+10.dp))
+        }
+        }
     }
+}
+
+/** Keep the last item alive until the shared closing animation has finished. */
+@Composable internal fun <T:Any> OdifyRetainedGlassSheet(item:T?,onDismiss:()->Unit,
+    tint:Color=LocalOdifyModalTint.current,maxHeightFraction:Float=.82f,content:@Composable ColumnScope.(T)->Unit) {
+    var retained by remember {mutableStateOf(item)}
+    SideEffect {if(item!=null)retained=item}
+    val displayed=item ?: retained ?: return
+    OdifyGlassSheet(onDismiss,tint,maxHeightFraction,visible=item!=null) {content(displayed)}
 }
 
 @Composable internal fun OdifySheetTrackHeader(song:OdifySong) {
@@ -183,8 +242,9 @@ internal suspend fun odifyModalSnapshot(window:Window):OdifyModalSnapshot? {
 
 @Composable internal fun OdifyGlassMenu(expanded:Boolean,onDismissRequest:()->Unit,
     shape:Shape=RoundedCornerShape(24.dp),containerColor:Color=Color.Transparent,
+    anchor:Offset?=null,
     content:@Composable ColumnScope.()->Unit) {
-    if(expanded) OdifyGlassSheet(onDismissRequest,maxHeightFraction=.72f,content=content)
+    OdifyGlassSheet(onDismissRequest,maxHeightFraction=.72f,visible=expanded,anchor=anchor,content=content)
 }
 
 /** Neutral source has no connection to album color, including while scrolling. */

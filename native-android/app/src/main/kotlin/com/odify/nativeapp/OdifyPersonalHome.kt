@@ -156,21 +156,36 @@ fun OdifyPersonalHome(
             TextButton(onClick=onSearch,modifier=Modifier.padding(top=8.dp)) {Text("떠오르는 노래나 가사로 검색",color=homeGrey,fontSize=12.sp)}
         }
     }
-    selectedMix?.let { mix ->
-        OdifyGlassDialog(onDismiss={selectedMix=null}) {
-            Column(Modifier.fillMaxWidth().padding(horizontal=22.dp)) {
-                Text(mix.name,fontSize=26.sp,fontWeight=FontWeight.Bold,color=homeInk)
-                Text(mix.reason,fontSize=12.sp,color=homeGrey,modifier=Modifier.padding(top=6.dp,bottom=14.dp))
-                Row(horizontalArrangement=Arrangement.spacedBy(10.dp)) {
-                    Button(onClick={onPlay(mix.songs,0);selectedMix=null}) {Icon(Icons.Outlined.PlayArrow,null);Text("모두 재생")}
-                    OutlinedButton(onClick={onSaveMix(mix)}) {Icon(Icons.Outlined.PlaylistAdd,null);Text("플레이리스트 저장")}
-                }
-                LazyColumn(Modifier.heightIn(max=390.dp),contentPadding=PaddingValues(bottom=30.dp)) {
-                    items(mix.songs,key={it.id}) {song ->
-                        ListItem(headlineContent={Text(song.title,maxLines=1,overflow=TextOverflow.Ellipsis)},
-                            supportingContent={Text(song.artist,maxLines=1)},leadingContent={AlbumArt(song,Modifier.size(42.dp))},
-                            colors=ListItemDefaults.colors(containerColor=OdifyPalette.surface),modifier=Modifier.clickable {onPlay(mix.songs,mix.songs.indexOf(song));selectedMix=null})
+    OdifyRetainedGlassSheet(selectedMix,onDismiss={selectedMix=null},maxHeightFraction=.84f) {mix ->
+        Row(Modifier.fillMaxWidth().padding(bottom=14.dp),verticalAlignment=Alignment.CenterVertically) {
+            AlbumArt(mix.coverSong(),Modifier.size(62.dp),if(mix.key.startsWith("artist:")) androidx.compose.foundation.shape.CircleShape else RoundedCornerShape(16.dp))
+            Column(Modifier.weight(1f).padding(start=13.dp,end=4.dp)) {
+                Text(mix.name,fontSize=19.sp,lineHeight=24.sp,fontWeight=FontWeight.SemiBold,maxLines=2,overflow=TextOverflow.Ellipsis)
+                Text("${mix.songs.size}곡 · 내 컬렉션",fontSize=11.sp,color=homeGrey,modifier=Modifier.padding(top=5.dp))
+            }
+            IconButton(onClick={selectedMix=null},modifier=Modifier.size(42.dp)) {Icon(Icons.Outlined.Close,"컬렉션 닫기",Modifier.size(21.dp))}
+        }
+        Text(mix.reason,fontSize=12.sp,lineHeight=18.sp,color=homeGrey,maxLines=2,overflow=TextOverflow.Ellipsis,
+            modifier=Modifier.fillMaxWidth().padding(start=4.dp,bottom=16.dp))
+        Row(Modifier.fillMaxWidth().padding(bottom=16.dp),horizontalArrangement=Arrangement.spacedBy(10.dp)) {
+            Button(onClick={onPlay(mix.songs,0);selectedMix=null},modifier=Modifier.weight(1f).height(44.dp),
+                contentPadding=PaddingValues(horizontal=10.dp),colors=ButtonDefaults.buttonColors(containerColor=Color.White,contentColor=Color.Black)) {
+                Icon(Icons.Outlined.PlayArrow,null,Modifier.size(19.dp));Spacer(Modifier.width(5.dp));Text("모두 재생",fontSize=12.sp,maxLines=1)
+            }
+            OutlinedButton(onClick={onSaveMix(mix)},modifier=Modifier.weight(1f).height(44.dp),contentPadding=PaddingValues(horizontal=10.dp)) {
+                Icon(Icons.Outlined.PlaylistAdd,null,Modifier.size(19.dp));Spacer(Modifier.width(5.dp));Text("목록에 저장",fontSize=12.sp,maxLines=1)
+            }
+        }
+        LazyColumn(Modifier.fillMaxWidth().heightIn(max=380.dp),contentPadding=PaddingValues(bottom=10.dp)) {
+            itemsIndexed(mix.songs,key={_,song->song.id}) {index,song ->
+                Row(Modifier.fillMaxWidth().height(66.dp).clip(RoundedCornerShape(13.dp))
+                    .clickable {onPlay(mix.songs,index);selectedMix=null}.padding(horizontal=5.dp),verticalAlignment=Alignment.CenterVertically) {
+                    AlbumArt(song,Modifier.size(44.dp),RoundedCornerShape(10.dp))
+                    Column(Modifier.weight(1f).padding(horizontal=12.dp)) {
+                        Text(song.title,fontSize=13.sp,fontWeight=FontWeight.Medium,maxLines=1,overflow=TextOverflow.Ellipsis)
+                        Text(song.artist,fontSize=11.sp,color=homeGrey,maxLines=1,overflow=TextOverflow.Ellipsis,modifier=Modifier.padding(top=4.dp))
                     }
+                    if(song.durationMs>0) Text("${song.durationMs/60000}:${(song.durationMs/1000%60).toString().padStart(2,'0')}",fontSize=10.sp,color=homeGrey)
                 }
             }
         }
