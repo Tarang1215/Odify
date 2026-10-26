@@ -12,7 +12,7 @@ import java.net.URL
 import java.net.URLEncoder
 
 /** Public song metadata only. No previews, audio URLs, or playback on lookup. */
-internal class OdifyArtistCatalog(context:Context) {
+internal class OdifyArtistCatalog(private val context:Context) {
     private val directory=File(context.cacheDir,"artist_catalog").apply {mkdirs()}
     suspend fun moodTracks(key:String):List<ExploreTrack> = withContext(Dispatchers.IO) {
         val mood=OdifyDiscovery.moods.first {it.key==key}
@@ -71,6 +71,18 @@ internal class OdifyArtistCatalog(context:Context) {
             catch(error:Exception) {lastFailure=error}
         }
         if(cached.isNotEmpty())return@withContext cached
+        // Some localized/newer artist names are absent from this catalog.
+        // The user's existing connected YouTube music search still recognizes
+        // them; keep its video identities and label these as search results.
+        if(OdifyYoutubeAuth.connected) {
+            try {
+                val videos=OdifyYoutubeLibrary(context).search(name,50)
+                if(videos.isNotEmpty())return@withContext videos.mapIndexed {index,video ->
+                    ExploreTrack("youtube:${video.videoId}",video.title,video.channel,"",emptyList(),index+1)
+                }
+            } catch(cancel:CancellationException) {throw cancel}
+            catch(failure:Exception) {lastFailure=failure}
+        }
         if(lastFailure!=null)throw lastFailure
         emptyList()
     }

@@ -500,7 +500,14 @@ fun OdifyRoot(
                     catalogSongs=songs,
                     discoveryTracks=discoveryTracks,
                     loadArtistTracks={artist ->artistCatalog.tracks(artist,songs.filter {OdifyDiscovery.sameArtist(it.artist,artist)}.map {it.title})},
-                    onPlayOnline={track ->onExternalTrack(track.artist,track.title,track.id)},
+                    onPlayOnline={track ->
+                        val videoId=track.id.removePrefix("youtube:")
+                        if(track.id.startsWith("youtube:") && Regex("[A-Za-z0-9_-]{11}").matches(videoId)) {
+                            val streaming=OdifyStreamingLibrary(context)
+                            streaming.remember(YoutubeVideo(videoId,track.title,track.artist,""))
+                            streaming.find(track.id)?.let {onPlayYoutubeMatched(listOf(it),0)}
+                        } else onExternalTrack(track.artist,track.title,track.id)
+                    },
                     onArtistSearch={artist ->searchQuery=artist;navigateTo(OdifyTab.Search)},
                     loadMoodTracks=artistCatalog::moodTracks,
                     playlists = playlists,

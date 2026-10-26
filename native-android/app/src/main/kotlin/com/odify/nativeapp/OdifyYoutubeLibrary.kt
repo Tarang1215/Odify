@@ -100,13 +100,15 @@ class OdifyYoutubeLibrary(private val context:Context) {
             override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Pair<Long, List<YoutubeVideo>>>?) = size > 20
         }
     }
-    suspend fun search(query: String): List<YoutubeVideo> = withContext(Dispatchers.IO) {
+    suspend fun search(query: String,limit:Int=20): List<YoutubeVideo> = withContext(Dispatchers.IO) {
         val text = query.trim()
         require(text.length in 2..160)
-        synchronized(searches) { searches[text] }?.takeIf {
+        require(limit in 1..50)
+        val cacheKey="$limit:$text"
+        synchronized(searches) { searches[cacheKey] }?.takeIf {
             System.currentTimeMillis() - it.first < 30 * 60_000
         }?.let { return@withContext it.second }
-        val response = get("search?part=snippet&type=video&videoCategoryId=10&maxResults=20&q=${enc(text)}")
+        val response = get("search?part=snippet&type=video&videoCategoryId=10&maxResults=$limit&q=${enc(text)}")
         val items = response.optJSONArray("items") ?: org.json.JSONArray()
         val result = (0 until items.length()).mapNotNull { i ->
             val item = items.getJSONObject(i)
@@ -117,7 +119,7 @@ class OdifyYoutubeLibrary(private val context:Context) {
                     info.optString("channelTitle"), "")
             }
         }.distinctBy { it.videoId }
-        synchronized(searches) { searches[text] = System.currentTimeMillis() to result }
+        synchronized(searches) { searches[cacheKey] = System.currentTimeMillis() to result }
         result
     }
     private val prefs=context.getSharedPreferences("odify_youtube_playlists_v1",0)

@@ -253,7 +253,7 @@ fun OdifyPersonalHome(
                     if(song.durationMs>0) Text("${song.durationMs/60000}:${(song.durationMs/1000%60).toString().padStart(2,'0')}",fontSize=10.sp,color=homeGrey)
                 }
             }
-            if(online.isNotEmpty()) item {Text("더 많은 곡 · YouTube로 듣기",fontSize=12.sp,color=homeGrey,modifier=Modifier.padding(top=18.dp,bottom=8.dp))}
+            if(online.isNotEmpty()) item {Text(if(online.all {it.id.startsWith("youtube:")})"YouTube에서 찾은 음악" else "더 많은 곡 · YouTube로 듣기",fontSize=12.sp,color=homeGrey,modifier=Modifier.padding(top=18.dp,bottom=8.dp))}
             items(online,key={"online:${it.id}"}) {track ->HomeOnlineTrack(track) {onPlayOnline(track);selectedMix=null}}
             if(mix.songs.isEmpty() && online.isEmpty() && !artistLoading && !artistError && !mix.key.startsWith("artist:")) item {
                 Text("아직 이 장르의 곡이 없어요. 검색에서 취향을 더해 보세요.",fontSize=13.sp,color=homeGrey,modifier=Modifier.padding(12.dp))
