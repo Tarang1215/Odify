@@ -228,54 +228,42 @@ class OdifyCompanyUiTest {
         }))
         Thread.sleep(150)
     }
+    private fun swipe(startX:Float,startY:Float,endX:Float,endY:Float) {
+        val began=SystemClock.uptimeMillis()
+        fun send(action:Int,x:Float,y:Float) {
+            val event=MotionEvent.obtain(began,SystemClock.uptimeMillis(),action,x,y,0)
+            event.source=android.view.InputDevice.SOURCE_TOUCHSCREEN
+            // Do not wait for display sync and then sleep another frame. Use
+            // real event times at roughly 120 Hz, like this phone's touch input.
+            test.uiAutomation.injectInputEvent(event,false);event.recycle()
+        }
+        send(MotionEvent.ACTION_DOWN,startX,startY)
+        while(true) {
+            SystemClock.sleep(8)
+            val fraction=((SystemClock.uptimeMillis()-began)/400f).coerceAtMost(1f)
+            send(MotionEvent.ACTION_MOVE,startX+(endX-startX)*fraction,startY+(endY-startY)*fraction)
+            if(fraction>=1f)break
+        }
+        send(MotionEvent.ACTION_UP,endX,endY)
+        Thread.sleep(600)
+    }
     private fun drag(from:String,to:String) {
         val start=Rect();waitFor(from).getBoundsInScreen(start)
         val end=Rect();waitFor(to).getBoundsInScreen(end)
-        val began=SystemClock.uptimeMillis()
-        fun event(action:Int,x:Float,y:Float,at:Long) {
-            val event=MotionEvent.obtain(began,at,action,x,y,0)
-            event.source=android.view.InputDevice.SOURCE_TOUCHSCREEN
-            test.uiAutomation.injectInputEvent(event,true);event.recycle()
-        }
-        event(MotionEvent.ACTION_DOWN,start.centerX().toFloat(),start.centerY().toFloat(),began)
-        for(step in 1..24) {
-            val fraction=step/24f
-            event(MotionEvent.ACTION_MOVE,start.centerX().toFloat(),start.centerY()+(end.centerY()-start.centerY())*fraction,
-                began+step*16L)
-            Thread.sleep(16)
-        }
-        event(MotionEvent.ACTION_UP,end.centerX().toFloat(),end.centerY().toFloat(),began+400)
-        Thread.sleep(700)
+        swipe(start.centerX().toFloat(),start.centerY().toFloat(),end.centerX().toFloat(),end.centerY().toFloat())
     }
     private fun swipeFooter(next:Boolean) {
         val bounds=Rect();waitFor("음원 출처와 다음 곡").getBoundsInScreen(bounds)
         val start=bounds.left+bounds.width()*(if(next).85f else .15f)
         val end=bounds.left+bounds.width()*(if(next).15f else .85f)
-        val began=SystemClock.uptimeMillis()
-        fun send(action:Int,x:Float,at:Long) {
-            val event=MotionEvent.obtain(began,at,action,x,bounds.centerY().toFloat(),0)
-            event.source=android.view.InputDevice.SOURCE_TOUCHSCREEN
-            test.uiAutomation.injectInputEvent(event,true);event.recycle()
-        }
-        send(MotionEvent.ACTION_DOWN,start,began)
-        for(step in 1..20) {send(MotionEvent.ACTION_MOVE,start+(end-start)*step/20,began+step*16L);Thread.sleep(16)}
-        send(MotionEvent.ACTION_UP,end,began+340);Thread.sleep(550)
+        swipe(start,bounds.centerY().toFloat(),end,bounds.centerY().toFloat())
     }
-
     private fun pullHandle(up:Boolean) {
         val label=if(up)"전체 화면으로 펼치기" else "작은 창으로 접기"
         val bounds=Rect();waitFor(label).getBoundsInScreen(bounds)
         val start=bounds.centerY().toFloat()
         val end=(start+if(up)-720 else 720).coerceIn(140f,context.resources.displayMetrics.heightPixels-180f)
-        val began=SystemClock.uptimeMillis()
-        fun send(action:Int,y:Float,at:Long) {
-            val event=MotionEvent.obtain(began,at,action,bounds.centerX().toFloat(),y,0)
-            event.source=android.view.InputDevice.SOURCE_TOUCHSCREEN
-            test.uiAutomation.injectInputEvent(event,true);event.recycle()
-        }
-        send(MotionEvent.ACTION_DOWN,start,began)
-        for(step in 1..24) {send(MotionEvent.ACTION_MOVE,start+(end-start)*step/24,began+step*16L);Thread.sleep(16)}
-        send(MotionEvent.ACTION_UP,end,began+400);Thread.sleep(500)
+        swipe(bounds.centerX().toFloat(),start,bounds.centerX().toFloat(),end)
     }
 
     @Test fun playerSheetsQueueDragPlaylistAndCountryChangesNeverInvokePlayback() {
