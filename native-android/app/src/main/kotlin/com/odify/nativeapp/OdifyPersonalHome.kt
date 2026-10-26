@@ -29,7 +29,8 @@ fun OdifyPersonalHome(
     catalogSongs:List<OdifySong> = recent+mixes.flatMap {it.songs},
     discoveryTracks:List<ExploreTrack> = emptyList(),
     loadArtistTracks:suspend (String)->List<ExploreTrack> = {emptyList()},
-    onPlayOnline:(ExploreTrack)->Unit = {},onArtistSearch:(String)->Unit = {}
+    onPlayOnline:(ExploreTrack)->Unit = {},onArtistSearch:(String)->Unit = {},
+    loadMoodTracks:suspend (String)->List<ExploreTrack> = {emptyList()}
 ) {
     var selectedMix by remember { mutableStateOf<OdifyMix?>(null) }
     var artistTracks by remember {mutableStateOf<List<ExploreTrack>>(emptyList())}
@@ -38,11 +39,14 @@ fun OdifyPersonalHome(
     var artistRetry by remember {mutableIntStateOf(0)}
     val artistName=selectedMix?.key?.takeIf {it.startsWith("artist:")}?.removePrefix("artist:")
     val latestArtistLoader by rememberUpdatedState(loadArtistTracks)
-    LaunchedEffect(artistName,artistRetry) {
+    val latestMoodLoader by rememberUpdatedState(loadMoodTracks)
+    val moodKey=selectedMix?.key?.takeIf {it.startsWith("mood:")}?.removePrefix("mood:")
+    LaunchedEffect(artistName,moodKey,artistRetry) {
+        // The retained sheet still draws its last rows during closing.
+        if(artistName==null && moodKey==null) {artistLoading=false;return@LaunchedEffect}
         artistTracks=emptyList();artistError=false;artistLoading=false
-        val name=artistName ?: return@LaunchedEffect
         artistLoading=true
-        try {artistTracks=latestArtistLoader(name)}
+        try {artistTracks=if(artistName!=null)latestArtistLoader(artistName) else latestMoodLoader(moodKey!!)}
         catch(cancel:CancellationException) {throw cancel}
         catch(_:Exception) {artistError=true}
         finally {artistLoading=false}
@@ -164,7 +168,7 @@ fun OdifyPersonalHome(
                         .clickable {selectedMix=owned}.padding(17.dp),verticalArrangement=Arrangement.SpaceBetween) {
                         Icon(when(mood.key) {"focus"->Icons.Outlined.Headphones;"energy"->Icons.Outlined.Bolt;"night"->Icons.Outlined.NightsStay;else->Icons.Outlined.Spa},null,tint=homeGrey,modifier=Modifier.size(23.dp))
                         Text(mood.name,fontSize=14.sp,fontWeight=FontWeight.SemiBold,color=homeInk,maxLines=1)
-                        Text(if(count>0)"${count}곡 · 장르 기반" else "장르에 맞는 곡을 찾아보세요",fontSize=10.sp,color=homeGrey,maxLines=1)
+                        Text(if(count>0)"${count}곡 · 장르 기반" else "새로운 음악 찾아보기",fontSize=10.sp,color=homeGrey,maxLines=1)
                     }
                 }
             }
@@ -194,7 +198,7 @@ fun OdifyPersonalHome(
             mix.key.startsWith("artist:") -> OdifyDiscovery.newTracks(artistTracks,catalogSongs).filterNot {track ->
                 mix.songs.any {OdifyYouTubeMatcher.norm(it.title)==OdifyYouTubeMatcher.norm(track.title)}
             }
-            mix.key.startsWith("mood:") -> moodOnline[mix.key.removePrefix("mood:")].orEmpty()
+            mix.key.startsWith("mood:") -> OdifyDiscovery.newTracks(artistTracks+moodOnline[mix.key.removePrefix("mood:")].orEmpty(),catalogSongs)
             else -> emptyList()
         }
         Row(Modifier.fillMaxWidth().padding(bottom=14.dp),verticalAlignment=Alignment.CenterVertically) {
@@ -219,12 +223,12 @@ fun OdifyPersonalHome(
         }
         // Reserve the artist list's space while fetching so results never shove
         // an already-open sheet abruptly up the screen.
-        val bodySize=if(mix.key.startsWith("artist:") && !LocalOdifySheetExpanded.current)Modifier.height(380.dp)
+        val bodySize=if((mix.key.startsWith("artist:") || mix.key.startsWith("mood:")) && !LocalOdifySheetExpanded.current)Modifier.height(380.dp)
             else Modifier.heightIn(max=if(LocalOdifySheetExpanded.current) androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp else 380.dp)
         LazyColumn(Modifier.fillMaxWidth().weight(1f,fill=LocalOdifySheetExpanded.current)
             .then(bodySize),contentPadding=PaddingValues(bottom=10.dp)) {
             if(artistLoading) item {Row(Modifier.fillMaxWidth().padding(12.dp),verticalAlignment=Alignment.CenterVertically) {
-                CircularProgressIndicator(Modifier.size(17.dp),strokeWidth=2.dp,color=homeGrey);Spacer(Modifier.width(10.dp));Text("아티스트의 곡을 찾고 있어요",fontSize=12.sp,color=homeGrey)
+                CircularProgressIndicator(Modifier.size(17.dp),strokeWidth=2.dp,color=homeGrey);Spacer(Modifier.width(10.dp));Text(if(mix.key.startsWith("artist:"))"아티스트의 곡을 찾고 있어요" else "이 기분에 어울리는 장르를 찾고 있어요",fontSize=12.sp,color=homeGrey)
             }}
             if(mix.key.startsWith("artist:") && !artistLoading && (artistError || online.isEmpty())) item {
                 Text(if(artistError)"곡 목록에 연결하지 못했어요. 내 음악은 계속 볼 수 있어요." else "추가 곡을 찾지 못했어요. YouTube에서 더 찾아볼 수 있어요.",
@@ -233,6 +237,10 @@ fun OdifyPersonalHome(
                     if(artistError) TextButton(onClick={artistRetry++}) {Text("다시 시도")}
                     TextButton(onClick={onArtistSearch(mix.name);selectedMix=null}) {Text("YouTube에서 더 찾기")}
                 }
+            }
+            if(mix.key.startsWith("mood:") && artistError && !artistLoading) item {
+                Text("새로운 곡 목록에 연결하지 못했어요. 준비된 음악은 계속 볼 수 있어요.",fontSize=12.sp,color=homeGrey,modifier=Modifier.padding(8.dp))
+                TextButton(onClick={artistRetry++}) {Text("다시 시도")}
             }
             itemsIndexed(mix.songs,key={_,song->song.id}) {index,song ->
                 Row(Modifier.fillMaxWidth().height(66.dp).clip(RoundedCornerShape(13.dp))
@@ -247,7 +255,7 @@ fun OdifyPersonalHome(
             }
             if(online.isNotEmpty()) item {Text("더 많은 곡 · YouTube로 듣기",fontSize=12.sp,color=homeGrey,modifier=Modifier.padding(top=18.dp,bottom=8.dp))}
             items(online,key={"online:${it.id}"}) {track ->HomeOnlineTrack(track) {onPlayOnline(track);selectedMix=null}}
-            if(mix.songs.isEmpty() && online.isEmpty() && !mix.key.startsWith("artist:")) item {
+            if(mix.songs.isEmpty() && online.isEmpty() && !artistLoading && !artistError && !mix.key.startsWith("artist:")) item {
                 Text("아직 이 장르의 곡이 없어요. 검색에서 취향을 더해 보세요.",fontSize=13.sp,color=homeGrey,modifier=Modifier.padding(12.dp))
                 TextButton(onClick={onSearch();selectedMix=null}) {Text("음악 찾아보기")}
             }

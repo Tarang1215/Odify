@@ -14,6 +14,35 @@ import java.net.URLEncoder
 /** Public song metadata only. No previews, audio URLs, or playback on lookup. */
 internal class OdifyArtistCatalog(context:Context) {
     private val directory=File(context.cacheDir,"artist_catalog").apply {mkdirs()}
+    suspend fun moodTracks(key:String):List<ExploreTrack> = withContext(Dispatchers.IO) {
+        val mood=OdifyDiscovery.moods.first {it.key==key}
+        val query=when(key) {"focus"->"classical";"unwind"->"jazz";"night"->"R&B soul";else->"dance"}
+        val file=File(directory,"mood-$key.json")
+        fun decodeMood(raw:String):List<ExploreTrack> {
+            val rows=JSONObject(raw).getJSONArray("results")
+            return (0 until minOf(rows.length(),100)).mapNotNull {index ->
+                val row=rows.optJSONObject(index) ?: return@mapNotNull null
+                val genre=row.optString("primaryGenreName")
+                if(row.optString("kind")!="song" || !OdifyDiscovery.matches(mood,listOf(genre)))return@mapNotNull null
+                val id=row.optString("trackId");val title=row.optString("trackName");val artist=row.optString("artistName")
+                if(!id.matches(Regex("[0-9]+")) || title.isBlank() || artist.isBlank())null
+                else ExploreTrack(id,title,artist,"",listOf(genre),index+1)
+            }.distinctBy {OdifyYouTubeMatcher.norm(it.artist) to OdifyYouTubeMatcher.norm(it.title)}
+        }
+        val cached=runCatching {decodeMood(file.readText())}.getOrDefault(emptyList())
+        if(cached.isNotEmpty() && System.currentTimeMillis()-file.lastModified()<24*60*60_000L)return@withContext cached
+        try {
+            val raw=request("https://itunes.apple.com/search?term=${URLEncoder.encode(query,"UTF-8")}&country=us&media=music&entity=song&limit=100")
+            val result=decodeMood(raw)
+            if(result.isNotEmpty()) {
+                val atomic=AtomicFile(file);val stream=atomic.startWrite()
+                try {stream.write(raw.toByteArray());atomic.finishWrite(stream)}
+                catch(error:Exception) {atomic.failWrite(stream);throw error}
+            }
+            result.ifEmpty {cached}
+        } catch(cancel:CancellationException) {throw cancel}
+        catch(failure:Exception) {cached.ifEmpty {throw failure}}
+    }
     suspend fun tracks(artist:String,knownTitles:List<String> = emptyList()):List<ExploreTrack> = withContext(Dispatchers.IO) {
         val name=artist.trim().take(120)
         require(name.isNotBlank())

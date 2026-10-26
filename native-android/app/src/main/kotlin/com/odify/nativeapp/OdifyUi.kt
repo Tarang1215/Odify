@@ -502,6 +502,7 @@ fun OdifyRoot(
                     loadArtistTracks={artist ->artistCatalog.tracks(artist,songs.filter {OdifyDiscovery.sameArtist(it.artist,artist)}.map {it.title})},
                     onPlayOnline={track ->onExternalTrack(track.artist,track.title,track.id)},
                     onArtistSearch={artist ->searchQuery=artist;navigateTo(OdifyTab.Search)},
+                    loadMoodTracks=artistCatalog::moodTracks,
                     playlists = playlists,
                     onPlaylistPlay = { list ->
                         val tracks = playlistStore.resolved(list, songs)
