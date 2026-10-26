@@ -108,7 +108,9 @@ fun OdifyNowPlaying(
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
-    val playerBackdrop=rememberOdifyBackdrop()
+    // Artwork changes invalidate the recording themselves; a static cover
+    // does not need the 1.6-second live-scroll capture loop after every touch.
+    val playerBackdrop=rememberOdifyBackdrop(liveMotion=false)
     val densityForLyrics=LocalDensity.current
     val glassTransparency=LocalOdifyGlassPreferences.current?.player ?: .72f
     val glassShade=(.72f-glassTransparency)*.36f
@@ -170,6 +172,8 @@ fun OdifyNowPlaying(
     var showLyrics by remember(song.id) { mutableStateOf(false) }
     val lyricsProgress by animateFloatAsState(if(showLyrics)1f else 0f,
         tween(380,easing=FastOutSlowInEasing),label="lyrics-cover-morph")
+    val coverVisible by remember(song.id) {derivedStateOf {lyricsProgress<.999f || !showLyrics}}
+    val lyricsVisible by remember(song.id) {derivedStateOf {availableLyrics.isNotBlank() && (showLyrics || lyricsProgress>.001f)}}
     var lyricsMenu by remember(song.id) {mutableStateOf(false)}
     var lyricsEditor by remember(song.id) {mutableStateOf(false)}
     var albumSlide by remember(song.id) { mutableFloatStateOf(0f) }
@@ -309,7 +313,7 @@ fun OdifyNowPlaying(
                 // One stable viewport for cover+metadata and lyrics. The seek,
                 // transport and queue bar below never relayout on this toggle.
                 Box(Modifier.fillMaxWidth().height(artSize+90.dp)) {
-                    if(lyricsProgress<.999f || !showLyrics) Column(
+                    if(coverVisible) Column(
                         Modifier.fillMaxSize().graphicsLayer {
                             alpha=1f-lyricsProgress;scaleX=1f-.07f*lyricsProgress;scaleY=1f-.07f*lyricsProgress
                             translationY=-with(densityForLyrics){12.dp.toPx()}*lyricsProgress
@@ -421,7 +425,7 @@ Box(
                     }
                 }
                     }
-                    if(availableLyrics.isNotBlank() && (showLyrics || lyricsProgress>.001f)) {
+                    if(lyricsVisible) {
                         Box(Modifier.fillMaxSize().graphicsLayer {
                             alpha=lyricsProgress;translationY=with(densityForLyrics){14.dp.toPx()}*(1f-lyricsProgress)
                         }) {

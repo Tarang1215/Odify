@@ -59,7 +59,7 @@ class OdifyBackdrop(val layer: GraphicsLayer) {
     }
 }
 
-@Composable fun rememberOdifyBackdrop(): OdifyBackdrop {
+@Composable fun rememberOdifyBackdrop(liveMotion:Boolean=true): OdifyBackdrop {
     val layer=rememberGraphicsLayer()
     val backdrop=remember(layer) {OdifyBackdrop(layer)}
     val lifecycle=androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
@@ -68,8 +68,8 @@ class OdifyBackdrop(val layer: GraphicsLayer) {
         val observer=androidx.lifecycle.LifecycleEventObserver {_,_->resumed=lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)}
         lifecycle.addObserver(observer);onDispose {lifecycle.removeObserver(observer)}
     }
-    LaunchedEffect(backdrop,resumed) {
-        if(resumed) while(isActive) {
+    LaunchedEffect(backdrop,resumed,liveMotion) {
+        if(resumed && liveMotion) while(isActive) {
             if(backdrop.needsMotionFrame()) withFrameNanos {backdrop.changed()} else delay(32)
         }
     }

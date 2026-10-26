@@ -227,7 +227,7 @@ class OdifyCompanyUiTest {
                 MaterialTheme(typography=OdifyTypography,colorScheme=darkColorScheme()) {
                     Surface(Modifier.fillMaxSize(),color=Color(0xFF0C0E12),contentColor=Color.White) {
                         when(screen.value) {
-                            "player", "player-empty" -> OdifyNowPlaying(song=if(screen.value=="player")fixture[0] else fixture[0].copy(id="fixture:without-lyrics",lyrics=""),
+                            "player", "player-empty" -> OdifyNowPlaying(song=if(screen.value=="player")fixture[0] else fixture[0].copy(id="fixture:without-lyrics",title="No lyrics yet",lyrics=""),
                                 glow=Color(0xFF8BAECC),previousSong=null,nextSong=queue.value.getOrNull(1),
                                 playing=false,position=20000,duration=240000,liked=false,shuffleEnabled=false,repeatOne=false,
                                 onDismiss={},onToggle=noPlay,onPrevious=noPlay,onNext=noPlay,onSeek={plays++},onLike={},onShuffle={},onRepeat={},
@@ -272,6 +272,7 @@ class OdifyCompanyUiTest {
             assertNull("Sheet must release its window after closing",node("대기열 닫기"))
             waitFor("다음 곡: Track 2");capture("next-track-updated")
             main {screen.value="player-empty"}
+            waitFor("No lyrics yet")
             tap("가사 열기");waitFor("가사 추가·수정");Thread.sleep(300);capture("lyrics-empty")
             assertNull(node("전체 화면으로 보기"))
             back();Thread.sleep(500)

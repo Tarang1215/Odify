@@ -11,6 +11,12 @@ The product's core visual principle is gentle, connected motion. Screen destinat
 - Queue occurrence keys remain stable. Drag placement fades are disabled and the lifted item settles into its destination before its layer is released. Only one controller reorder is submitted on release.
 - Home artist and mix collections use a glass surface with bounded titles, equal-width compact actions, transparent song rows and truncated metadata.
 
+## Motion performance
+
+Static artwork and modal snapshots must not run the live-scroll backdrop refresh loop. Keep the glass shader's rounded-rectangle geometry stable during morphs; transform and clip the outer GPU layer instead of rebuilding blur/refraction effects every frame. Animation progress used only for rendering belongs in draw/graphicsLayer callbacks. Derive endpoint visibility to avoid recomposing the entire player on each lyric/player transition frame. Queue lift and placement offsets likewise stay in render callbacks.
+
+Measure on the physical device with the same office-safe gestures and `dumpsys gfxinfo ... framestats`; keep startup/cache effects and changing window counts in mind when comparing. Do not infer a constant frame rate from a single run.
+
 ## Company verification constraint
 
 Never play music or run playback tests in the office. Keep STREAM_MUSIC at zero. Only `OdifyCompanyUiTest` is authorized on the attached phone: it uses UI fixtures, an idle unprepared player, and isolated preferences/images. Do not run the other instrumentation classes here. Preserve the installed application ID, permanent signing certificate and user data when updating.

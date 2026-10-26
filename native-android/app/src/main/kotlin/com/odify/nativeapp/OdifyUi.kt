@@ -612,10 +612,12 @@ fun OdifyRoot(
             },
             label = "player-expand-progress"
         ) { open -> if (open) 1f else 0f }
-        if ((expanded || fullProgress > 0.001f) && active != null) {
+        val playerTargetExpanded by rememberUpdatedState(expanded)
+        val renderFullPlayer by remember {derivedStateOf {playerTargetExpanded || fullProgress>.001f}}
+        if (renderFullPlayer && active != null) {
             Box(
                 Modifier.fillMaxSize()
-                    .background(Color.Black.copy(alpha = fullProgress * 0.16f))
+                    .drawBehind {drawRect(Color.Black.copy(alpha=fullProgress.coerceIn(0f,1f)*.16f))}
                     .clickable(onClick = { onExpandedChange(false) })
             )
             Box(

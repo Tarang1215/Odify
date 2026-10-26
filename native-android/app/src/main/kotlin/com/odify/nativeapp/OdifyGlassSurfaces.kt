@@ -99,7 +99,7 @@ internal suspend fun odifyModalSnapshot(window:Window):OdifyModalSnapshot? {
             window?.setDimAmount(.22f)
             onDispose {}
         }
-        val backdrop=rememberOdifyBackdrop()
+        val backdrop=rememberOdifyBackdrop(liveMotion=false)
         var origin by remember {mutableStateOf(Offset.Zero)}
         Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(28.dp)).onGloballyPositioned {origin=it.positionOnScreen()}) {
             Canvas(Modifier.matchParentSize().recordOdifyBackdrop(backdrop)) {
@@ -146,17 +146,16 @@ internal suspend fun odifyModalSnapshot(window:Window):OdifyModalSnapshot? {
         modifier=Modifier.padding(horizontal=12.dp),containerColor=Color.Transparent,
         scrimColor=Color.Black.copy(alpha=.20f*progress.value),tonalElevation=0.dp,
         shape=RoundedCornerShape(30.dp),dragHandle=null,contentWindowInsets={WindowInsets(0,0,0,0)}) {
-        val backdrop=rememberOdifyBackdrop()
+        val backdrop=rememberOdifyBackdrop(liveMotion=false)
         var origin by remember {mutableStateOf(Offset.Zero)}
         var panelSize by remember {mutableStateOf(IntSize.Zero)}
         val circlePx=with(density) {50.dp.toPx()}
-        val p=progress.value
-        val initialRadius=with(density) {minOf(panelSize.width,panelSize.height).toDp()/2}
-        // Outline.Rounded supplies the correct radius to the refraction shader;
-        // a generic path otherwise falls back to a giant circular lens.
-        val shape=RoundedCornerShape(30.dp+(initialRadius-30.dp)*(1-p))
+        // Keep refraction geometry fixed: animating its radius re-created two
+        // full-size RenderEffects every frame. Only the outer GPU clip morphs.
+        val shape=remember {RoundedCornerShape(30.dp)}
         Box(Modifier.onGloballyPositioned {origin=it.positionOnScreen();panelSize=it.size}) {
         Box(Modifier.fillMaxWidth().graphicsLayer {
+            val p=progress.value
             val width=panelSize.width.toFloat().coerceAtLeast(1f)
             val height=panelSize.height.toFloat().coerceAtLeast(1f)
             val start=anchor ?: Offset(origin.x+width/2,origin.y+height+circlePx)
@@ -166,7 +165,10 @@ internal suspend fun odifyModalSnapshot(window:Window):OdifyModalSnapshot? {
             translationX=(start.x-(origin.x+width/2))*(1-p)
             translationY=(start.y-(origin.y+height/2))*(1-p)
             alpha=(p*4).coerceIn(0f,1f)
-        }.clip(shape)) {
+            val initialRadius=minOf(width,height)/2
+            this.shape=RoundedCornerShape((initialRadius+(30.dp.toPx()-initialRadius)*p).toDp())
+            clip=true
+        }) {
             Canvas(Modifier.matchParentSize().recordOdifyBackdrop(backdrop)) {
                 drawRect(Color(0xFF171A21))
                 snapshot?.let {frame -> drawImage(frame.image,
@@ -184,7 +186,7 @@ internal suspend fun odifyModalSnapshot(window:Window):OdifyModalSnapshot? {
                     Box(Modifier.size(32.dp,4.dp).background(Color.White.copy(alpha=.30f),RoundedCornerShape(2.dp)))
                 }
                 CompositionLocalProvider(LocalContentColor provides Color(0xFFF5F6F7)) {
-                    Column(Modifier.graphicsLayer {alpha=((p-.22f)/.78f).coerceIn(0f,1f)}) {
+                    Column(Modifier.graphicsLayer {alpha=((progress.value-.22f)/.78f).coerceIn(0f,1f)}) {
                         ProvideTextStyle(MaterialTheme.typography.bodyMedium.copy(fontSize=14.sp)) {content()}
                     }
                 }

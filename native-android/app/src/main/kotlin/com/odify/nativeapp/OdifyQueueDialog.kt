@@ -30,6 +30,8 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Job
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
 
 private data class QueuedTrack(val key:String,val song:OdifySong)
 
@@ -131,12 +133,15 @@ fun OdifyQueueDialog(items:List<OdifySong>,currentIndex:Int,
             items(ordered,key={it.key}) {queued ->
                 val selected=dragging==queued.key || settling==queued.key
                 val lift by animateFloatAsState(if(selected)1f else 0f,spring(dampingRatio=1f,stiffness=380f),label="queue-lift")
-                val info=list.layoutInfo.visibleItemsInfo.firstOrNull {it.key==queued.key}
                 Row(Modifier.fillMaxWidth().height(68.dp)
                     .animateItem(fadeInSpec=null,fadeOutSpec=null,placementSpec=if(selected)null else spring(dampingRatio=1f,stiffness=340f))
                     .zIndex(if(selected)1f else 0f)
-                    .graphicsLayer {translationY=when(queued.key) {dragging->dragTop-(info?.offset ?: 0);settling->dropOffset.value;else->0f};scaleX=1f+.015f*lift;scaleY=1f+.015f*lift}
-                    .background(Color.White.copy(alpha=.12f*lift),RoundedCornerShape(16.dp))
+                    .graphicsLayer {
+                        val info=list.layoutInfo.visibleItemsInfo.firstOrNull {it.key==queued.key}
+                        translationY=when(queued.key) {dragging->dragTop-(info?.offset ?: 0);settling->dropOffset.value;else->0f}
+                        scaleX=1f+.015f*lift;scaleY=1f+.015f*lift
+                    }
+                    .drawBehind {drawRoundRect(Color.White.copy(alpha=.12f*lift),cornerRadius=CornerRadius(16.dp.toPx()))}
                     .clickable(enabled=dragging==null) {val index=incoming.indexOfFirst {it.key==queued.key};if(index>=0)onSelect(index)}
                     .padding(start=8.dp,end=2.dp),verticalAlignment=Alignment.CenterVertically) {
                     AlbumArt(queued.song,Modifier.size(43.dp),RoundedCornerShape(10.dp))
