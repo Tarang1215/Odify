@@ -159,7 +159,6 @@ fun OdifyNowPlaying(
     } }
     var showInfo by remember { mutableStateOf(false) }
     var actionsOpen by remember { mutableStateOf(false) }
-    var actionsAnchor by remember {mutableStateOf<Offset?>(null)}
     var lyricsAnchor by remember {mutableStateOf<Offset?>(null)}
     var queueControlAnchor by remember {mutableStateOf(Offset.Zero)}
     var audioRequestOpen by remember(song.id) { mutableStateOf(false) }
@@ -265,7 +264,7 @@ fun OdifyNowPlaying(
                     }
                     Box {
                         IconButton(onClick = { actionsOpen = true },
-                            modifier = Modifier.size(44.dp).onGloballyPositioned {actionsAnchor=it.positionOnScreen()+Offset(it.size.width/2f,it.size.height/2f)}) {
+                            modifier = Modifier.size(44.dp)) {
                             Icon(Icons.Default.MoreVert, "곡 옵션 열기",
                                 tint = playerWhite)
                         }

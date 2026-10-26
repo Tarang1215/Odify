@@ -499,7 +499,7 @@ fun OdifyRoot(
                     onPlay = ::playList,
                     catalogSongs=songs,
                     discoveryTracks=discoveryTracks,
-                    loadArtistTracks=artistCatalog::tracks,
+                    loadArtistTracks={artist ->artistCatalog.tracks(artist,songs.filter {OdifyDiscovery.sameArtist(it.artist,artist)}.map {it.title})},
                     onPlayOnline={track ->onExternalTrack(track.artist,track.title,track.id)},
                     onArtistSearch={artist ->searchQuery=artist;navigateTo(OdifyTab.Search)},
                     playlists = playlists,

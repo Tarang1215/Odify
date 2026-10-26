@@ -189,9 +189,11 @@ fun OdifyPersonalHome(
             TextButton(onClick=onSearch,modifier=Modifier.padding(top=8.dp)) {Text("떠오르는 노래나 가사로 검색",color=homeGrey,fontSize=12.sp)}
         }
     }
-    OdifyRetainedGlassSheet(selectedMix,onDismiss={selectedMix=null},maxHeightFraction=.84f,transparency=.46f) {mix ->
+    OdifyRetainedGlassSheet(selectedMix,onDismiss={selectedMix=null},maxHeightFraction=.84f,transparency=.28f) {mix ->
         val online=when {
-            mix.key.startsWith("artist:") -> OdifyDiscovery.newTracks(artistTracks,catalogSongs)
+            mix.key.startsWith("artist:") -> OdifyDiscovery.newTracks(artistTracks,catalogSongs).filterNot {track ->
+                mix.songs.any {OdifyYouTubeMatcher.norm(it.title)==OdifyYouTubeMatcher.norm(track.title)}
+            }
             mix.key.startsWith("mood:") -> moodOnline[mix.key.removePrefix("mood:")].orEmpty()
             else -> emptyList()
         }

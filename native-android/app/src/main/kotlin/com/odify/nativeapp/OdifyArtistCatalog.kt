@@ -14,13 +14,13 @@ import java.net.URLEncoder
 /** Public song metadata only. No previews, audio URLs, or playback on lookup. */
 internal class OdifyArtistCatalog(context:Context) {
     private val directory=File(context.cacheDir,"artist_catalog").apply {mkdirs()}
-    suspend fun tracks(artist:String):List<ExploreTrack> = withContext(Dispatchers.IO) {
+    suspend fun tracks(artist:String,knownTitles:List<String> = emptyList()):List<ExploreTrack> = withContext(Dispatchers.IO) {
         val name=artist.trim().take(120)
         require(name.isNotBlank())
         val hash=java.security.MessageDigest.getInstance("SHA-256").digest(name.toByteArray())
             .joinToString("") {"%02x".format(it)}
         val file=File(directory,"$hash.json")
-        val cached=runCatching {decode(file.readText(),name)}.getOrDefault(emptyList())
+        val cached=runCatching {decode(file.readText(),name,knownTitles)}.getOrDefault(emptyList())
         if(cached.isNotEmpty() && System.currentTimeMillis()-file.lastModified()<24*60*60_000L)return@withContext cached
         val countries=when {
             name.any {it in '\u3040'..'\u30ff' || it in '\u4e00'..'\u9fff'} -> listOf("jp","us")
@@ -31,7 +31,7 @@ internal class OdifyArtistCatalog(context:Context) {
         for(country in countries) {
             try {
                 val raw=request("https://itunes.apple.com/search?term=${URLEncoder.encode(name,"UTF-8")}&country=$country&media=music&entity=song&attribute=artistTerm&limit=200")
-                val result=decode(raw,name)
+                val result=decode(raw,name,knownTitles)
                 if(result.isNotEmpty()) {
                     val atomic=AtomicFile(file);val stream=atomic.startWrite()
                     try {stream.write(raw.toByteArray());atomic.finishWrite(stream)}
@@ -45,13 +45,24 @@ internal class OdifyArtistCatalog(context:Context) {
         if(lastFailure!=null)throw lastFailure
         emptyList()
     }
-    internal fun decode(raw:String,artist:String):List<ExploreTrack> {
+    internal fun decode(raw:String,artist:String,knownTitles:List<String> = emptyList()):List<ExploreTrack> {
         val rows=JSONObject(raw).getJSONArray("results")
+        // A localized tag (아이유) may be indexed under a canonical name (IU).
+        // Resolve that alias only with an unambiguous artist ID supported by
+        // the user's known song titles, never by accepting a fuzzy artist name.
+        val known=knownTitles.map(OdifyYouTubeMatcher::norm).filter(String::isNotBlank).toSet()
+        val evidence=(0 until rows.length()).mapNotNull {rows.optJSONObject(it)}
+            .filter {it.optString("kind")=="song" && it.optString("artistId").matches(Regex("[0-9]+")) &&
+                OdifyYouTubeMatcher.norm(it.optString("trackName")) in known}
+            .groupBy {it.optString("artistId")}.mapValues {(_,songs)->songs.map {OdifyYouTubeMatcher.norm(it.optString("trackName"))}.distinct().size}
+            .entries.sortedByDescending {it.value}
+        val hasExact=(0 until rows.length()).any {OdifyDiscovery.sameArtist(rows.optJSONObject(it)?.optString("artistName").orEmpty(),artist)}
+        val alias=if(hasExact)null else evidence.firstOrNull()?.takeIf {it.value>(evidence.getOrNull(1)?.value ?: 0)}?.key
         return (0 until minOf(rows.length(),200)).mapNotNull {index ->
             val row=rows.optJSONObject(index) ?: return@mapNotNull null
             val id=row.optString("trackId");val title=row.optString("trackName");val name=row.optString("artistName")
             if(row.optString("kind")!="song" || !id.matches(Regex("[0-9]+")) || title.isBlank() ||
-                !OdifyDiscovery.sameArtist(name,artist))return@mapNotNull null
+                !(OdifyDiscovery.sameArtist(name,artist) || alias!=null && row.optString("artistId")==alias))return@mapNotNull null
             // Keep discovery rows text-first. Owned tracks retain their own covers.
             ExploreTrack(id,title,name,"",listOf(row.optString("primaryGenreName")).filter(String::isNotBlank),index+1)
         }.distinctBy {OdifyYouTubeMatcher.norm(it.artist) to OdifyYouTubeMatcher.norm(it.title)}

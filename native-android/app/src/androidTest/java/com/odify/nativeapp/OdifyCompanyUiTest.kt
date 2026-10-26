@@ -17,6 +17,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.common.Player
 import androidx.test.core.app.ActivityScenario
@@ -34,6 +35,23 @@ class OdifyCompanyUiTest {
     private val context get()=test.targetContext
     private fun main(block:()->Unit)=test.runOnMainSync(block)
 
+    @Test fun immutableGlassRasterBlursTheSceneAndKeepsItsInteriorOpaque() {
+        val source=Bitmap.createBitmap(64,64,Bitmap.Config.ARGB_8888)
+        Canvas(source).apply {
+            drawColor(android.graphics.Color.BLACK)
+            drawRect(32f,0f,64f,64f,Paint().apply {color=android.graphics.Color.WHITE})
+        }
+        val frost=OdifyModalRaster.blur(source,4)
+        val blurred=android.graphics.Color.red(frost.getPixel(32,32))
+        assertTrue(blurred in 50..220)
+        val frame=OdifyModalSnapshot(source.asImageBitmap(),Offset.Zero,androidx.compose.ui.unit.IntSize(64,64),frost.asImageBitmap())
+        val surface=OdifyModalRaster.surface(frame,Offset.Zero,androidx.compose.ui.unit.IntSize(64,64),10f,1f,.76f)
+        assertEquals(255,android.graphics.Color.alpha(surface.getPixel(32,32)))
+        assertEquals(0,android.graphics.Color.alpha(surface.getPixel(0,0)))
+        assertTrue(android.graphics.Color.red(surface.getPixel(32,32)) in 30..220)
+        surface.recycle();frost.recycle();source.recycle()
+    }
+
     @Test fun artistCatalogRejectsOtherArtistsAndNonSongsAndDeduplicatesAlbums() {
         val raw="""{"results":[
           {"kind":"song","trackId":1,"trackName":"Song","artistName":"Vaundy","primaryGenreName":"J-Pop"},
@@ -44,6 +62,13 @@ class OdifyCompanyUiTest {
         val tracks=OdifyArtistCatalog(context).decode(raw,"Vaundy")
         assertEquals(listOf("Song","Another song"),tracks.map {it.title})
         assertTrue(tracks.all {it.artwork.isEmpty()})
+        val aliases="""{"results":[
+          {"kind":"song","trackId":11,"trackName":"Palette","artistName":"IU","artistId":409076743},
+          {"kind":"song","trackId":12,"trackName":"Love wins all","artistName":"IU","artistId":409076743},
+          {"kind":"song","trackId":13,"trackName":"Palette","artistName":"Cover artist","artistId":99},
+          {"kind":"song","trackId":14,"trackName":"Other song","artistName":"IU","artistId":409076743}]}"""
+        assertEquals(3,OdifyArtistCatalog(context).decode(aliases,"아이유",listOf("Palette","Love wins all")).size)
+        assertTrue("An ambiguous single-title alias must not select another artist",OdifyArtistCatalog(context).decode(aliases,"아이유",listOf("Palette")).isEmpty())
     }
 
     @Test fun nativeQueueReorderKeepsCurrentPositionAndMakesMovedEntryNextWithoutPlaying() {

@@ -42,7 +42,8 @@ import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.graphics.drawscope.scale
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.launch
-import androidx.compose.foundation.clickable
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.semantics.contentDescription
@@ -72,7 +73,7 @@ internal val LocalOdifyModalTint=staticCompositionLocalOf {Color.Transparent}
 internal val LocalOdifySheetExpanded=staticCompositionLocalOf {false}
 private val LocalNeutralBackdrop=staticCompositionLocalOf<OdifyBackdrop?> {null}
 
-internal data class OdifyModalSnapshot(val image:ImageBitmap,val origin:Offset,val size:IntSize)
+internal data class OdifyModalSnapshot(val image:ImageBitmap,val origin:Offset,val size:IntSize,val frost:ImageBitmap=image)
 
 private tailrec fun Context.modalActivity():Activity?=when(this) {
     is Activity -> this
@@ -82,13 +83,13 @@ private tailrec fun Context.modalActivity():Activity?=when(this) {
 
 /** PixelCopy scales into a bounded buffer, including hardware-rendered artwork.
  * Copy only the source window, before opening the modal, never our own overlay. */
-internal suspend fun odifyModalSnapshot(window:Window):OdifyModalSnapshot? {
+internal suspend fun odifyModalSnapshot(window:Window,transparency:Float=.76f):OdifyModalSnapshot? {
     val view=window.decorView
     if(view.width<=0 || view.height<=0)return null
     val width=view.width.coerceAtMost(720)
     val bitmap=Bitmap.createBitmap(width,(view.height.toFloat()*width/view.width).roundToInt().coerceAtLeast(1),Bitmap.Config.ARGB_8888)
     val location=IntArray(2);view.getLocationOnScreen(location)
-    return suspendCancellableCoroutine {continuation ->
+    val captured=suspendCancellableCoroutine<OdifyModalSnapshot?> {continuation ->
         try {PixelCopy.request(window,bitmap,{result ->
             if(continuation.isActive) {
                 if(result==PixelCopy.SUCCESS) continuation.resume(OdifyModalSnapshot(bitmap.asImageBitmap(),
@@ -98,6 +99,10 @@ internal suspend fun odifyModalSnapshot(window:Window):OdifyModalSnapshot? {
         },Handler(Looper.getMainLooper()))}
         catch(_:IllegalArgumentException) {bitmap.recycle();if(continuation.isActive)continuation.resume(null)}
     }
+    return captured?.let {frame ->withContext(Dispatchers.Default) {
+        val radius=((3f+12f*(1-transparency))*view.resources.displayMetrics.density*width/view.width*.6f).roundToInt().coerceAtLeast(1)
+        frame.copy(frost=OdifyModalRaster.blur(bitmap,radius).asImageBitmap())
+    }}
 }
 
 /** Modal pixels are sampled once per opening. This works on phones with system
@@ -109,7 +114,7 @@ internal suspend fun odifyModalSnapshot(window:Window):OdifyModalSnapshot? {
     val sourceWindow=(hostView.parent as? DialogWindowProvider)?.window ?: context.modalActivity()?.window
     var snapshot by remember(sourceWindow) {mutableStateOf<OdifyModalSnapshot?>(null)}
     var captured by remember(sourceWindow) {mutableStateOf(false)}
-    LaunchedEffect(sourceWindow) {snapshot=sourceWindow?.let {odifyModalSnapshot(it)};captured=true}
+    LaunchedEffect(sourceWindow) {snapshot=sourceWindow?.let {odifyModalSnapshot(it,.72f)};captured=true}
     if(!captured)return
     Dialog(onDismissRequest=onDismiss,properties=DialogProperties(usePlatformDefaultWidth=true)) {
         val view=LocalView.current
@@ -119,16 +124,9 @@ internal suspend fun odifyModalSnapshot(window:Window):OdifyModalSnapshot? {
             window?.setDimAmount(.22f)
             onDispose {}
         }
-        val backdrop=rememberOdifyBackdrop(liveMotion=false)
         var origin by remember {mutableStateOf(Offset.Zero)}
         Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(28.dp)).onGloballyPositioned {origin=it.positionOnScreen()}) {
-            Canvas(Modifier.matchParentSize().recordOdifyBackdrop(backdrop)) {
-                drawRect(Color(0xFF171A21))
-                snapshot?.let {frame -> drawImage(frame.image,
-                    dstOffset=IntOffset((frame.origin.x-origin.x).roundToInt(),(frame.origin.y-origin.y).roundToInt()),
-                    dstSize=frame.size)}
-            }
-            OdifyFrozenGlassBackground(backdrop,RoundedCornerShape(28.dp),tint,.72f,Modifier.matchParentSize())
+            OdifyFrozenGlassBackground(snapshot,origin,RoundedCornerShape(28.dp),tint,.72f,Modifier.matchParentSize())
             Column(Modifier.fillMaxWidth().heightIn(max=LocalContext.current.resources.configuration.screenHeightDp.dp*.86f)
                 .padding(21.dp),content=content)
         }
@@ -152,7 +150,7 @@ internal suspend fun odifyModalSnapshot(window:Window):OdifyModalSnapshot? {
     val currentDismiss by rememberUpdatedState(onDismiss)
     LaunchedEffect(visible,source) {
         if(visible) {
-            if(!mounted) {backgroundReady=false;snapshot=source?.let {odifyModalSnapshot(it)};mounted=true}
+            if(!mounted) {backgroundReady=false;snapshot=source?.let {odifyModalSnapshot(it,transparency)};mounted=true}
             // Warm the static surface before animating it; the foreground is
             // still measured at native resolution while its glass is cached.
             withTimeoutOrNull(450) {snapshotFlow {backgroundReady}.first {it}}
@@ -184,7 +182,6 @@ internal suspend fun odifyModalSnapshot(window:Window):OdifyModalSnapshot? {
         scrimColor=Color.Black.copy(alpha=.20f*progress.value),tonalElevation=0.dp,
         shape=RoundedCornerShape(30.dp),dragHandle=null,contentWindowInsets={WindowInsets(0,0,0,0)}) {
         BackHandler(enabled=expanded) {settleExpansion(false)}
-        val backdrop=rememberOdifyBackdrop(liveMotion=false)
         var origin by remember {mutableStateOf(Offset.Zero)}
         var panelSize by remember {mutableStateOf(IntSize.Zero)}
         val circlePx=with(density) {50.dp.toPx()}
@@ -207,13 +204,7 @@ internal suspend fun odifyModalSnapshot(window:Window):OdifyModalSnapshot? {
             this.shape=RoundedCornerShape((initialRadius+(30.dp.toPx()-initialRadius)*p).toDp())
             clip=true
         }) {
-            Canvas(Modifier.matchParentSize().recordOdifyBackdrop(backdrop)) {
-                drawRect(Color(0xFF171A21))
-                snapshot?.let {frame -> drawImage(frame.image,
-                    dstOffset=IntOffset((frame.origin.x-origin.x).roundToInt(),(frame.origin.y-origin.y).roundToInt()),
-                    dstSize=frame.size)}
-            }
-            OdifyFrozenGlassBackground(backdrop,shape,tint,transparency,Modifier.matchParentSize(),onReady={backgroundReady=true})
+            OdifyFrozenGlassBackground(snapshot,origin,shape,tint,transparency,Modifier.matchParentSize(),onReady={backgroundReady=true})
             val expansionHeight=if(collapsedHeight>0 && expansion.value>0f) Modifier.height(
                 with(density) {(collapsedHeight+(fullPx-collapsedHeight)*expansion.value).toDp()}) else Modifier
             Column(Modifier.fillMaxWidth().then(expansionHeight)
@@ -253,38 +244,32 @@ internal suspend fun odifyModalSnapshot(window:Window):OdifyModalSnapshot? {
     }
 }
 
-/** A modal background is immutable. Rasterize its existing glass once into a
- * bounded image, then animate that image separately from native-resolution text.
- * Reading the GPU layer back prevents parent scaling from re-running filters at
- * display resolution on every frame. The live navigation glass is unaffected. */
-@Composable private fun OdifyFrozenGlassBackground(backdrop:OdifyBackdrop,shape:Shape,tint:Color,
+/** Prepare glass off the UI thread; motion composites one opaque bounded image. */
+@Composable private fun OdifyFrozenGlassBackground(frame:OdifyModalSnapshot?,origin:Offset,shape:Shape,tint:Color,
     transparency:Float,modifier:Modifier=Modifier,onReady:()->Unit={}) {
-    val layer=rememberGraphicsLayer()
-    var dimensions by remember {mutableStateOf(IntSize.Zero)}
-    var cached by remember(backdrop) {mutableStateOf<ImageBitmap?>(null)}
-    val recorded=remember(dimensions) {CompletableDeferred<Unit>()}
-    val readyCallback by rememberUpdatedState(onReady)
-    LaunchedEffect(dimensions,recorded) {
-        if(cached!=null || dimensions.width<=0 || dimensions.height<=0)return@LaunchedEffect
-        recorded.await()
-        // Let source/target coordinates and the first hardware recording settle.
+    var dimensions by remember(frame) {mutableStateOf(IntSize.Zero)}
+    val currentOrigin by rememberUpdatedState(origin)
+    val density=LocalDensity.current
+    val direction=androidx.compose.ui.platform.LocalLayoutDirection.current
+    val raster by produceState<ImageBitmap?>(null,frame,dimensions) {
+        if(dimensions.width<=0 || dimensions.height<=0)return@produceState
         withFrameNanos {};withFrameNanos {}
-        cached=runCatching {layer.toImageBitmap()}.getOrNull()
-        readyCallback()
+        val initialOrigin=currentOrigin
+        val outline=shape.createOutline(androidx.compose.ui.geometry.Size(dimensions.width.toFloat(),dimensions.height.toFloat()),direction,density)
+        val radius=(outline as? Outline.Rounded)?.roundRect?.topLeftCornerRadius?.x ?: with(density) {30.dp.toPx()}
+        value=frame?.let {snapshot ->withContext(Dispatchers.Default) {
+            OdifyModalRaster.surface(snapshot,initialOrigin,dimensions,radius,density.density,transparency).asImageBitmap()
+        }}
     }
-    Box(modifier.onSizeChanged {dimensions=it}.drawWithContent {
-        val image=cached
-        if(image!=null) {
-            drawImage(image,dstSize=IntSize(size.width.roundToInt(),size.height.roundToInt()),filterQuality=FilterQuality.Medium)
-        } else if(size.width>0f && size.height>0f) {
-            val fraction=(720f/size.width).coerceAtMost(1f)
-            layer.record(size=IntSize((size.width*fraction).roundToInt().coerceAtLeast(1),(size.height*fraction).roundToInt().coerceAtLeast(1))) {
-                scale(fraction,fraction,pivot=Offset.Zero) {this@drawWithContent.drawContent()}
-            }
-            scale(1f/fraction,1f/fraction,pivot=Offset.Zero) {drawLayer(layer)}
-            recorded.complete(Unit)
-        }
-    }.odifyGlass(backdrop,shape,tint,transparencyOverride=transparency))
+    val readyCallback by rememberUpdatedState(onReady)
+    LaunchedEffect(raster,frame) {if(raster!=null || frame==null)readyCallback()}
+    Canvas(modifier.onSizeChanged {if(dimensions==IntSize.Zero)dimensions=it}.clip(shape)
+        .border(.45.dp,Brush.verticalGradient(listOf(Color.White.copy(alpha=.22f),Color.White.copy(alpha=.035f),Color.White.copy(alpha=.14f))),shape)) {
+        drawRect(Color(0xFF171A21))
+        raster?.let {drawImage(it,dstSize=IntSize(size.width.roundToInt(),size.height.roundToInt()),filterQuality=FilterQuality.Medium)}
+        if(tint.alpha>0)drawRect(Brush.radialGradient(listOf(tint.copy(alpha=.10f),Color.Transparent),
+            center=Offset(size.width*.22f,size.height*.8f),radius=size.width*.85f))
+    }
 }
 
 /** Keep the last item alive until the shared closing animation has finished. */
@@ -305,10 +290,12 @@ internal suspend fun odifyModalSnapshot(window:Window):OdifyModalSnapshot? {
     val source=(view.parent as? DialogWindowProvider)?.window ?: context.modalActivity()?.window
     var snapshot by remember {mutableStateOf<OdifyModalSnapshot?>(null)}
     var mounted by remember {mutableStateOf(false)}
+    var backgroundReady by remember {mutableStateOf(false)}
     val motion=remember {Animatable(0f)}
     LaunchedEffect(expanded) {
         if(expanded) {
-            if(!mounted) {snapshot=source?.let {odifyModalSnapshot(it)};mounted=true}
+            if(!mounted) {backgroundReady=false;snapshot=source?.let {odifyModalSnapshot(it)};mounted=true}
+            withTimeoutOrNull(450) {snapshotFlow {backgroundReady}.first {it}}
             motion.animateTo(1f,tween(360,easing=FastOutSlowInEasing))
         } else {
             motion.animateTo(0f,tween(240,easing=FastOutSlowInEasing));mounted=false;snapshot=null
@@ -322,7 +309,6 @@ internal suspend fun odifyModalSnapshot(window:Window):OdifyModalSnapshot? {
                 (anchorBounds.bottom+gap).coerceAtMost((windowSize.height-popupContentSize.height-gap).coerceAtLeast(gap)))
     }}
     Popup(popupPositionProvider=position,onDismissRequest=onDismissRequest,properties=PopupProperties(focusable=true)) {
-        val backdrop=rememberOdifyBackdrop(liveMotion=false)
         var origin by remember {mutableStateOf(Offset.Zero)}
         val shape=RoundedCornerShape(26.dp)
         Box(Modifier.width(310.dp).heightIn(max=LocalConfiguration.current.screenHeightDp.dp*.78f)
@@ -330,11 +316,7 @@ internal suspend fun odifyModalSnapshot(window:Window):OdifyModalSnapshot? {
                 transformOrigin=TransformOrigin(1f,0f);scaleX=.90f+.10f*motion.value;scaleY=.90f+.10f*motion.value
                 alpha=motion.value;this.shape=shape;clip=true
             }) {
-            Canvas(Modifier.matchParentSize().recordOdifyBackdrop(backdrop)) {
-                drawRect(Color(0xFF171A21));snapshot?.let {frame ->drawImage(frame.image,
-                    dstOffset=IntOffset((frame.origin.x-origin.x).roundToInt(),(frame.origin.y-origin.y).roundToInt()),dstSize=frame.size)}
-            }
-            OdifyFrozenGlassBackground(backdrop,shape,LocalOdifyModalTint.current,.76f,Modifier.matchParentSize())
+            OdifyFrozenGlassBackground(snapshot,origin,shape,LocalOdifyModalTint.current,.76f,Modifier.matchParentSize(),onReady={backgroundReady=true})
             Column(Modifier.verticalScroll(rememberScrollState()).padding(12.dp),content=content)
         }
     }
