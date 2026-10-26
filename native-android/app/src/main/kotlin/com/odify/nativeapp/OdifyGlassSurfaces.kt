@@ -112,46 +112,46 @@ internal suspend fun odifyModalSnapshot(window:Window):OdifyModalSnapshot? {
     }
 }
 
-/** A bottom-anchored lens of the actual player, with one bounded source capture. */
+/** Bottom sheet positioning, insets and swipe dismissal are owned by Material;
+ * the visible panel uses the same app-rendered refraction as the mini-player. */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable internal fun OdifyGlassSheet(onDismiss:()->Unit,tint:Color=LocalOdifyModalTint.current,
     maxHeightFraction:Float=.82f,content:@Composable ColumnScope.()->Unit) {
     val host=LocalView.current
     val context=LocalContext.current
     val source=(host.parent as? DialogWindowProvider)?.window ?: context.modalActivity()?.window
+    val bottomInset=WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding().coerceAtLeast(16.dp)
     var snapshot by remember(source) {mutableStateOf<OdifyModalSnapshot?>(null)}
     var captured by remember(source) {mutableStateOf(false)}
     LaunchedEffect(source) {snapshot=source?.let {odifyModalSnapshot(it)};captured=true}
     if(!captured)return
-    Dialog(onDismissRequest=onDismiss,properties=DialogProperties(usePlatformDefaultWidth=false,decorFitsSystemWindows=false)) {
-        val view=LocalView.current
-        DisposableEffect(view) {
-            (view.parent as? DialogWindowProvider)?.window?.apply {
-                setBackgroundDrawable(ColorDrawable(android.graphics.Color.TRANSPARENT));setDimAmount(0f)
-            }
-            onDispose {}
-        }
+    val state=rememberModalBottomSheetState(skipPartiallyExpanded=true)
+    ModalBottomSheet(onDismissRequest=onDismiss,sheetState=state,
+        modifier=Modifier.padding(horizontal=12.dp),containerColor=Color.Transparent,
+        scrimColor=Color.Black.copy(alpha=.20f),tonalElevation=0.dp,
+        shape=RoundedCornerShape(30.dp),dragHandle=null,
+        contentWindowInsets={WindowInsets(0,0,0,0)}) {
         val backdrop=rememberOdifyBackdrop()
-        val reveal=remember {Animatable(0f)}
-        LaunchedEffect(Unit) {reveal.animateTo(1f,tween(280,easing=FastOutSlowInEasing))}
-        Box(Modifier.fillMaxSize()) {
+        var origin by remember {mutableStateOf(Offset.Zero)}
+        Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(30.dp)).onGloballyPositioned {origin=it.positionOnScreen()}) {
             Canvas(Modifier.matchParentSize().recordOdifyBackdrop(backdrop)) {
-                drawRect(Color(0xFF101216))
-                snapshot?.let {drawImage(it.image,dstSize=IntSize(size.width.roundToInt(),size.height.roundToInt()))}
+                drawRect(Color(0xFF171A21))
+                snapshot?.let {frame -> drawImage(frame.image,
+                    dstOffset=IntOffset((frame.origin.x-origin.x).roundToInt(),(frame.origin.y-origin.y).roundToInt()),
+                    dstSize=frame.size)}
             }
-            Box(Modifier.matchParentSize().background(Color.Black.copy(alpha=.20f))
-                .clickable(interactionSource=remember {MutableInteractionSource()},indication=null,onClick=onDismiss))
-            Column(Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(horizontal=12.dp,vertical=10.dp)
-                .widthIn(max=520.dp).fillMaxWidth()
-                .graphicsLayer {translationY=(1f-reveal.value)*56.dp.toPx();alpha=reveal.value}
-                .heightIn(max=LocalConfiguration.current.screenHeightDp.dp*maxHeightFraction)
+            Column(Modifier.fillMaxWidth().heightIn(max=LocalConfiguration.current.screenHeightDp.dp*maxHeightFraction)
                 .odifyGlass(backdrop,RoundedCornerShape(30.dp),tint,transparencyOverride=.76f)
                 .padding(horizontal=16.dp,vertical=12.dp),horizontalAlignment=Alignment.CenterHorizontally) {
-                Box(Modifier.padding(bottom=14.dp).size(32.dp,4.dp).background(Color.White.copy(alpha=.30f),RoundedCornerShape(2.dp)))
+                Box(Modifier.fillMaxWidth().height(22.dp),contentAlignment=androidx.compose.ui.Alignment.TopCenter) {
+                    Box(Modifier.size(32.dp,4.dp).background(Color.White.copy(alpha=.30f),RoundedCornerShape(2.dp)))
+                }
                 CompositionLocalProvider(LocalContentColor provides Color(0xFFF5F6F7)) {
                     ProvideTextStyle(MaterialTheme.typography.bodyMedium.copy(fontSize=14.sp)) {content()}
                 }
             }
         }
+        Spacer(Modifier.height(bottomInset+10.dp))
     }
 }
 

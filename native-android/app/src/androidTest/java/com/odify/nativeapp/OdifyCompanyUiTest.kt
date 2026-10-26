@@ -56,6 +56,26 @@ class OdifyCompanyUiTest {
         }
     }
 
+    @Test fun audioOverridePreservesAlbumPresentationWithoutRenamingTheVideoRecord() {
+        val name="company-replacement-${System.nanoTime()}"
+        val store=OdifyStreamingLibrary(context,"$name-stream")
+        val overrides=OdifyAudioOverrides(context,name,"$name-stream")
+        try {
+            val original=OdifySong("gdrive:original","Original title","Original artist","Original album","",
+                artworkPath="/original-cover.jpg",lyrics="Original lyrics")
+            val video=YoutubeVideo("abcdefghijk","Video upload title","Uploader","")
+            overrides.choose(original,video)
+            val resolved=overrides.resolve(original)
+            assertEquals(original.id,resolved.id)
+            assertEquals(original.artworkPath,resolved.artworkPath)
+            assertEquals(original.lyrics,resolved.lyrics)
+            assertEquals(original.title,resolved.title)
+            assertEquals(video.title,store.video(resolved).title)
+            assertEquals(video.channel,store.video(resolved).channel)
+            assertEquals(video.videoId,queueSong(resolved.mediaItem()).playbackVideoId)
+        } finally {context.deleteSharedPreferences(name);context.deleteSharedPreferences("$name-stream")}
+    }
+
     private fun node(label:String):AccessibilityNodeInfo? {
         fun find(value:AccessibilityNodeInfo?):AccessibilityNodeInfo? {
             if(value==null)return null
@@ -113,6 +133,8 @@ class OdifyCompanyUiTest {
         val sheet=mutableStateOf(false)
         val screen=mutableStateOf("player")
         var plays=0;var moves=0
+        var observedOrder:List<String> = emptyList()
+        var observedMoves=0
         val noPlay:()->Unit={plays++}
         ActivityScenario.launch(MainActivity::class.java).use {scenario ->
             scenario.onActivity {activity -> activity.setContent {
@@ -142,9 +164,7 @@ class OdifyCompanyUiTest {
             tap("다음 재생");waitFor("Track 1 순서 이동")
             drag("Track 1 순서 이동","Track 3 순서 이동")
             main {
-                assertEquals(1,moves)
-                assertEquals(listOf("entry:0","entry:2","entry:3","entry:1"),keys.value.take(4))
-                assertEquals(0,plays)
+                observedOrder=keys.value.take(4);observedMoves=moves
             }
             capture("queue")
             main {sheet.value=false;screen.value="playlist"}
@@ -152,7 +172,11 @@ class OdifyCompanyUiTest {
             main {screen.value="explore"}
             waitFor("한국 Top 100");tap("일본");waitFor("일본 Top 100")
             tap("미국");waitFor("미국 Top 100");capture("explore")
-            main {assertEquals(0,plays)}
+            main {
+                assertEquals(0,plays)
+                assertEquals(1,observedMoves)
+                assertEquals(listOf("entry:0","entry:2","entry:3","entry:1"),observedOrder)
+            }
         }
     }
 }

@@ -137,8 +137,10 @@ private fun NativeOdify() {
         value=null
         youtubeVideo?.let {value=youtubeArtwork(context.applicationContext,it.videoId)}
     }
-    val youtubeSong=youtubeVideo?.let {youtubeSession.presentation?.let {presentation -> presentation.copy(
-        durationMs=youtubeState.duration.takeIf {duration -> duration>0} ?: presentation.durationMs)}
+    val youtubeSong=youtubeVideo?.let {youtubeSession.presentation?.let {presentation ->
+        val original=songs.firstOrNull {it.id==presentation.id} ?: presentation
+        odifyReplacementPresentation(original,presentation,presentation.playbackVideoId).copy(
+            durationMs=youtubeState.duration.takeIf {duration -> duration>0} ?: presentation.durationMs)}
         ?: OdifySong("youtube:${it.videoId}",it.title,it.channel,"YouTube","",
             artworkPath=youtubeCover,durationMs=youtubeState.duration)}
     val visiblePlayback=if(youtubeSong==null) playback else OdifyPlaybackSnapshot(

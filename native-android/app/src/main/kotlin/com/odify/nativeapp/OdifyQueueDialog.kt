@@ -66,7 +66,12 @@ fun OdifyQueueDialog(items:List<OdifySong>,currentIndex:Int,
             it.key!=key && center>=it.offset && center<=it.offset+it.size
         } ?: return
         val to=ordered.indexOfFirst {it.key==target.key}
-        if(from>=0 && to>=0 && from!=to)ordered=ordered.moved(from,to)
+        if(from>=0 && to>=0 && from!=to) {
+            // LazyColumn otherwise anchors the first visible key to its NEW
+            // index, scrolling with the dragged first row and overshooting.
+            list.requestScrollToItem(list.firstVisibleItemIndex,list.firstVisibleItemScrollOffset)
+            ordered=ordered.moved(from,to)
+        }
     }
     LaunchedEffect(dragging) {
         while(dragging!=null && isActive) {

@@ -57,7 +57,12 @@ internal class OdifyStreamingLibrary(private val context:Context, name:String="o
                 .put("data".toByteArray()).putInt(1600).array())
         }
     }
-    fun video(song:OdifySong)=YoutubeVideo(song.playbackVideoId.ifBlank {song.id.removePrefix("youtube:")},song.title,song.artist,"")
+    fun video(song:OdifySong):YoutubeVideo {
+        val id=song.playbackVideoId.ifBlank {song.id.removePrefix("youtube:")}
+        val saved=prefs.getString(id,null)?.let {runCatching {JSONObject(it)}.getOrNull()}
+        return YoutubeVideo(id,saved?.optString("title")?.takeIf {it.isNotBlank()} ?: song.title,
+            saved?.optString("artist")?.takeIf {it.isNotBlank()} ?: song.artist,"")
+    }
     @Synchronized fun associateChart(videoId:String,chartId:String) {
         val data=prefs.getString(videoId,null)?.let {JSONObject(it)} ?: return
         val charts=data.optJSONArray("charts") ?: JSONArray()
