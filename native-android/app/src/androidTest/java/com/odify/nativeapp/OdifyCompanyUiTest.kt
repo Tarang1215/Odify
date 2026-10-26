@@ -183,6 +183,20 @@ class OdifyCompanyUiTest {
         event(MotionEvent.ACTION_UP,end.centerX().toFloat(),end.centerY().toFloat(),began+400)
         Thread.sleep(700)
     }
+    private fun swipeFooter(next:Boolean) {
+        val bounds=Rect();waitFor("음원 출처와 다음 곡").getBoundsInScreen(bounds)
+        val start=bounds.left+bounds.width()*(if(next).85f else .15f)
+        val end=bounds.left+bounds.width()*(if(next).15f else .85f)
+        val began=SystemClock.uptimeMillis()
+        fun send(action:Int,x:Float,at:Long) {
+            val event=MotionEvent.obtain(began,at,action,x,bounds.centerY().toFloat(),0)
+            event.source=android.view.InputDevice.SOURCE_TOUCHSCREEN
+            test.uiAutomation.injectInputEvent(event,true);event.recycle()
+        }
+        send(MotionEvent.ACTION_DOWN,start,began)
+        for(step in 1..20) {send(MotionEvent.ACTION_MOVE,start+(end-start)*step/20,began+step*16L);Thread.sleep(16)}
+        send(MotionEvent.ACTION_UP,end,began+340);Thread.sleep(550)
+    }
 
     @Test fun playerSheetsQueueDragPlaylistAndCountryChangesNeverInvokePlayback() {
         val cover=File(context.cacheDir,"company-fixture-cover.png")
@@ -230,7 +244,12 @@ class OdifyCompanyUiTest {
                 }
             }}
             waitFor("곡 옵션 열기");capture("player")
+            waitFor("음원 출처: Local · 오프라인")
+            swipeFooter(true)
             waitFor("다음 곡: Track 1")
+            capture("player-next")
+            swipeFooter(false);waitFor("음원 출처: Local · 오프라인")
+            swipeFooter(true);waitFor("다음 곡: Track 1")
             tap("가사 열기");waitFor("가사 닫기");Thread.sleep(300);capture("lyrics")
             tap("전체 화면으로 보기");waitFor("앨범커버 보기");Thread.sleep(300);capture("lyrics-fullscreen");tap("앨범커버 보기")
             tap("곡 옵션 열기");waitFor("음원 교체");capture("player-options")

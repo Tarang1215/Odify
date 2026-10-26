@@ -24,6 +24,9 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.pager.PagerDefaults
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -494,16 +497,33 @@ Box(
                         Icon(if(showLyrics)Icons.Default.Album else Icons.Default.Subtitles,null,tint=playerWhite,modifier=Modifier.size(21.dp))
                     }
                     val upcomingSong=if(repeatOne)song else nextSong
-                    Row(Modifier.weight(1f).heightIn(min=50.dp).clip(RoundedCornerShape(18.dp))
-                        .semantics {contentDescription="다음 곡: ${upcomingSong?.title ?: "없음"}"}
-                        .onGloballyPositioned {nextPreviewAnchor=it.positionOnScreen()+Offset(it.size.width/2f,it.size.height/2f)}
-                        .clickable {onQueueAnchor(nextPreviewAnchor);onShowQueue()}.padding(horizontal=16.dp),verticalAlignment=Alignment.CenterVertically,
-                        horizontalArrangement=Arrangement.Center) {
-                        if(upcomingSong!=null) AlbumArt(upcomingSong,Modifier.size(30.dp),RoundedCornerShape(8.dp))
-                        Column(Modifier.weight(1f,fill=false).padding(start=if(upcomingSong!=null)9.dp else 0.dp)) {
-                            Text(if(repeatOne)"한 곡 반복" else "다음 곡",fontSize=9.sp,color=playerWhite.copy(alpha=.44f),maxLines=1)
-                            Text(upcomingSong?.title ?: "대기열이 비어 있어요",fontSize=11.sp,fontWeight=FontWeight.Medium,
-                                color=playerWhite.copy(alpha=.76f),maxLines=1,overflow=TextOverflow.Ellipsis,modifier=Modifier.padding(top=3.dp))
+                    val footerPages=rememberPagerState(pageCount={2})
+                    val source=when {externalPlayback || song.isYoutubeStream->"YouTube";song.isCloud->"Google Drive";song.isPhoneFolder->"휴대폰";else->"Local · 오프라인"}
+                    val format=if(externalPlayback || song.isYoutubeStream)"" else java.io.File(song.filePath).extension.uppercase()
+                        .takeIf {it in listOf("FLAC","MP3","M4A","AAC","WAV","OGG","OPUS")}.orEmpty()
+                    Column(Modifier.weight(1f).padding(horizontal=12.dp)
+                        .onGloballyPositioned {nextPreviewAnchor=it.positionOnScreen()+Offset(it.size.width/2f,it.size.height/2f)},
+                        horizontalAlignment=Alignment.CenterHorizontally) {
+                        HorizontalPager(state=footerPages,beyondViewportPageCount=1,
+                            flingBehavior=PagerDefaults.flingBehavior(footerPages,snapAnimationSpec=tween(420,easing=FastOutSlowInEasing)),
+                            modifier=Modifier.fillMaxWidth().height(48.dp).semantics {contentDescription="음원 출처와 다음 곡"}) {page ->
+                            Column(Modifier.fillMaxSize().clip(RoundedCornerShape(14.dp))
+                                .semantics {contentDescription=if(page==0)"음원 출처: $source" else "다음 곡: ${upcomingSong?.title ?: "없음"}"}
+                                .clickable {if(page==0)showInfo=true else {onQueueAnchor(nextPreviewAnchor);onShowQueue()}},
+                                horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.Center) {
+                                Text(if(page==0)"재생 소스" else if(repeatOne)"한 곡 반복" else "다음 곡",fontSize=9.sp,
+                                    color=playerWhite.copy(alpha=.44f),maxLines=1)
+                                Text(if(page==0)source+(if(format.isNotBlank())" · $format" else "") else upcomingSong?.title ?: "대기열이 비어 있어요",
+                                    fontSize=11.sp,fontWeight=FontWeight.Medium,color=playerWhite.copy(alpha=.76f),maxLines=1,
+                                    overflow=TextOverflow.Ellipsis,modifier=Modifier.padding(top=3.dp))
+                            }
+                        }
+                        Row(Modifier.padding(top=2.dp),horizontalArrangement=Arrangement.spacedBy(5.dp)) {
+                            repeat(2) {page ->
+                                Box(Modifier.size(3.dp).graphicsLayer {
+                                    alpha=.24f+.60f*(1f-abs(footerPages.currentPage+footerPages.currentPageOffsetFraction-page).coerceIn(0f,1f))
+                                }.background(Color.White,CircleShape))
+                            }
                         }
                     }
                     Box(Modifier.size(50.dp)
