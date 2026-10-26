@@ -28,6 +28,9 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionOnScreen
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.Velocity
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -160,6 +163,10 @@ internal suspend fun odifyModalSnapshot(window:Window,transparency:Float=.76f):O
     if(!mounted)return
     val density=LocalDensity.current
     val scope=rememberCoroutineScope()
+    val listBoundary=remember {object:NestedScrollConnection {
+        override fun onPostScroll(consumed:Offset,available:Offset,source:NestedScrollSource)=Offset(0f,available.y)
+        override suspend fun onPostFling(consumed:Velocity,available:Velocity)=Velocity(0f,available.y)
+    }}
     val expansion=remember {Animatable(0f)}
     var expanded by remember {mutableStateOf(false)}
     var collapsedHeight by remember {mutableIntStateOf(0)}
@@ -204,7 +211,7 @@ internal suspend fun odifyModalSnapshot(window:Window,transparency:Float=.76f):O
             OdifyFrozenGlassBackground(snapshot,origin,shape,tint,transparency,Modifier.matchParentSize(),onReady={backgroundReady=true})
             val expansionHeight=if(collapsedHeight>0 && expansion.value>0f) Modifier.height(
                 with(density) {(collapsedHeight+(fullPx-collapsedHeight)*expansion.value).toDp()}) else Modifier
-            Column(Modifier.fillMaxWidth().then(expansionHeight)
+            Column(Modifier.fillMaxWidth().nestedScroll(listBoundary).then(expansionHeight)
                 .heightIn(max=if(expansion.value>0f)fullHeight else screenHeight*maxHeightFraction)
                 .onSizeChanged {if(expansion.value==0f)collapsedHeight=it.height}
                 .padding(horizontal=16.dp,vertical=12.dp),horizontalAlignment=Alignment.CenterHorizontally) {
@@ -241,29 +248,28 @@ internal suspend fun odifyModalSnapshot(window:Window,transparency:Float=.76f):O
     }
 }
 
-/** Prepare glass off the UI thread; motion composites one opaque bounded image. */
+/** Viewport sampling stays at window scale while the panel moves or changes height. */
 @Composable private fun OdifyFrozenGlassBackground(frame:OdifyModalSnapshot?,origin:Offset,shape:Shape,tint:Color,
     transparency:Float,modifier:Modifier=Modifier,onReady:()->Unit={}) {
-    var dimensions by remember(frame) {mutableStateOf(IntSize.Zero)}
-    val currentOrigin by rememberUpdatedState(origin)
-    val density=LocalDensity.current
-    val direction=androidx.compose.ui.platform.LocalLayoutDirection.current
-    val raster by produceState<ImageBitmap?>(null,frame,dimensions) {
-        if(dimensions.width<=0 || dimensions.height<=0)return@produceState
-        withFrameNanos {};withFrameNanos {}
-        val initialOrigin=currentOrigin
-        val outline=shape.createOutline(androidx.compose.ui.geometry.Size(dimensions.width.toFloat(),dimensions.height.toFloat()),direction,density)
-        val radius=(outline as? Outline.Rounded)?.roundRect?.topLeftCornerRadius?.x ?: with(density) {30.dp.toPx()}
-        value=frame?.let {snapshot ->withContext(Dispatchers.Default) {
-            OdifyModalRaster.surface(snapshot,initialOrigin,dimensions,radius,density.density,transparency).asImageBitmap()
-        }}
-    }
+    val lens=remember(frame) {if(frame!=null && android.os.Build.VERSION.SDK_INT>=33)
+        runCatching {OdifySnapshotLens(frame)}.getOrNull() else null}
+    val paint=remember {android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)}
     val readyCallback by rememberUpdatedState(onReady)
-    LaunchedEffect(raster,frame) {if(raster!=null || frame==null)readyCallback()}
-    Canvas(modifier.onSizeChanged {if(dimensions==IntSize.Zero)dimensions=it}.clip(shape)
+    LaunchedEffect(frame) {readyCallback()}
+    Canvas(modifier.clip(shape)
         .border(.45.dp,Brush.verticalGradient(listOf(Color.White.copy(alpha=.22f),Color.White.copy(alpha=.035f),Color.White.copy(alpha=.14f))),shape)) {
         drawRect(Color(0xFF171A21))
-        raster?.let {drawImage(it,dstSize=IntSize(size.width.roundToInt(),size.height.roundToInt()),filterQuality=FilterQuality.Medium)}
+        if(frame!=null && lens!=null && android.os.Build.VERSION.SDK_INT>=33) {
+            val outline=shape.createOutline(size,layoutDirection,this)
+            val radius=(outline as? Outline.Rounded)?.roundRect?.topLeftCornerRadius?.x ?: 30.dp.toPx()
+            lens.update(origin,size.width,size.height,radius,density,transparency)
+            paint.shader=lens.shader
+            drawContext.canvas.nativeCanvas.drawRect(0f,0f,size.width,size.height,paint)
+        } else if(frame!=null) {
+            drawImage(frame.frost,dstOffset=IntOffset((frame.origin.x-origin.x).roundToInt(),(frame.origin.y-origin.y).roundToInt()),
+                dstSize=frame.size,filterQuality=FilterQuality.Medium)
+            drawRect(Color.Black.copy(alpha=(.035f+1.08f*(1-transparency)*(1-transparency)).coerceAtMost(.88f)))
+        }
         if(tint.alpha>0)drawRect(Brush.radialGradient(listOf(tint.copy(alpha=.10f),Color.Transparent),
             center=Offset(size.width*.22f,size.height*.8f),radius=size.width*.85f))
     }

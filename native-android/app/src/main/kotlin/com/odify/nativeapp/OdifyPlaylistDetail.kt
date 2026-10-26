@@ -29,6 +29,7 @@ import kotlinx.coroutines.launch
     val cover=playlist.coverSong(tracks)
     val tint=rememberArtworkPalette(cover?.artworkPath).first()
     var menu by remember(playlist.id) {mutableStateOf(false)}
+    var menuAtHeader by remember(playlist.id) {mutableStateOf(true)}
     var trackMenu by remember(playlist.id) {mutableStateOf<OdifySong?>(null)}
     var confirmDelete by remember(playlist.id) {mutableStateOf(false)}
     var renaming by remember(playlist.id) {mutableStateOf(false)}
@@ -40,8 +41,18 @@ import kotlinx.coroutines.launch
         scope.launch {try {error=onCoverChange(uri)} finally {changingCover=false}}
     }
     val picker=rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) {uri -> if(uri!=null)changeCover(uri)}
+    val menuContent:@Composable ColumnScope.()->Unit={
+        Text(playlist.name,fontSize=16.sp,fontWeight=FontWeight.SemiBold,modifier=Modifier.fillMaxWidth().padding(10.dp))
+        DropdownMenuItem(text={Text("이름 수정")},leadingIcon={Icon(Icons.Default.Edit,null,Modifier.size(20.dp))},onClick={menu=false;renaming=true})
+        DropdownMenuItem(text={Text("커버 변경")},leadingIcon={Icon(Icons.Default.AddPhotoAlternate,null,Modifier.size(20.dp))},
+            enabled=!changingCover,onClick={menu=false;picker.launch(arrayOf("image/*"))})
+        if(playlist.coverPath!=null) DropdownMenuItem(text={Text("기본 커버로 복원")},leadingIcon={Icon(Icons.Default.Restore,null,Modifier.size(20.dp))},
+            enabled=!changingCover,onClick={menu=false;changeCover(null)})
+        DropdownMenuItem(text={Text("플레이리스트 삭제",fontSize=14.sp)},leadingIcon={Icon(Icons.Default.DeleteOutline,null,Modifier.size(20.dp))},
+            onClick={menu=false;confirmDelete=true})
+    }
     BoxWithConstraints(Modifier.fillMaxSize().background(OdifyPalette.background)) {
-        AlbumArt(cover,Modifier.fillMaxSize().graphicsLayer {alpha=.43f;scaleX=1.15f;scaleY=1.15f}.blur(40.dp),RoundedCornerShape(0.dp))
+        AlbumArt(cover,Modifier.fillMaxSize().graphicsLayer {alpha=.43f;scaleX=1.15f;scaleY=1.15f},RoundedCornerShape(0.dp),backgroundBlur=40.dp)
         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Black.copy(alpha=.28f),Color.Black.copy(alpha=.63f),OdifyPalette.background.copy(alpha=.96f)))))
         val heroSize=minOf(maxWidth*.57f,242.dp)
         LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(start=22.dp,end=22.dp,bottom=130.dp)) {
@@ -49,7 +60,12 @@ import kotlinx.coroutines.launch
                 Row(Modifier.fillMaxWidth().height(58.dp),verticalAlignment=Alignment.CenterVertically) {
                     IconButton(onClick=onDismiss,modifier=Modifier.size(44.dp)) {Icon(Icons.Default.ArrowBack,"보관함으로 돌아가기",Modifier.size(23.dp))}
                     Text("PLAYLIST",fontSize=10.sp,letterSpacing=1.8.sp,color=Color.White.copy(alpha=.60f),modifier=Modifier.weight(1f),textAlign=androidx.compose.ui.text.style.TextAlign.Center)
-                    IconButton(onClick={menu=true},modifier=Modifier.size(44.dp)) {Icon(Icons.Default.MoreHoriz,"플레이리스트 옵션",Modifier.size(23.dp))}
+                    Box(Modifier.size(44.dp)) {
+                        IconButton(onClick={menuAtHeader=true;menu=true},modifier=Modifier.fillMaxSize()) {Icon(Icons.Default.MoreHoriz,"플레이리스트 옵션",Modifier.size(23.dp))}
+                        CompositionLocalProvider(LocalOdifyModalTint provides tint) {
+                            OdifyGlassAnchoredMenu(menu && menuAtHeader,onDismissRequest={menu=false},content=menuContent)
+                        }
+                    }
                 }
                 Box(Modifier.fillMaxWidth().padding(top=12.dp,bottom=26.dp),contentAlignment=Alignment.Center) {
                     Box(Modifier.size(heroSize)) {
@@ -74,8 +90,13 @@ import kotlinx.coroutines.launch
                         Icon(Icons.Default.Shuffle,"플레이리스트 셔플 재생",Modifier.size(20.dp))
                     }
                     Spacer(Modifier.width(12.dp))
-                    IconButton(onClick={menu=true},modifier=Modifier.size(44.dp).background(Color.White.copy(alpha=.07f),CircleShape)
-                        .border(.5.dp,Color.White.copy(alpha=.13f),CircleShape)) {Icon(Icons.Default.MoreHoriz,"플레이리스트 관리",Modifier.size(21.dp))}
+                    Box(Modifier.size(44.dp)) {
+                        IconButton(onClick={menuAtHeader=false;menu=true},modifier=Modifier.fillMaxSize().background(Color.White.copy(alpha=.07f),CircleShape)
+                            .border(.5.dp,Color.White.copy(alpha=.13f),CircleShape)) {Icon(Icons.Default.MoreHoriz,"플레이리스트 관리",Modifier.size(21.dp))}
+                        CompositionLocalProvider(LocalOdifyModalTint provides tint) {
+                            OdifyGlassAnchoredMenu(menu && !menuAtHeader,onDismissRequest={menu=false},content=menuContent)
+                        }
+                    }
                     Spacer(Modifier.weight(1f))
                     FilledIconButton(onClick={onPlay(tracks,0)},enabled=tracks.isNotEmpty(),modifier=Modifier.size(55.dp),
                         colors=IconButtonDefaults.filledIconButtonColors(containerColor=Color.White,contentColor=Color.Black)) {
@@ -102,16 +123,6 @@ import kotlinx.coroutines.launch
                 }
             }
         }
-    }
-    OdifyRetainedGlassSheet(if(menu)playlist else null,onDismiss={menu=false},tint=tint,maxHeightFraction=.65f) {playlist ->
-        Text(playlist.name,fontSize=16.sp,fontWeight=FontWeight.SemiBold,modifier=Modifier.fillMaxWidth().padding(10.dp))
-        DropdownMenuItem(text={Text("이름 수정")},leadingIcon={Icon(Icons.Default.Edit,null,Modifier.size(20.dp))},onClick={menu=false;renaming=true})
-        DropdownMenuItem(text={Text("커버 변경")},leadingIcon={Icon(Icons.Default.AddPhotoAlternate,null,Modifier.size(20.dp))},
-            enabled=!changingCover,onClick={menu=false;picker.launch(arrayOf("image/*"))})
-        if(playlist.coverPath!=null) DropdownMenuItem(text={Text("기본 커버로 복원")},leadingIcon={Icon(Icons.Default.Restore,null,Modifier.size(20.dp))},
-            enabled=!changingCover,onClick={menu=false;changeCover(null)})
-        DropdownMenuItem(text={Text("플레이리스트 삭제",fontSize=14.sp)},leadingIcon={Icon(Icons.Default.DeleteOutline,null,Modifier.size(20.dp))},
-            onClick={menu=false;confirmDelete=true})
     }
     if(renaming) OdifyPlaylistRenameDialog(playlist.name,onRename,onDismiss={renaming=false})
     if(error.isNotBlank()) OdifyGlassAlertDialog(onDismissRequest={error=""},title={Text("커버 변경")},text={Text(error)},

@@ -301,6 +301,18 @@ fun OdifyRoot(
     val pageBackdrop = rememberOdifyBackdrop()
     val exploreRepository=remember {OdifyExploreRepository(context.applicationContext)}
     val artistCatalog=remember {OdifyArtistCatalog(context.applicationContext)}
+    // Portrait rows must never scan/normalize the entire collection on the UI
+    // thread when a LazyRow composes another artist during a drag.
+    val artistTitles by produceState<Map<String,List<String>>>(emptyMap(),songs) {
+        value=withContext(Dispatchers.Default) {songs.groupBy {OdifyMusicMatching.norm(it.artist)}
+            .mapValues {(_,rows)->rows.map {it.title}.distinct()}}
+    }
+    suspend fun titlesForArtist(artist:String):List<String> {
+        val key=OdifyMusicMatching.norm(artist)
+        return artistTitles[key] ?: withContext(Dispatchers.Default) {
+            songs.filter {OdifyMusicMatching.norm(it.artist)==key}.map {it.title}.distinct()
+        }
+    }
     val discoveryCharts=remember {mutableStateMapOf<String,ExploreChart>()}
     val discoveryTracks=remember(discoveryCharts.values.toList()) {
         (0 until 100).flatMap {rank ->listOf("kr","jp","us").mapNotNull {discoveryCharts[it]?.tracks?.getOrNull(rank)}}
@@ -530,7 +542,8 @@ fun OdifyRoot(
                     onPlay = ::playList,
                     catalogSongs=songs,
                     discoveryTracks=discoveryTracks,
-                    loadArtistTracks={artist ->artistCatalog.tracks(artist,songs.filter {OdifyDiscovery.sameArtist(it.artist,artist)}.map {it.title})},
+                    loadArtistTracks={artist ->artistCatalog.tracks(artist,titlesForArtist(artist))},
+                    ownedIndex=chartIndex,
                     onPlayOnline={track ->
                         val videoId=track.id.removePrefix("youtube:")
                         if(track.id.startsWith("youtube:") && Regex("[A-Za-z0-9_-]{11}").matches(videoId)) {
@@ -541,7 +554,7 @@ fun OdifyRoot(
                     },
                     onArtistSearch={artist ->searchQuery=artist;navigateTo(OdifyTab.Search)},
                     loadMoodTracks=artistCatalog::moodTracks,
-                    loadArtistPortrait={artist ->artistCatalog.portrait(artist,songs.filter {OdifyDiscovery.sameArtist(it.artist,artist)}.map {it.title})},
+                    loadArtistPortrait={artist ->artistCatalog.portrait(artist,titlesForArtist(artist))},
                     playlists = playlists,
                     onPlaylistPlay = { list ->
                         val tracks = playlistStore.resolved(list, songs)

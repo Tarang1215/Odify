@@ -11,6 +11,8 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.*
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
@@ -193,7 +195,10 @@ private object ExploreArtworkMemory {
 @Composable
 fun OdifyExplore(index:OdifyChartMatching.Index,repository:OdifyExploreRepository,onProfile:()->Unit,onPlay:(List<OdifySong>,Int)->Unit,
     onMissingTrack:(ExploreTrack)->Unit,onSaveChart:(String,List<String>)->Unit,onSync:()->Unit,onAddTrack:(ExploreTrack,OdifySong?)->Unit) {
-    var selectedCountry by rememberSaveable {mutableStateOf("kr")}
+    val countries=remember {listOf("kr","jp","us")}
+    val pager=rememberPagerState {countries.size}
+    val selectedCountry=countries[pager.currentPage]
+    val scope=rememberCoroutineScope()
     var refresh by remember {mutableIntStateOf(0)}
     Column(Modifier.fillMaxSize()) {
         Column(Modifier.padding(start=22.dp,end=22.dp,top=14.dp,bottom=8.dp)) {
@@ -207,19 +212,15 @@ fun OdifyExplore(index:OdifyChartMatching.Index,repository:OdifyExploreRepositor
             Spacer(Modifier.height(20.dp))
             Row(horizontalArrangement=Arrangement.spacedBy(7.dp),verticalAlignment=Alignment.CenterVertically) {
                 listOf("kr" to "한국","jp" to "일본","us" to "미국").forEach {(code,label) ->
-                    OdifyPill(label,selectedCountry==code) {selectedCountry=code}
+                    OdifyPill(label,selectedCountry==code) {scope.launch {pager.animateScrollToPage(countries.indexOf(code),animationSpec=tween(240,easing=FastOutSlowInEasing))}}
                 }
                 Spacer(Modifier.weight(1f))
                 IconButton(onClick={refresh++;onSync()}) {Icon(Icons.Outlined.Refresh,"차트와 음악 새로고침")}
             }
         }
-        androidx.compose.animation.AnimatedContent(targetState=selectedCountry,
-            modifier=Modifier.fillMaxWidth().weight(1f).clipToBounds(),
-            transitionSpec={
-                val direction=if(listOf("kr","jp","us").indexOf(targetState)>listOf("kr","jp","us").indexOf(initialState))1 else -1
-                (slideInHorizontally(tween(380,easing=FastOutSlowInEasing)){it*direction/7}+fadeIn(tween(300,delayMillis=35)))
-                    .togetherWith(slideOutHorizontally(tween(320,easing=FastOutSlowInEasing)){-it*direction/9}+fadeOut(tween(220)))
-            },label="explore-country") {country ->
+        HorizontalPager(state=pager,beyondViewportPageCount=1,
+            modifier=Modifier.fillMaxWidth().weight(1f),key={countries[it]}) {page ->
+            val country=countries[page]
             var genre by remember(country) {mutableStateOf("")}
             val listState=rememberLazyListState()
             var chart by remember(country) {mutableStateOf(repository.peek(country))}
@@ -240,24 +241,7 @@ fun OdifyExplore(index:OdifyChartMatching.Index,repository:OdifyExploreRepositor
             val matched=remember(data,index) {data?.tracks.orEmpty().associate {it.id to index.resolve(it)}}
             val ready=remember(visible,matched) {visible.mapNotNull {matched[it.id]}.distinctBy {it.contentMd5.ifBlank {it.id}}}
             val countryName=when(country) {"kr"->"한국";"jp"->"일본";else->"미국"}
-            LazyColumn(Modifier.fillMaxSize().pointerInput(country) {
-                awaitEachGesture {
-                    val down=awaitFirstDown(requireUnconsumed=false)
-                    var childOwns=false;var claimed=false;var target:String?=null
-                    while(true) {
-                        val pointer=awaitPointerEvent(PointerEventPass.Main).changes.firstOrNull {it.id==down.id} ?: break
-                        val dx=pointer.position.x-down.position.x;val dy=pointer.position.y-down.position.y
-                        if(!claimed && pointer.isConsumed)childOwns=true
-                        if(!childOwns && abs(dx)>56.dp.toPx() && abs(dx)>abs(dy)*1.6f) {
-                            val countries=listOf("kr","jp","us")
-                            target=countries.getOrNull(countries.indexOf(country)+if(dx<0)1 else -1)
-                            claimed=target!=null
-                        }
-                        if(claimed)pointer.consume()
-                        if(!pointer.pressed) {target?.takeIf {!childOwns}?.let {selectedCountry=it};break}
-                    }
-                }
-            },state=listState,contentPadding=PaddingValues(22.dp,8.dp,22.dp,160.dp)) {
+            LazyColumn(Modifier.fillMaxSize(),state=listState,contentPadding=PaddingValues(22.dp,8.dp,22.dp,160.dp)) {
                 item {
                     Row(verticalAlignment=Alignment.CenterVertically) {
                         Text("$countryName Top 100",fontSize=26.sp,fontWeight=FontWeight.Bold,color=OdifyPalette.text,modifier=Modifier.weight(1f))

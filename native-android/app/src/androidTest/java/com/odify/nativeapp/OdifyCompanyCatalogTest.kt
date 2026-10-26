@@ -18,13 +18,15 @@ class OdifyCompanyCatalogTest {
         assertTrue(tracks.all {it.music!=null && OdifyDiscovery.sameArtist(it.artist,"RESCENE") && it.artwork.isNotBlank()})
         val portrait=catalog.portrait("리센느",listOf("LOVE ATTACK","Deja Vu","UhUh","YoYo"))
         assertTrue("Expected a real artist portrait",portrait!=null && File(portrait).length()>1000)
+        val bigNaughty=catalog.portrait("BIG Naughty")
+        assertTrue("Older Features artwork URLs are also real artist portraits",bigNaughty!=null && File(bigNaughty).length()>1000)
         val musicCatalog=OdifyMusicCatalog(context)
         val music=musicCatalog.video(YoutubeVideo("abcdefghijk","ROSÉ Messy Lyrics","Lemonade",""))!!
         assertEquals("Messy",music.title);assertEquals("ROSÉ",music.artist)
         val cover=musicCatalog.cover(music)
         assertTrue(cover!=null && File(cover).length()>1000)
         val result=JSONObject().put("artist",tracks.first().artist).put("count",tracks.size)
-            .put("titles",org.json.JSONArray(tracks.take(20).map {it.title})).put("portrait",portrait)
+            .put("titles",org.json.JSONArray(tracks.take(20).map {it.title})).put("portrait",portrait).put("bigNaughtyPortrait",bigNaughty)
             .put("recording",JSONObject().put("title",music.title).put("artist",music.artist).put("album",music.album).put("cover",cover))
         withContext(Dispatchers.IO){File(context.cacheDir,"company-official-metadata.json").writeText(result.toString(2))}
     }

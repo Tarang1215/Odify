@@ -13,6 +13,7 @@ import androidx.compose.ui.graphics.layer.GraphicsLayer
 import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
@@ -101,7 +102,8 @@ fun Modifier.odifyGlass(backdrop: OdifyBackdrop, shape: Shape,glow:Color=Color.T
     var coordinates by remember {mutableStateOf<LayoutCoordinates?>(null)}
     val crop=rememberGraphicsLayer()
     val sharpCrop=rememberGraphicsLayer()
-    val radius=with(LocalDensity.current) {((if(navigation)4f+14f*(1f-transparency) else 3f+12f*(1f-transparency)).dp).toPx()}
+    val rasterScale=.5f
+    val radius=with(LocalDensity.current) {((if(navigation)4f+14f*(1f-transparency) else 3f+12f*(1f-transparency)).dp).toPx()*rasterScale}
     val bleed=ceil(radius*2).toInt()
     val effect=remember(radius) {BlurEffect(radius,radius,TileMode.Clamp)}
     val lens=remember {if(Build.VERSION.SDK_INT>=33) runCatching {android.graphics.RuntimeShader(OdifyGlassLens.source)}.getOrNull() else null}
@@ -126,14 +128,14 @@ fun Modifier.odifyGlass(backdrop: OdifyBackdrop, shape: Shape,glow:Color=Color.T
                 if(lensCache.size!=size || lensCache.corner!=corner || lensCache.split!=split || lensCache.right!=rightPx || lensCache.gap!=gapPx || lensCache.leftCorner!=leftCorner || lensCache.radius!=radius) {
                 fun configure(shader:android.graphics.RuntimeShader,edgePass:Float) {
                     shader.setFloatUniform("origin",bleed.toFloat(),bleed.toFloat())
-                    shader.setFloatUniform("bounds",size.width,size.height)
-                    shader.setFloatUniform("corner",corner.coerceAtMost(size.height/2))
-                    shader.setFloatUniform("depth",12.dp.toPx())
-                    shader.setFloatUniform("leftCorner",leftCorner)
-                    shader.setFloatUniform("strength",10.dp.toPx())
+                    shader.setFloatUniform("bounds",size.width*rasterScale,size.height*rasterScale)
+                    shader.setFloatUniform("corner",corner.coerceAtMost(size.height/2)*rasterScale)
+                    shader.setFloatUniform("depth",12.dp.toPx()*rasterScale)
+                    shader.setFloatUniform("leftCorner",leftCorner*rasterScale)
+                    shader.setFloatUniform("strength",10.dp.toPx()*rasterScale)
                     shader.setFloatUniform("split",split.coerceIn(0f,1f))
-                    shader.setFloatUniform("rightWidth",rightPx)
-                    shader.setFloatUniform("gap",gapPx)
+                    shader.setFloatUniform("rightWidth",rightPx*rasterScale)
+                    shader.setFloatUniform("gap",gapPx*rasterScale)
                     shader.setFloatUniform("edgePass",edgePass)
                 }
                 configure(lens,0f)
@@ -149,26 +151,26 @@ fun Modifier.odifyGlass(backdrop: OdifyBackdrop, shape: Shape,glow:Color=Color.T
                 }
                 crop.renderEffect=lensCache.effect
             } else crop.renderEffect=effect
-            val captureSize=IntSize(ceil(size.width).toInt()+bleed*2,ceil(size.height).toInt()+bleed*2)
+            val captureSize=IntSize(ceil(size.width*rasterScale).toInt()+bleed*2,ceil(size.height*rasterScale).toInt()+bleed*2)
             val refreshCapture=lensCache.captureFrame!=frame || lensCache.captureOffset!=offset || lensCache.captureSize!=captureSize
             if(refreshCapture) crop.record(size=captureSize) {
                 // The snapshot must be opaque. Blurring transparent glyphs
                 // over the original page leaves the original text sharp.
                 drawRect(OdifyPalette.background)
                 clipRect {
-                    translate(bleed-offset.x,bleed-offset.y) {drawLayer(backdrop.layer)}
+                    translate(bleed.toFloat(),bleed.toFloat()) {scale(rasterScale,pivot=Offset.Zero) {translate(-offset.x,-offset.y) {drawLayer(backdrop.layer)}}}
                 }
             }
-            translate(-bleed.toFloat(),-bleed.toFloat()) {drawLayer(crop)}
+            translate(-bleed/rasterScale,-bleed/rasterScale) {scale(1/rasterScale,pivot=Offset.Zero) {drawLayer(crop)}}
             // A second GPU layer samples the *unblurred* live page at the rim.
             // Refracting only the blurred input erases the details that reveal glass.
             if(Build.VERSION.SDK_INT>=33 && lensCache.sharpEffect!=null) {
                 sharpCrop.renderEffect=lensCache.sharpEffect
                 if(refreshCapture) sharpCrop.record(size=captureSize) {
                     drawRect(OdifyPalette.background)
-                    clipRect {translate(bleed-offset.x,bleed-offset.y) {drawLayer(backdrop.layer)}}
+                    clipRect {translate(bleed.toFloat(),bleed.toFloat()) {scale(rasterScale,pivot=Offset.Zero) {translate(-offset.x,-offset.y) {drawLayer(backdrop.layer)}}}}
                 }
-                translate(-bleed.toFloat(),-bleed.toFloat()) {drawLayer(sharpCrop)}
+                translate(-bleed/rasterScale,-bleed/rasterScale) {scale(1/rasterScale,pivot=Offset.Zero) {drawLayer(sharpCrop)}}
             }
             lensCache.captureFrame=frame;lensCache.captureOffset=offset;lensCache.captureSize=captureSize
         } else drawRect(Color(0xE82B2E35))

@@ -22,9 +22,11 @@ data class OdifyMusicIdentity(val id:String,val title:String,val artist:String,v
 }
 
 internal object OdifyMusicMatching {
+    private val marks=Regex("\\p{M}+")
+    private val nonWord=Regex("[^\\p{L}\\p{N}]")
     fun cacheKey(value:String)=java.security.MessageDigest.getInstance("SHA-256").digest(value.toByteArray()).joinToString("") {"%02x".format(it)}
-    fun norm(value:String)=Normalizer.normalize(value,Normalizer.Form.NFKD).replace(Regex("\\p{M}+"),"")
-        .lowercase(Locale.ROOT).replace(Regex("[^\\p{L}\\p{N}]"),"")
+    fun norm(value:String)=Normalizer.normalize(value,Normalizer.Form.NFKD).replace(marks,"")
+        .lowercase(Locale.ROOT).replace(nonWord,"")
     private val decorations=Regex("(?i)\\b(official|music video|video|audio|lyrics?|visuali[sz]er|mv|m/v|hd|4k|color coded)\\b|가사|한글자막|한국어|歌詞")
     private val alternative=Regex("(?i)\\b(cover|karaoke|remix|sped|slowed|live|concert|instrumental)\\b|커버|라이브|콘서트|歌ってみた")
     fun usesVideoArtwork(video:YoutubeVideo)=alternative.containsMatchIn(video.title)
@@ -123,7 +125,8 @@ internal class OdifyMusicCatalog(context:Context) {
 internal object OdifyArtistPortrait {
     fun address(html:String):String? = Regex("<meta[^>]+property=[\"']og:image[\"'][^>]+content=[\"']([^\"']+)",RegexOption.IGNORE_CASE)
         .find(html)?.groupValues?.get(1)?.replace("&amp;","&")?.takeIf {address ->
-            runCatching {URL(address).let {it.protocol=="https" && it.host.endsWith(".mzstatic.com") && it.path.contains("/AMCArtistImages")}}.getOrDefault(false)
+            runCatching {URL(address).let {it.protocol=="https" && it.host.endsWith(".mzstatic.com") &&
+                Regex("/(AMCArtistImages|Features)[0-9]+/").containsMatchIn(it.path)}}.getOrDefault(false)
         }
 }
 

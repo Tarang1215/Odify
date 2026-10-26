@@ -35,6 +35,18 @@ class OdifyCompanyUiTest {
     private val context get()=test.targetContext
     private fun main(block:()->Unit)=test.runOnMainSync(block)
 
+    @Test fun snapshotLensCompilesAndAcceptsChangingPanelGeometry() {
+        if(android.os.Build.VERSION.SDK_INT<33)return
+        val image=Bitmap.createBitmap(64,128,Bitmap.Config.ARGB_8888)
+        image.eraseColor(android.graphics.Color.BLUE)
+        try {main {
+            val frame=OdifyModalSnapshot(image.asImageBitmap(),Offset.Zero,androidx.compose.ui.unit.IntSize(1440,2880))
+            val lens=OdifySnapshotLens(frame)
+            lens.update(Offset(40f,1500f),1360f,1300f,105f,3.5f,.28f)
+            lens.update(Offset(0f,100f),1440f,2700f,105f,3.5f,.28f)
+        }} finally {image.recycle()}
+    }
+
     @Test fun officialRecordingPresentationPersistsWithoutChangingVideoOrAudioIdentity() {
         val name="company-recording-${System.nanoTime()}"
         val store=OdifyStreamingLibrary(context,name)
@@ -283,7 +295,7 @@ class OdifyCompanyUiTest {
         }))
         Thread.sleep(150)
     }
-    private fun swipe(startX:Float,startY:Float,endX:Float,endY:Float) {
+    private fun swipe(startX:Float,startY:Float,endX:Float,endY:Float,settleMillis:Long=600) {
         val began=SystemClock.uptimeMillis()
         fun send(action:Int,x:Float,y:Float) {
             val event=MotionEvent.obtain(began,SystemClock.uptimeMillis(),action,x,y,0)
@@ -300,7 +312,27 @@ class OdifyCompanyUiTest {
             if(fraction>=1f)break
         }
         send(MotionEvent.ACTION_UP,endX,endY)
-        Thread.sleep(600)
+        Thread.sleep(settleMillis)
+    }
+    private fun verifyCountryFollowsFinger() {
+        val before=Rect();waitFor("한국 Top 100").getBoundsInScreen(before)
+        val width=context.resources.displayMetrics.widthPixels.toFloat()
+        val height=context.resources.displayMetrics.heightPixels.toFloat()
+        val began=SystemClock.uptimeMillis();val y=height*.45f
+        fun event(action:Int,x:Float) {
+            val value=MotionEvent.obtain(began,SystemClock.uptimeMillis(),action,x,y,0)
+            value.source=android.view.InputDevice.SOURCE_TOUCHSCREEN
+            test.uiAutomation.injectInputEvent(value,false);value.recycle()
+        }
+        event(MotionEvent.ACTION_DOWN,width*.86f)
+        try {
+            for(i in 1..35){SystemClock.sleep(8);event(MotionEvent.ACTION_MOVE,width*(.86f-.28f*i/35))}
+            test.waitForIdleSync()
+            val during=Rect();waitFor("한국 Top 100").getBoundsInScreen(during)
+            assertTrue("Country content must follow the finger before ACTION_UP",during.right<before.right-width*.10f)
+            for(i in 1..30){SystemClock.sleep(8);event(MotionEvent.ACTION_MOVE,width*(.58f-.43f*i/30))}
+        } finally {event(MotionEvent.ACTION_UP,width*.15f)}
+        waitFor("일본 Top 100")
     }
     private fun drag(from:String,to:String) {
         val start=Rect();waitFor(from).getBoundsInScreen(start)
@@ -432,13 +464,25 @@ class OdifyCompanyUiTest {
             }
             waitFor("My renamed collection")
             main {screen.value="explore"}
-            waitFor("한국 Top 100");tap("일본");waitFor("일본 Top 100")
+            waitFor("한국 Top 100");verifyCountryFollowsFinger()
             tap("미국");waitFor("미국 Top 100");capture("explore")
             main {screen.value="home"}
             tap("A very long artist name with a collection for quiet evenings");waitFor("컬렉션 닫기");waitForOpenSurface();capture("home-collection")
             tap("컬렉션 닫기");Thread.sleep(450)
             tap("Odify Artist");waitFor("내 음악 1곡 · 더 많은 곡 60");waitForOpenSurface()
             pullHandle(true);waitFor("New artist song 1");capture("artist-expanded")
+            val height=context.resources.displayMetrics.heightPixels.toFloat()
+            repeat(2) {
+                swipe(750f,height*.85f,750f,height*.46f,0)
+                swipe(750f,height*.46f,750f,height*.85f,0)
+            }
+            swipe(750f,height*.85f,750f,height*.46f,0)
+            val scrollDeadline=SystemClock.elapsedRealtime()+1500
+            while(node("New artist song 1")!=null && SystemClock.elapsedRealtime()<scrollDeadline)SystemClock.sleep(20)
+            assertNull("Immediate reversal must still scroll the artist list",node("New artist song 1"))
+            waitFor("작은 창으로 접기")
+            repeat(10){if(node("New artist song 1")==null)swipe(750f,height*.46f,750f,height*.85f,0)}
+            waitFor("New artist song 1")
             tap("New artist song 1")
             main {
                 assertEquals(0,plays)

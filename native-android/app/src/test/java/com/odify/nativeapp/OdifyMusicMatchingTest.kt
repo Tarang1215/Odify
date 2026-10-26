@@ -37,6 +37,8 @@ class OdifyMusicMatchingTest {
         fun html(address:String)="<meta property=\"og:image\" content=\"$address\">"
         val address="https://is1-ssl.mzstatic.com/image/thumb/AMCArtistImages221/v4/portrait.png/1200x630cw.png"
         assertEquals(address,OdifyArtistPortrait.address(html(address)))
+        val legacyPortrait=address.replace("AMCArtistImages221","Features211")
+        assertEquals(legacyPortrait,OdifyArtistPortrait.address(html(legacyPortrait)))
         assertNull(OdifyArtistPortrait.address(html(address.replace("AMCArtistImages221","Music211"))))
         assertNull(OdifyArtistPortrait.address(html(address.replace("is1-ssl.mzstatic.com","untrusted.example"))))
     }

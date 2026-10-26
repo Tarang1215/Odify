@@ -31,7 +31,8 @@ fun OdifyPersonalHome(
     loadArtistTracks:suspend (String)->List<ExploreTrack> = {emptyList()},
     onPlayOnline:(ExploreTrack)->Unit = {},onArtistSearch:(String)->Unit = {},
     loadMoodTracks:suspend (String)->List<ExploreTrack> = {emptyList()},
-    loadArtistPortrait:suspend (String)->String? = {null}
+    loadArtistPortrait:suspend (String)->String? = {null},
+    ownedIndex:OdifyChartMatching.Index?=null
 ) {
     var selectedMix by remember { mutableStateOf<OdifyMix?>(null) }
     var artistTracks by remember {mutableStateOf<List<ExploreTrack>>(emptyList())}
@@ -52,7 +53,7 @@ fun OdifyPersonalHome(
         catch(_:Exception) {artistError=true}
         finally {artistLoading=false}
     }
-    val newTracks=remember(discoveryTracks,catalogSongs) {OdifyDiscovery.newTracks(discoveryTracks,catalogSongs)}
+    val newTracks=remember(discoveryTracks,catalogSongs,ownedIndex) {OdifyDiscovery.newTracks(discoveryTracks,catalogSongs,ownedIndex)}
     val moodMixes=remember(catalogSongs) {OdifyDiscovery.moods.associate {mood ->mood.key to
         OdifyMix("mood:${mood.key}",mood.name,mood.description,
             OdifySongPresentation.visible(catalogSongs).filter {OdifyDiscovery.matches(mood,listOf(it.genre))}.take(40))}}
@@ -195,13 +196,13 @@ fun OdifyPersonalHome(
         }
     }
     OdifyRetainedGlassSheet(selectedMix,onDismiss={selectedMix=null},maxHeightFraction=.84f,transparency=.28f) {mix ->
-        val online=when {
-            mix.key.startsWith("artist:") -> OdifyDiscovery.newTracks(artistTracks,catalogSongs).filterNot {track ->
+        val online=remember(mix,artistTracks,catalogSongs,moodOnline,ownedIndex) {when {
+            mix.key.startsWith("artist:") -> OdifyDiscovery.newTracks(artistTracks,catalogSongs,ownedIndex).filterNot {track ->
                 mix.songs.any {OdifyYouTubeMatcher.norm(it.title)==OdifyYouTubeMatcher.norm(track.title)}
             }
-            mix.key.startsWith("mood:") -> OdifyDiscovery.newTracks(artistTracks+moodOnline[mix.key.removePrefix("mood:")].orEmpty(),catalogSongs)
+            mix.key.startsWith("mood:") -> OdifyDiscovery.newTracks(artistTracks+moodOnline[mix.key.removePrefix("mood:")].orEmpty(),catalogSongs,ownedIndex)
             else -> emptyList()
-        }
+        }}
         Row(Modifier.fillMaxWidth().padding(bottom=14.dp),verticalAlignment=Alignment.CenterVertically) {
             if(mix.key.startsWith("artist:"))HomeArtistPortrait(mix.name,loadArtistPortrait,Modifier.size(62.dp))
             else AlbumArt(mix.coverSong(),Modifier.size(62.dp),RoundedCornerShape(16.dp))

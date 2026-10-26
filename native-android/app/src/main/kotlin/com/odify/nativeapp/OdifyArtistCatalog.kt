@@ -167,8 +167,8 @@ internal object OdifyDiscovery {
         OdifyMood("night","늦은 밤의 리듬","R&B · 소울 · 얼터너티브",listOf("r&b","soul","alternative","알앤비","소울","얼터너티브")))
     fun sameArtist(first:String,second:String):Boolean = OdifyMusicMatching.norm(first).let {it.isNotBlank() && it==OdifyMusicMatching.norm(second)}
     fun matches(mood:OdifyMood,genres:List<String>):Boolean = genres.any {genre ->mood.genres.any {genre.contains(it,true)}}
-    fun newTracks(tracks:List<ExploreTrack>,owned:List<OdifySong>):List<ExploreTrack> {
-        val index=OdifyChartMatching.buildIndex(owned)
+    fun newTracks(tracks:List<ExploreTrack>,owned:List<OdifySong>,preparedIndex:OdifyChartMatching.Index?=null):List<ExploreTrack> {
+        val index=preparedIndex ?: OdifyChartMatching.buildIndex(owned)
         return tracks.distinctBy {OdifyYouTubeMatcher.norm(it.artist) to OdifyYouTubeMatcher.norm(it.title)}
             .filter {index.resolve(it)==null}
     }
