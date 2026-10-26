@@ -92,6 +92,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.first
 import kotlin.math.abs
 
 private val ink = OdifyPalette.text
@@ -303,15 +304,16 @@ fun OdifyRoot(
     val artistCatalog=remember {OdifyArtistCatalog(context.applicationContext)}
     // Portrait rows must never scan/normalize the entire collection on the UI
     // thread when a LazyRow composes another artist during a drag.
+    var artistTitlesReady by remember(songs) {mutableStateOf(false)}
     val artistTitles by produceState<Map<String,List<String>>>(emptyMap(),songs) {
         value=withContext(Dispatchers.Default) {songs.groupBy {OdifyMusicMatching.norm(it.artist)}
             .mapValues {(_,rows)->rows.map {it.title}.distinct()}}
+        artistTitlesReady=true
     }
     suspend fun titlesForArtist(artist:String):List<String> {
         val key=OdifyMusicMatching.norm(artist)
-        return artistTitles[key] ?: withContext(Dispatchers.Default) {
-            songs.filter {OdifyMusicMatching.norm(it.artist)==key}.map {it.title}.distinct()
-        }
+        val index=if(artistTitlesReady)artistTitles else snapshotFlow {if(artistTitlesReady)artistTitles else null}.first {it!=null}!!
+        return index[key].orEmpty()
     }
     val discoveryCharts=remember {mutableStateMapOf<String,ExploreChart>()}
     val discoveryTracks=remember(discoveryCharts.values.toList()) {
@@ -369,6 +371,9 @@ fun OdifyRoot(
         if (!added) "이미 이 플레이리스트에 있는 곡입니다." else ""
     }.getOrElse { it.message ?: "플레이리스트 저장 실패" }
     var selectedTab by remember { mutableStateOf(OdifyTab.Home) }
+    val cachedPages=remember {mutableStateListOf(OdifyTab.Home)}
+    var pageDirection by remember {mutableIntStateOf(1)}
+    val focusManager=androidx.compose.ui.platform.LocalFocusManager.current
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var searchGenre by rememberSaveable { mutableStateOf("All") }
     var searchScope by rememberSaveable { mutableStateOf(OdifySearchScope.Music) }
@@ -378,12 +383,16 @@ fun OdifyRoot(
         if (tab != selectedTab) {
             tabHistory.add(selectedTab)
             if (tabHistory.size > 20) tabHistory.removeAt(0)
+            pageDirection=if(tab.ordinal>=selectedTab.ordinal)1 else -1
+            if(tab !in cachedPages)cachedPages.add(tab)
             selectedTab = tab
         }
     }
     fun navigateBack() {
-        selectedTab = if (tabHistory.isNotEmpty())
-            tabHistory.removeAt(tabHistory.lastIndex) else OdifyTab.Home
+        val destination=if(tabHistory.isNotEmpty())tabHistory.removeAt(tabHistory.lastIndex) else OdifyTab.Home
+        pageDirection=if(destination.ordinal>=selectedTab.ordinal)1 else -1
+        if(destination !in cachedPages)cachedPages.add(destination)
+        selectedTab=destination
     }
     var queueOpen by remember { mutableStateOf(false) }
     var queueAnchor by remember {mutableStateOf<Offset?>(null)}
@@ -465,7 +474,7 @@ fun OdifyRoot(
         label = "odify-nav-and-mini-linked"
     )
     // Four primary destinations stay reachable; the full player covers them.
-    LaunchedEffect(selectedTab) { navVisible = true; compactPlayer = false }
+    LaunchedEffect(selectedTab) {focusManager.clearFocus();navVisible=true;compactPlayer=false}
 
     // Extend rounded nav background behind the Android gesture indicator.
     val gestureInset = WindowInsets.navigationBars.asPaddingValues()
@@ -522,12 +531,12 @@ fun OdifyRoot(
                     }
                 }
         ) {
-            AnimatedContent(targetState = selectedTab, modifier = Modifier.fillMaxSize(),
-                transitionSpec = {
-                    val direction = if (odifyPrimaryTabs.indexOf(targetState) >= odifyPrimaryTabs.indexOf(initialState)) 1 else -1
-                    (slideInHorizontally(tween(230, easing = FastOutSlowInEasing)) { it*direction/5 } + fadeIn(tween(180)))
-                        .togetherWith(slideOutHorizontally(tween(200, easing = FastOutSlowInEasing)) { -it*direction/5 } + fadeOut(tween(150)))
-                }, label = "primary-page-change") { pageTab ->
+            cachedPages.forEach {pageTab ->
+                key(pageTab) {
+                OdifyPageLayer(active=pageTab==selectedTab,initiallyVisible=pageTab==OdifyTab.Home,
+                    direction=pageDirection,onHidden={
+                        if(pageTab!=OdifyTab.Home && pageTab!=OdifyTab.Explore)cachedPages.remove(pageTab)
+                    }) {
             pageState.SaveableStateProvider(pageTab.name) {
                 when (pageTab) {
                 OdifyTab.Home -> OdifyPersonalHome(
@@ -614,6 +623,8 @@ fun OdifyRoot(
                     onBack = ::navigateBack
                 ) }
                 }
+            }
+            }
             }
             }
             AnimatedVisibility(visibleState=playlistVisible,

@@ -194,9 +194,10 @@ private object ExploreArtworkMemory {
 
 @Composable
 fun OdifyExplore(index:OdifyChartMatching.Index,repository:OdifyExploreRepository,onProfile:()->Unit,onPlay:(List<OdifySong>,Int)->Unit,
-    onMissingTrack:(ExploreTrack)->Unit,onSaveChart:(String,List<String>)->Unit,onSync:()->Unit,onAddTrack:(ExploreTrack,OdifySong?)->Unit) {
+    onMissingTrack:(ExploreTrack)->Unit,onSaveChart:(String,List<String>)->Unit,onSync:()->Unit,onAddTrack:(ExploreTrack,OdifySong?)->Unit,
+    pagerState:androidx.compose.foundation.pager.PagerState?=null) {
     val countries=remember {listOf("kr","jp","us")}
-    val pager=rememberPagerState {countries.size}
+    val pager=pagerState ?: rememberPagerState {countries.size}
     val selectedCountry=countries[pager.currentPage]
     val scope=rememberCoroutineScope()
     var refresh by remember {mutableIntStateOf(0)}

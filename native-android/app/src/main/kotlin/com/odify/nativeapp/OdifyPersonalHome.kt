@@ -63,8 +63,11 @@ fun OdifyPersonalHome(
     val hero = mixes.firstOrNull {it.key==category} ?: mixes.firstOrNull()
     val artists=remember(recent,catalogSongs) {(recent+catalogSongs).distinctBy {it.id}.filter {it.artist.isNotBlank()}
         .groupBy {it.artist}.entries.take(8)}
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(22.dp, 14.dp, 22.dp, 160.dp)) {
-        item {
+    // This finite feed has seven bounded sections. Keep their small rows alive
+    // across vertical reversals instead of subcomposing the artist/carousel
+    // trees again whenever they cross the viewport edge.
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(22.dp,14.dp,22.dp,160.dp)) {
+        Column {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick=onSearch,modifier=Modifier.size(48.dp)) {Icon(Icons.Outlined.Search,"검색",tint=homeInk,modifier=Modifier.size(22.dp))}
                 Text("Odify", fontSize = 23.sp, fontWeight = FontWeight.Bold,
@@ -108,7 +111,7 @@ fun OdifyPersonalHome(
             }
             Spacer(Modifier.height(27.dp))
         }
-        if (recent.isNotEmpty()) item {
+        if (recent.isNotEmpty()) Column {
             Text(if(hasHistory) "Your recent moments" else "Ready when you are",fontSize=20.sp,fontWeight=FontWeight.Bold,color=homeInk)
             Text(if(hasHistory) "최근 함께한 음악" else "내 음악에서 골라 들어요",fontSize=11.sp,color=homeGrey,
                 modifier=Modifier.padding(top=4.dp,bottom=14.dp))
@@ -123,7 +126,7 @@ fun OdifyPersonalHome(
             }
             Spacer(Modifier.height(28.dp))
         }
-        if(artists.isNotEmpty()) item {
+        if(artists.isNotEmpty()) Column {
             Text("More from your artists",fontSize=20.sp,fontWeight=FontWeight.Bold,color=homeInk,modifier=Modifier.padding(top=24.dp,bottom=13.dp))
             LazyRow(horizontalArrangement=Arrangement.spacedBy(16.dp)) {
                 items(artists,key={it.key}) {entry ->
@@ -136,7 +139,7 @@ fun OdifyPersonalHome(
             }
             Spacer(Modifier.height(30.dp))
         }
-        if (mixes.isNotEmpty()) item {
+        if (mixes.isNotEmpty()) Column {
             Row(Modifier.fillMaxWidth(), verticalAlignment=Alignment.CenterVertically) {
                 Text("Made for you",fontSize=20.sp,fontWeight=FontWeight.Bold,color=homeInk,modifier=Modifier.weight(1f))
                 Icon(Icons.Outlined.AutoAwesome,null,tint=homeGrey,modifier=Modifier.size(18.dp))
@@ -157,7 +160,7 @@ fun OdifyPersonalHome(
             }
             Spacer(Modifier.height(29.dp))
         }
-        item {
+        Column {
             Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
                 Text("Find your mood",fontSize=20.sp,color=homeInk,fontWeight=FontWeight.Bold,modifier=Modifier.weight(1f))
             }
@@ -175,13 +178,13 @@ fun OdifyPersonalHome(
                 }
             }
         }
-        if(newTracks.isNotEmpty()) item {
+        if(newTracks.isNotEmpty()) Column {
             Spacer(Modifier.height(28.dp))
             Text("Beyond your collection",fontSize=20.sp,color=homeInk,fontWeight=FontWeight.Bold)
             Text("한국 · 일본 · 미국 차트에서 찾은, 아직 없는 음악",fontSize=11.sp,color=homeGrey,modifier=Modifier.padding(top=5.dp,bottom=14.dp))
             newTracks.take(5).forEach {track -> HomeOnlineTrack(track) {onPlayOnline(track)}}
         }
-        item {
+        Column {
             Spacer(Modifier.height(24.dp))
             Row(Modifier.fillMaxWidth().background(OdifyPalette.surface,RoundedCornerShape(20.dp)).clickable(onClick=onExplore).padding(19.dp),
                 verticalAlignment=Alignment.CenterVertically) {

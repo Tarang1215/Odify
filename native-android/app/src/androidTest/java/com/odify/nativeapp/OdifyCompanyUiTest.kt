@@ -35,6 +35,34 @@ class OdifyCompanyUiTest {
     private val context get()=test.targetContext
     private fun main(block:()->Unit)=test.runOnMainSync(block)
 
+    @Test fun retainedPagesKeepCompositionAndHideInactiveTouchAndAccessibilityTargets() {
+        val selected=mutableStateOf(true);var homeMounts=0;var exploreMounts=0;var inactiveClicks=0
+        ActivityScenario.launch(MainActivity::class.java).use {scenario ->
+            scenario.onActivity {activity ->activity.setContent {
+                MaterialTheme {
+                    Box(Modifier.fillMaxSize()) {
+                        OdifyPageLayer(selected.value,true,1,{}) {
+                            remember {homeMounts++;true}
+                            TextButton(onClick={inactiveClicks++},modifier=Modifier.fillMaxSize()) {Text("Retained home")}
+                        }
+                        OdifyPageLayer(!selected.value,false,1,{}) {
+                            remember {exploreMounts++;true}
+                            Box(Modifier.fillMaxSize(),contentAlignment=androidx.compose.ui.Alignment.Center){Text("Retained explore")}
+                        }
+                    }
+                }
+            }}
+            waitFor("Retained home")
+            repeat(3) {
+                main {selected.value=false};waitFor("Retained explore")
+                assertNull(node("Retained home"))
+                tap("Retained explore",pause=250)
+                main {selected.value=true};waitFor("Retained home")
+            }
+            main {assertEquals(1,homeMounts);assertEquals(1,exploreMounts);assertEquals(0,inactiveClicks)}
+        }
+    }
+
     @Test fun snapshotLensCompilesAndAcceptsChangingPanelGeometry() {
         if(android.os.Build.VERSION.SDK_INT<33)return
         val image=Bitmap.createBitmap(64,128,Bitmap.Config.ARGB_8888)
@@ -314,8 +342,7 @@ class OdifyCompanyUiTest {
         send(MotionEvent.ACTION_UP,endX,endY)
         Thread.sleep(settleMillis)
     }
-    private fun verifyCountryFollowsFinger() {
-        val before=Rect();waitFor("한국 Top 100").getBoundsInScreen(before)
+    private fun verifyCountryFollowsFinger(pager:androidx.compose.foundation.pager.PagerState) {
         val width=context.resources.displayMetrics.widthPixels.toFloat()
         val height=context.resources.displayMetrics.heightPixels.toFloat()
         // Stay below the horizontal genre chips: that row intentionally owns
@@ -330,12 +357,11 @@ class OdifyCompanyUiTest {
         try {
             for(i in 1..35){SystemClock.sleep(8);event(MotionEvent.ACTION_MOVE,width*(.86f-.28f*i/35))}
             test.waitForIdleSync()
-            val during=Rect();waitFor("한국 Top 100").getBoundsInScreen(during)
-            if(during.right>=before.right-width*.10f) {
-                capture("pager-held")
-                File(context.cacheDir,"company-pager-held-bounds.txt").writeText("before=$before during=$during width=$width height=$height y=$y")
-            }
-            assertTrue("Country content must follow the finger before ACTION_UP",during.right<before.right-width*.10f)
+            // Accessibility bounds are cached until the scroll settles. Read
+            // the actual pager position while the pointer is still pressed.
+            main {assertTrue("Country content must follow the finger before ACTION_UP",
+                pager.currentPage+pager.currentPageOffsetFraction>.10f)}
+            capture("pager-held")
             for(i in 1..30){SystemClock.sleep(8);event(MotionEvent.ACTION_MOVE,width*(.58f-.43f*i/30))}
         } finally {event(MotionEvent.ACTION_UP,width*.15f)}
         waitFor("일본 Top 100")
@@ -373,6 +399,7 @@ class OdifyCompanyUiTest {
         val sheet=mutableStateOf(false)
         val anchor=mutableStateOf<Offset?>(null)
         val screen=mutableStateOf("player")
+        var explorePager:androidx.compose.foundation.pager.PagerState?=null
         val playlistName=mutableStateOf("Evening collection")
         var plays=0;var moves=0
         var observedOrder:List<String> = emptyList()
@@ -393,8 +420,12 @@ class OdifyCompanyUiTest {
                                 OdifyPlaylistDetail(OdifyPlaylist("fixture",playlistName.value,fixture.map {it.id}),fixture,
                                     fixture[0].id,onDismiss={},onPlay={_,_->plays++},onDelete={},onRemoveSong={},onRename={playlistName.value=it;""})
                             }
-                            "explore" -> OdifyExplore(OdifyChartMatching.buildIndex(emptyList()),OdifyExploreRepository(context),{},
-                                {_,_->plays++},{plays++},{_,_->},{},{_,_->})
+                            "explore" -> {
+                                val pager=androidx.compose.foundation.pager.rememberPagerState {3}
+                                SideEffect {explorePager=pager}
+                                OdifyExplore(OdifyChartMatching.buildIndex(emptyList()),OdifyExploreRepository(context),{},
+                                    {_,_->plays++},{plays++},{_,_->},{},{_,_->},pagerState=pager)
+                            }
                             "home" -> Box(Modifier.fillMaxSize().statusBarsPadding()) {
                                 OdifyPersonalHome(fixture.take(1),false,listOf(OdifyMix("fixture","A very long artist name with a collection for quiet evenings",
                                     "A long collection description that stays inside its glass surface",fixture)),emptyList(),{},{},{},{},{_,_->plays++},{},{},
@@ -470,7 +501,7 @@ class OdifyCompanyUiTest {
             }
             waitFor("My renamed collection")
             main {screen.value="explore"}
-            waitFor("한국 Top 100");verifyCountryFollowsFinger()
+            waitFor("한국 Top 100");verifyCountryFollowsFinger(requireNotNull(explorePager))
             tap("미국");waitFor("미국 Top 100");capture("explore")
             main {screen.value="home"}
             tap("A very long artist name with a collection for quiet evenings");waitFor("컬렉션 닫기");waitForOpenSurface();capture("home-collection")
