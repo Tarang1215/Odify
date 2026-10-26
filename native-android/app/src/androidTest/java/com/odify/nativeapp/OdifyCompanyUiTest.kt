@@ -318,7 +318,9 @@ class OdifyCompanyUiTest {
         val before=Rect();waitFor("한국 Top 100").getBoundsInScreen(before)
         val width=context.resources.displayMetrics.widthPixels.toFloat()
         val height=context.resources.displayMetrics.heightPixels.toFloat()
-        val began=SystemClock.uptimeMillis();val y=height*.45f
+        // Stay below the horizontal genre chips: that row intentionally owns
+        // its own horizontal drags and must not turn the country page.
+        val began=SystemClock.uptimeMillis();val y=height*.68f
         fun event(action:Int,x:Float) {
             val value=MotionEvent.obtain(began,SystemClock.uptimeMillis(),action,x,y,0)
             value.source=android.view.InputDevice.SOURCE_TOUCHSCREEN
@@ -329,6 +331,10 @@ class OdifyCompanyUiTest {
             for(i in 1..35){SystemClock.sleep(8);event(MotionEvent.ACTION_MOVE,width*(.86f-.28f*i/35))}
             test.waitForIdleSync()
             val during=Rect();waitFor("한국 Top 100").getBoundsInScreen(during)
+            if(during.right>=before.right-width*.10f) {
+                capture("pager-held")
+                File(context.cacheDir,"company-pager-held-bounds.txt").writeText("before=$before during=$during width=$width height=$height y=$y")
+            }
             assertTrue("Country content must follow the finger before ACTION_UP",during.right<before.right-width*.10f)
             for(i in 1..30){SystemClock.sleep(8);event(MotionEvent.ACTION_MOVE,width*(.58f-.43f*i/30))}
         } finally {event(MotionEvent.ACTION_UP,width*.15f)}
