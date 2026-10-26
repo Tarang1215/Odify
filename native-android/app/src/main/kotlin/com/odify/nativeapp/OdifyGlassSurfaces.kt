@@ -174,7 +174,7 @@ internal suspend fun odifyModalSnapshot(window:Window):OdifyModalSnapshot? {
                     dstSize=frame.size)}
             }
             Column(Modifier.fillMaxWidth().heightIn(max=LocalConfiguration.current.screenHeightDp.dp*maxHeightFraction)
-                .odifyGlass(backdrop,shape,tint,transparencyOverride=.78f)
+                .odifyGlass(backdrop,shape,tint,transparencyOverride=.76f)
                 .padding(horizontal=16.dp,vertical=12.dp),horizontalAlignment=Alignment.CenterHorizontally) {
                 var pulled by remember {mutableFloatStateOf(0f)}
                 Box(Modifier.fillMaxWidth().height(22.dp).pointerInput(visible) {
