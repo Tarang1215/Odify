@@ -132,9 +132,7 @@ private fun NativeOdify() {
         val store=OdifyStreamingLibrary(context.applicationContext)
         val recent=OdifyListeningStore(context.applicationContext).signals()
         val history=context.getSharedPreferences("odify_native_ui",0).getString("history","").orEmpty().split("|")
-        val videos=withContext(Dispatchers.IO){store.unverified(100).sortedWith(compareBy<YoutubeVideo> {
-            history.indexOf("youtube:${it.videoId}").takeIf {index->index>=0} ?: 1000
-        }.thenByDescending {recent["youtube:${it.videoId}"]?.lastPlayed ?: 0}).take(6)}
+        val videos=withContext(Dispatchers.IO){OdifyMusicMatching.recent(store.unverified(100),history,recent).take(6)}
         for(video in videos) {
             try {musicCatalog.enrich(store,video)}
             catch(cancel:kotlinx.coroutines.CancellationException){throw cancel}

@@ -4,6 +4,14 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class OdifyMusicMatchingTest {
+    @Test fun metadataUpgradeOrdersRecentAndNeverPlayedVideosTogetherWithoutBoxingDifferentNumberTypes() {
+        fun video(id:String)=YoutubeVideo(id,"Title","Artist","")
+        val first=video("abcdefghijk");val recent=video("bcdefghijkl");val unknown=video("cdefghijklm")
+        val ordered=OdifyMusicMatching.recent(listOf(unknown,recent,first),listOf("youtube:${first.videoId}"),
+            mapOf("youtube:${recent.videoId}" to ListeningSignal(1,1234567890000L)))
+        assertEquals(listOf(first,recent,unknown),ordered)
+        assertEquals(listOf(unknown,recent),OdifyMusicMatching.recent(listOf(unknown,recent),emptyList(),emptyMap()))
+    }
     private val messy=OdifyMusicIdentity("1","Messy","ROSÉ","F1 The Album","https://cover","1406242696","","",180000)
     @Test fun identifiesRecordingFromLyricsUploadWithoutUsingUploaderAsArtist() {
         val video=YoutubeVideo("abcdefghijk","ROSÉ - Messy (Lyrics)","Lemonade","")

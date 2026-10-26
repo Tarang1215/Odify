@@ -28,6 +28,9 @@ internal object OdifyMusicMatching {
     private val decorations=Regex("(?i)\\b(official|music video|video|audio|lyrics?|visuali[sz]er|mv|m/v|hd|4k|color coded)\\b|가사|한글자막|한국어|歌詞")
     private val alternative=Regex("(?i)\\b(cover|karaoke|remix|sped|slowed|live|concert|instrumental)\\b|커버|라이브|콘서트|歌ってみた")
     fun usesVideoArtwork(video:YoutubeVideo)=alternative.containsMatchIn(video.title)
+    fun recent(videos:List<YoutubeVideo>,history:List<String>,signals:Map<String,ListeningSignal>):List<YoutubeVideo> =
+        videos.sortedWith(compareBy<YoutubeVideo> {history.indexOf("youtube:${it.videoId}").takeIf {index->index>=0} ?: 1000}
+            .thenByDescending {signals["youtube:${it.videoId}"]?.lastPlayed ?: 0L})
     fun query(video:YoutubeVideo)=decorations.replace(video.title," ").replace(Regex("[\\[\\](){}|]")," ")
         .replace(Regex("\\s+")," ").trim().take(150)
     fun choose(video:YoutubeVideo,candidates:List<OdifyMusicIdentity>):OdifyMusicIdentity? {
