@@ -152,6 +152,11 @@ class OdifyCompanyUiTest {
         File(context.cacheDir,"company-$name.png").outputStream().use {image.compress(Bitmap.CompressFormat.PNG,100,it)}
         image.recycle()
     }
+    private fun back() {
+        // Drain the shell pipe so the key injection finishes before closing it.
+        android.os.ParcelFileDescriptor.AutoCloseInputStream(test.uiAutomation.executeShellCommand("input keyevent 4"))
+            .use {it.readBytes()}
+    }
     private fun typeName(value:String) {
         fun editable(node:AccessibilityNodeInfo?):AccessibilityNodeInfo? {
             if(node==null)return null
@@ -254,7 +259,7 @@ class OdifyCompanyUiTest {
             tap("가사 열기");waitFor("가사 닫기");Thread.sleep(300);capture("lyrics")
             tap("전체 화면으로 보기");waitFor("앨범커버 보기");Thread.sleep(300);capture("lyrics-fullscreen");tap("앨범커버 보기")
             tap("곡 옵션 열기");waitFor("음원 교체");capture("player-options")
-            test.uiAutomation.executeShellCommand("input keyevent 4").close();Thread.sleep(400)
+            back();Thread.sleep(400)
             tap("다음 재생 열기");waitFor("Track 1 순서 이동");Thread.sleep(350)
             drag("Track 1 순서 이동","Track 3 순서 이동")
             main {
@@ -271,10 +276,10 @@ class OdifyCompanyUiTest {
             tap("플레이리스트 옵션");tap("이름 수정");waitFor("플레이리스트 이름")
             typeName("My renamed collection");tap("저장");waitFor("My renamed collection");capture("playlist-renamed")
             tap("플레이리스트 커버 변경");Thread.sleep(500)
-            test.uiAutomation.executeShellCommand("input keyevent 4").close();Thread.sleep(450)
+            back();Thread.sleep(450)
             repeat(3) {
                 if(node("My renamed collection")==null) {
-                    test.uiAutomation.executeShellCommand("input keyevent 4").close();Thread.sleep(650)
+                    back();Thread.sleep(650)
                 }
             }
             waitFor("My renamed collection")

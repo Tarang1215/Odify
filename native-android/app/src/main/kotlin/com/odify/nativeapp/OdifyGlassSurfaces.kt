@@ -16,7 +16,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.shape.GenericShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -36,9 +35,6 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.geometry.RoundRect
-import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.animation.core.CubicBezierEasing
@@ -154,7 +150,6 @@ internal suspend fun odifyModalSnapshot(window:Window):OdifyModalSnapshot? {
         var origin by remember {mutableStateOf(Offset.Zero)}
         var panelSize by remember {mutableStateOf(IntSize.Zero)}
         val circlePx=with(density) {50.dp.toPx()}
-        val radiusPx=with(density) {30.dp.toPx()}
         val p=progress.value
         val initialRadius=with(density) {minOf(panelSize.width,panelSize.height).toDp()/2}
         // Outline.Rounded supplies the correct radius to the refraction shader;
