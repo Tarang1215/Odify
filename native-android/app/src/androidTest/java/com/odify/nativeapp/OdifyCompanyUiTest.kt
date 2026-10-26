@@ -82,7 +82,11 @@ class OdifyCompanyUiTest {
             assertEquals(listOf("play","pause","seek","next","previous","stop"),calls.map {it.first})
             assertEquals(42000L,calls.first {it.first=="seek"}.second)
             main {card!!.dismiss();assertFalse(card!!.session.isActive)}
-            assertFalse(context.getSystemService(android.app.NotificationManager::class.java).activeNotifications.any {it.id==8099})
+            // NotificationManager removes the card asynchronously in system_server.
+            val manager=context.getSystemService(android.app.NotificationManager::class.java)
+            val removalDeadline=SystemClock.elapsedRealtime()+3000
+            while(manager.activeNotifications.any {it.id==8099} && SystemClock.elapsedRealtime()<removalDeadline)SystemClock.sleep(20)
+            assertFalse(manager.activeNotifications.any {it.id==8099})
         } finally {main {card?.close()}}
     }
 
