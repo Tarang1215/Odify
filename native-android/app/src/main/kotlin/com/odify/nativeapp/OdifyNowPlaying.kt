@@ -260,29 +260,30 @@ fun OdifyNowPlaying(
                             expanded = actionsOpen,
                             onDismissRequest = { actionsOpen = false }
                         ) {
+                            OdifySheetTrackHeader(song)
                             if(externalPlayback) DropdownMenuItem(
-                                text={Text("YouTube 앱에서 열기")},leadingIcon={Icon(Icons.Default.OpenInNew,null)},
+                                text={Text("YouTube 앱에서 열기",fontSize=14.sp)},leadingIcon={Icon(Icons.Default.OpenInNew,null,Modifier.size(20.dp))},
                                 onClick={actionsOpen=false;onOpenExternal()})
                             DropdownMenuItem(
-                                text = { Text("플레이리스트에 추가") },
+                                text = { Text("플레이리스트에 추가",fontSize=14.sp) },
                                 leadingIcon = { Icon(Icons.Default.PlaylistAdd, null) },
                                 onClick = { actionsOpen = false; onAddToPlaylist() }
                             )
                             DropdownMenuItem(
-                                text = { Text("디바이스에 저장") },
+                                text = { Text("기기에 저장",fontSize=14.sp) },
                                 leadingIcon = { Icon(Icons.Default.FileDownload, null) },
                                 onClick = { actionsOpen = false; onSaveDevice() }
                             )
                             DropdownMenuItem(
-                                text = {Text("음원 교체하기")},leadingIcon={Icon(Icons.Default.SwapHoriz,null)},
+                                text = {Text("음원 교체",fontSize=14.sp)},leadingIcon={Icon(Icons.Default.SwapHoriz,null)},
                                 onClick={actionsOpen=false;onReplaceAudio()})
                             if(!externalPlayback) DropdownMenuItem(
-                                text = { Text("오디오 변경 요청") },
+                                text = { Text("오디오 변경 요청",fontSize=14.sp) },
                                 leadingIcon = { Icon(Icons.Default.ReportProblem, null) },
                                 onClick = { actionsOpen = false; audioRequestOpen = true }
                             )
                             DropdownMenuItem(
-                                text = { Text("곡 정보") },
+                                text = { Text("곡 정보",fontSize=14.sp) },
                                 leadingIcon = { Icon(Icons.Default.Info, null) },
                                 onClick = { actionsOpen = false; showInfo = true }
                             )
@@ -475,47 +476,33 @@ Box(
                     }
                 }
                 Spacer(Modifier.height(if (compact) 12.dp else 28.dp))
-                // Precisely center the AUDIO pill on the same x-axis as Play.
-                Box(
-                    Modifier.fillMaxWidth().height(53.dp)
-                        .odifyGlass(playerBackdrop,RoundedCornerShape(24.dp),glow)
-                ) {
-                    Box(Modifier.align(Alignment.CenterStart).padding(start=9.dp)) {
-                    Box(Modifier.size(44.dp).clip(CircleShape).combinedClickable(
-                        onClick={if(availableLyrics.isNotBlank()) showLyrics=!showLyrics},
-                        onLongClick={lyricsMenu=true}),contentAlignment=Alignment.Center) {
-                        Icon(Icons.Default.Subtitles,
-                            if (showLyrics) "앨범커버 보기" else "가사 보기",
-                            tint = if (showLyrics) Color.White else playerSecondary,
-                            modifier = Modifier.size(22.dp))
+                Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(12.dp)) {
+                    Row(Modifier.weight(1f).height(50.dp)
+                        .odifyGlass(playerBackdrop,RoundedCornerShape(25.dp),glow,transparencyOverride=.78f)
+                        .combinedClickable(onClick={if(availableLyrics.isNotBlank())showLyrics=!showLyrics else lyricsMenu=true},
+                            onLongClick={lyricsMenu=true}),
+                        verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.Center) {
+                        Icon(Icons.Default.Subtitles,null,tint=if(showLyrics)playerWhite else playerSecondary,modifier=Modifier.size(20.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text(if(showLyrics)"앨범커버" else "가사",fontSize=12.sp,fontWeight=FontWeight.Medium,color=playerWhite)
                     }
-                    OdifyGlassMenu(expanded=lyricsMenu,onDismissRequest={lyricsMenu=false},
-                        shape=RoundedCornerShape(18.dp),containerColor=Color(0xF022252C)) {
-                        DropdownMenuItem(text={Text("가사 수정")},leadingIcon={Icon(Icons.Default.Edit,null)},
-                            onClick={lyricsMenu=false;lyricsEditor=true})
-                    }
-                    }
-                    Text(
-                        text = if (showLyrics) "가사 보기" else "다음 재생목록",
-                        color = playerWhite,
-                        fontSize = 11.sp,
-                        letterSpacing = 0.4.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.align(Alignment.Center)
-                            .clickable(onClick = onShowQueue)
-                    )
-                    IconButton(
-                        onClick = onShowQueue,
-                        modifier = Modifier.align(Alignment.CenterEnd)
-                            .padding(end = 9.dp).size(44.dp)
-                    ) {
-                        Icon(Icons.Default.QueueMusic, "다음 재생목록",
-                            tint = playerWhite, modifier = Modifier.size(20.dp))
+                    Row(Modifier.weight(1f).height(50.dp)
+                        .odifyGlass(playerBackdrop,RoundedCornerShape(25.dp),glow,transparencyOverride=.78f)
+                        .clickable(onClick=onShowQueue),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.Center) {
+                        Icon(Icons.Default.QueueMusic,null,tint=playerWhite,modifier=Modifier.size(20.dp))
+                        Spacer(Modifier.width(8.dp));Text("다음 재생",fontSize=12.sp,fontWeight=FontWeight.Medium,color=playerWhite)
                     }
                 }
                 Spacer(Modifier.height(15.dp))
             }
         }
+    }
+    if(lyricsMenu) OdifyGlassSheet(onDismiss={lyricsMenu=false},tint=glow,maxHeightFraction=.48f) {
+        OdifySheetTrackHeader(song)
+        DropdownMenuItem(text={Text(if(availableLyrics.isBlank())"가사 추가" else "가사 수정",fontSize=14.sp)},
+            leadingIcon={Icon(Icons.Default.Edit,null,Modifier.size(20.dp))},onClick={lyricsMenu=false;lyricsEditor=true})
+        if(availableLyrics.isNotBlank()) DropdownMenuItem(text={Text(if(showLyrics)"앨범커버 보기" else "가사 보기",fontSize=14.sp)},
+            leadingIcon={Icon(Icons.Default.Subtitles,null,Modifier.size(20.dp))},onClick={lyricsMenu=false;showLyrics=!showLyrics})
     }
     if(lyricsEditor && !showLyrics) OdifyLyricsPanel(song.copy(lyrics=availableLyrics),position,onSeek,
         editRequested=true,visible=false,onEditorClosed={lyricsEditor=false},onLyricsChanged={availableLyrics=it})

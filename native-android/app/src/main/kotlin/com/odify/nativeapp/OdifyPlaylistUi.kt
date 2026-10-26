@@ -22,6 +22,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 
 /** From Now Playing > more > Add to playlist. Creates a playlist if needed. */
 @Composable
@@ -92,178 +93,66 @@ fun OdifyPlaylistPicker(
     )
 }
 
-/** Actual saved playlists in the Library; no fabricated sample mixes. */
+/** Saved collections open as full library destinations, above the regular tab chrome. */
 @Composable
-fun OdifyPlaylistLibrary(
-    playlists: List<OdifyPlaylist>,
-    songs: List<OdifySong>,
-    onPlay: (List<OdifySong>, Int) -> Unit,
-    onCreate: (String) -> String,
-    onDelete: (String) -> Unit,
-    onRemoveSong: (String, String) -> Unit, currentSongId:String?=null
-) {
-    var selectedId by remember { mutableStateOf<String?>(null) }
-    BackHandler(enabled = selectedId != null) { selectedId = null }
-    var creating by remember { mutableStateOf(false) }
-    var newName by remember { mutableStateOf("") }
-    var error by remember { mutableStateOf("") }
-    var deletePending by remember { mutableStateOf<String?>(null) }
-    var songMenu by remember { mutableStateOf<String?>(null) }
-    val selected = playlists.firstOrNull { it.id == selectedId }
-    val songIndex = remember(songs) { songs.associateBy(OdifySong::id) }
-    val playlistContext=androidx.compose.ui.platform.LocalContext.current
-    val repo=remember {OdifyPlaylists(playlistContext.applicationContext)}
-    val tracks=remember(selected,songs){selected?.let {repo.resolved(it,songs)}.orEmpty()}
-
-    Box(Modifier.fillMaxSize()) {
-        if(selected!=null) {
-            AlbumArt(tracks.firstOrNull(),Modifier.fillMaxSize().graphicsLayer{alpha=.28f}.blur(34.dp),radius=RoundedCornerShape(0.dp))
-            Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha=.52f)))
-        }
+fun OdifyPlaylistLibrary(playlists:List<OdifyPlaylist>,songs:List<OdifySong>,
+    onCreate:(String)->String,onDelete:(String)->Unit,onOpenPlaylist:(OdifyPlaylist)->Unit) {
+    var creating by remember {mutableStateOf(false)}
+    var name by remember {mutableStateOf("")}
+    var error by remember {mutableStateOf("")}
+    var options by remember {mutableStateOf<OdifyPlaylist?>(null)}
+    var deletePending by remember {mutableStateOf<OdifyPlaylist?>(null)}
     Column(Modifier.fillMaxSize()) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            if (selected != null) {
-                IconButton(onClick = { selectedId = null }) {
-                    Icon(Icons.Default.ArrowBack, "플레이리스트 목록")
-                }
-                Text(selected.name, fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.weight(1f))
-                IconButton(onClick = { deletePending = selected.id }) {
-                    Icon(Icons.Default.DeleteOutline, "플레이리스트 삭제")
-                }
-            } else {
-                Text("내 플레이리스트", modifier = Modifier.weight(1f),
-                    fontWeight = FontWeight.SemiBold)
-                TextButton(onClick = { creating = true }) {
-                    Icon(Icons.Default.Add, null)
-                    Text("새로 만들기")
-                }
+        Row(Modifier.fillMaxWidth().padding(top=5.dp,bottom=15.dp),verticalAlignment=Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("내 컬렉션",fontSize=18.sp,fontWeight=FontWeight.SemiBold)
+                Text("${playlists.size}개의 플레이리스트",fontSize=11.sp,color=OdifyPalette.muted,modifier=Modifier.padding(top=4.dp))
+            }
+            FilledTonalIconButton(onClick={creating=true},modifier=Modifier.size(42.dp),
+                colors=IconButtonDefaults.filledTonalIconButtonColors(containerColor=Color.White.copy(alpha=.08f),contentColor=OdifyPalette.text)) {
+                Icon(Icons.Default.Add,"새 플레이리스트",Modifier.size(22.dp))
             }
         }
-        if (selected == null) {
-            if (playlists.isEmpty()) {
-                Text("플레이리스트가 없습니다. 곡 재생 화면의 ⋮ 메뉴에서 추가할 수 있습니다.",
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.padding(vertical = 24.dp))
-            } else LazyVerticalGrid(columns=GridCells.Fixed(2),contentPadding = PaddingValues(bottom = 150.dp),
-                horizontalArrangement=Arrangement.spacedBy(14.dp),verticalArrangement=Arrangement.spacedBy(18.dp)) {
-                items(playlists, key = { it.id }) { playlist ->
-                    Column(Modifier.clip(RoundedCornerShape(17.dp)).clickable { selectedId=playlist.id }) {
-                        AlbumArt(playlist.songIds.firstNotNullOfOrNull {OdifyChartMatching.storedReference(it,songs)},Modifier.fillMaxWidth().aspectRatio(1f),
-                            radius=RoundedCornerShape(17.dp),fallbackKey=playlist.name.hashCode())
-                        Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
-                            Column(Modifier.weight(1f).padding(top=9.dp)) {
-                                Text(playlist.name,fontWeight=FontWeight.SemiBold,maxLines=1,
-                                    overflow=androidx.compose.ui.text.style.TextOverflow.Ellipsis)
-                                Text("${playlist.songIds.size}곡",style=MaterialTheme.typography.labelSmall,color=OdifyPalette.muted)
-                            }
-                            IconButton(onClick={deletePending=playlist.id},modifier=Modifier.size(38.dp)) {
-                                Icon(Icons.Default.MoreHoriz,"${playlist.name} 삭제 메뉴",tint=OdifyPalette.muted)
-                            }
+        if(playlists.isEmpty()) {
+            Column(Modifier.fillMaxWidth().padding(vertical=36.dp),horizontalAlignment=Alignment.CenterHorizontally) {
+                Icon(Icons.Default.LibraryMusic,null,Modifier.size(40.dp),tint=OdifyPalette.muted)
+                Text("나만의 컬렉션을 만들어 보세요",fontSize=15.sp,fontWeight=FontWeight.Medium,modifier=Modifier.padding(top=18.dp))
+                Text("마음에 드는 곡이나 믹스를 모아 두세요",fontSize=12.sp,color=OdifyPalette.muted,modifier=Modifier.padding(top=7.dp,bottom=12.dp))
+                TextButton(onClick={creating=true}) {Text("플레이리스트 만들기")}
+            }
+        } else LazyVerticalGrid(columns=GridCells.Fixed(2),contentPadding=PaddingValues(bottom=160.dp),
+            horizontalArrangement=Arrangement.spacedBy(16.dp),verticalArrangement=Arrangement.spacedBy(24.dp)) {
+            items(playlists,key={it.id}) {playlist ->
+                Column(Modifier.clip(RoundedCornerShape(18.dp)).clickable {onOpenPlaylist(playlist)}) {
+                    AlbumArt(playlist.songIds.firstNotNullOfOrNull {OdifyChartMatching.storedReference(it,songs)},
+                        Modifier.fillMaxWidth().aspectRatio(1f),RoundedCornerShape(18.dp),fallbackKey=playlist.name.hashCode())
+                    Row(Modifier.fillMaxWidth().padding(top=7.dp),verticalAlignment=Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f).padding(start=2.dp)) {
+                            Text(playlist.name,fontSize=13.sp,fontWeight=FontWeight.SemiBold,maxLines=1,overflow=androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                            Text("${playlist.songIds.size}곡",fontSize=11.sp,color=OdifyPalette.muted,modifier=Modifier.padding(top=4.dp))
+                        }
+                        IconButton(onClick={options=playlist},modifier=Modifier.size(40.dp)) {
+                            Icon(Icons.Default.MoreHoriz,"${playlist.name} 관리",Modifier.size(20.dp),tint=OdifyPalette.muted)
                         }
                     }
                 }
             }
-        } else {
-            Row(Modifier.fillMaxWidth().padding(top=15.dp,bottom=19.dp),verticalAlignment=Alignment.CenterVertically) {
-                AlbumArt(tracks.firstOrNull(),Modifier.size(112.dp),radius=RoundedCornerShape(22.dp),fallbackKey=selected.name.hashCode())
-                Column(Modifier.weight(1f).padding(start=18.dp)) {
-                    Text("MY PLAYLIST",style=MaterialTheme.typography.labelSmall,color=OdifyPalette.muted)
-                    Spacer(Modifier.height(6.dp))
-                    Text(selected.name,style=MaterialTheme.typography.headlineSmall,fontWeight=FontWeight.Bold,maxLines=3)
-                    Spacer(Modifier.height(7.dp))
-                    Text("${selected.songIds.size}곡 · 나의 컬렉션",style=MaterialTheme.typography.bodySmall,color=OdifyPalette.muted)
-                }
-            }
-            Row(Modifier.fillMaxWidth().padding(bottom=17.dp),horizontalArrangement=Arrangement.spacedBy(10.dp)) {
-                Button(onClick={onPlay(tracks,0)},enabled=tracks.isNotEmpty(),modifier=Modifier.weight(1f),
-                    colors=ButtonDefaults.buttonColors(containerColor=OdifyPalette.text,contentColor=OdifyPalette.background)) {
-                    Icon(Icons.Default.PlayArrow,null);Spacer(Modifier.width(8.dp));Text("전체 재생")
-                }
-                OutlinedButton(onClick={onPlay(tracks.shuffled(),0)},enabled=tracks.isNotEmpty(),modifier=Modifier.weight(1f)) {
-                    Icon(Icons.Default.Shuffle,null);Spacer(Modifier.width(8.dp));Text("셔플")
-                }
-            }
-            if(tracks.size<selected.songIds.size) Text("${selected.songIds.size}곡 중 ${tracks.size}곡 준비됨 · 동기화 후 나머지도 이어집니다",
-                style=MaterialTheme.typography.labelSmall,color=OdifyPalette.muted,modifier=Modifier.padding(vertical=8.dp))
-            if (tracks.isEmpty()) {
-                Text("재생 가능한 곡이 없습니다. 재생 화면에서 음악을 추가하세요.",
-                    modifier = Modifier.padding(vertical = 20.dp))
-            } else LazyColumn(contentPadding = PaddingValues(bottom = 150.dp)) {
-                items(tracks, key = { it.id }) { song ->
-                    ListItem(
-                        headlineContent = { Text(song.title, maxLines = 1,
-                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                            style = MaterialTheme.typography.bodyMedium) },
-                        supportingContent = { Text(song.artist, maxLines = 1,
-                            color = OdifyPalette.muted, style = MaterialTheme.typography.bodySmall) },
-                        leadingContent = { AlbumArt(song, Modifier.size(46.dp),
-                            radius = RoundedCornerShape(8.dp), fallbackKey = song.id.hashCode()) },
-                        trailingContent = {
-                            Box {
-                                IconButton(onClick = { songMenu = song.id }) {
-                                    Icon(Icons.Default.MoreHoriz, "${song.title} 곡 메뉴", tint = OdifyPalette.muted)
-                                }
-                                OdifyGlassMenu(expanded = songMenu == song.id, onDismissRequest = { songMenu = null }) {
-                                    DropdownMenuItem(text = { Text("플레이리스트에서 제거") }, onClick = {
-                                        songMenu = null; onRemoveSong(selected.id, song.id)
-                                    })
-                                }
-                            }
-                        },
-                        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-                        modifier = Modifier.clip(RoundedCornerShape(14.dp))
-                            .background(if(song.id==currentSongId) Color.White.copy(alpha=.075f) else Color.Transparent)
-                            .clickable { onPlay(tracks, tracks.indexOf(song)) }
-                    )
-                }
-            }
         }
     }
-    }
-    if (creating) {
-        OdifyGlassAlertDialog(
-            onDismissRequest = { creating = false },
-            title = { Text("새 플레이리스트") },
-            text = {
-                Column {
-                    OutlinedTextField(
-                        value = newName, onValueChange = { newName = it.take(80) },
-                        label = { Text("이름") }, singleLine = true
-                    )
-                    if (error.isNotBlank())
-                        Text(error, color = MaterialTheme.colorScheme.error)
-                }
-            },
-            confirmButton = {
-                TextButton(enabled = newName.isNotBlank(), onClick = {
-                    val result = onCreate(newName.trim())
-                    if (result.isBlank()) {
-                        creating = false; newName = ""; error = ""
-                    } else error = result
-                }) { Text("만들기") }
-            },
-            dismissButton = {
-                TextButton(onClick = { creating = false }) { Text("취소") }
-            }
-        )
-    }
-    if (deletePending != null) {
-        OdifyGlassAlertDialog(
-            onDismissRequest = { deletePending = null },
-            title = { Text("플레이리스트를 삭제할까요?") },
-            text = { Text("목록만 삭제되며 원본 음악 파일은 그대로 유지됩니다.") },
-            confirmButton = {
-                TextButton(onClick = {
-                    val id = deletePending
-                    if (id != null) onDelete(id)
-                    if (selectedId == id) selectedId = null
-                    deletePending = null
-                }) { Text("삭제") }
-            },
-            dismissButton = {
-                TextButton(onClick = { deletePending = null }) { Text("취소") }
-            }
-        )
-    }
+    options?.let {playlist -> OdifyGlassSheet(onDismiss={options=null},maxHeightFraction=.4f) {
+        Text(playlist.name,fontSize=16.sp,fontWeight=FontWeight.SemiBold,modifier=Modifier.fillMaxWidth().padding(10.dp))
+        DropdownMenuItem(text={Text("플레이리스트 삭제",fontSize=14.sp)},leadingIcon={Icon(Icons.Default.DeleteOutline,null,Modifier.size(20.dp))},
+            onClick={options=null;deletePending=playlist})
+    }}
+    if(creating) OdifyGlassAlertDialog(onDismissRequest={creating=false},
+        title={Text("새 플레이리스트",fontSize=18.sp)},text={Column {
+            OutlinedTextField(value=name,onValueChange={name=it.take(80)},label={Text("이름")},singleLine=true,modifier=Modifier.fillMaxWidth())
+            if(error.isNotBlank())Text(error,fontSize=12.sp,color=MaterialTheme.colorScheme.error)
+        }},confirmButton={TextButton(enabled=name.isNotBlank(),onClick={
+            val result=onCreate(name.trim());if(result.isBlank()){creating=false;name="";error=""}else error=result
+        }){Text("만들기")}},dismissButton={TextButton(onClick={creating=false}){Text("취소")}})
+    deletePending?.let {playlist -> OdifyGlassAlertDialog(onDismissRequest={deletePending=null},
+        title={Text("플레이리스트를 삭제할까요?",fontSize=18.sp)},text={Text("목록만 삭제되며 음악 파일은 유지됩니다.",fontSize=13.sp)},
+        confirmButton={TextButton(onClick={deletePending=null;onDelete(playlist.id)}){Text("삭제")}},
+        dismissButton={TextButton(onClick={deletePending=null}){Text("취소")}})}
 }

@@ -109,6 +109,7 @@ fun OdifyPersonalHome(
                     }
                 }
             }
+            Spacer(Modifier.height(30.dp))
         }
         if (mixes.isNotEmpty()) item {
             LazyRow(horizontalArrangement=Arrangement.spacedBy(13.dp)) {

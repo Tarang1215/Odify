@@ -13,7 +13,18 @@ internal class OdifyAudioOverrides(context:Context,name:String="odify_audio_over
             .put("selected_at",java.time.Instant.now().toString()).toString()).commit())
     }
     fun resolve(song:OdifySong):OdifySong = prefs.getString(song.id,null)?.let {raw ->
-        runCatching {library.find("youtube:"+JSONObject(raw).getString("video_id"))}.getOrNull()
+        runCatching {
+            val videoId=JSONObject(raw).getString("video_id")
+            library.find("youtube:$videoId")?.let {replacement ->
+                odifyReplacementPresentation(song,replacement,videoId)
+            }
+        }.getOrNull()
     } ?: song
     fun clear(id:String){prefs.edit().remove(id).apply()}
 }
+
+/** Change only the audio transport. The library entry still owns its presentation. */
+internal fun odifyReplacementPresentation(original:OdifySong,replacement:OdifySong,videoId:String)=
+    original.copy(filePath=replacement.filePath,sourceUri=replacement.sourceUri,
+        durationMs=replacement.durationMs.takeIf {it>0} ?: original.durationMs,
+        contentMd5=replacement.contentMd5,playbackVideoId=videoId)

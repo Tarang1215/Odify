@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - codex/odify-v46-personal-music
+      - 'codex/company-debug-*'
       - feature/odify-compact-navigation-20261024
       - feature/odify-native-v1-design
       - feature/odify-native-ui-v2

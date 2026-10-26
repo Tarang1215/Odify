@@ -247,7 +247,7 @@ fun OdifyRoot(
     onImport: () -> Unit,
     onImportOffline: () -> Unit,
     onPlay: (List<OdifySong>, Int) -> Unit,
-    onMoveQueue: (Int, Int) -> Unit,
+    onMoveQueue: (String, String) -> Unit,
     onPlayYoutubeMatched: (List<OdifySong>,Int) -> Unit,
     onSelectQueue: (Int) -> Unit,
     onTogglePlayback: () -> Unit,
@@ -285,6 +285,8 @@ fun OdifyRoot(
     }
     var playlistVersion by remember { mutableIntStateOf(0) }
     val playlists = remember(playlistVersion) { playlistStore.all() }
+    var selectedPlaylistId by rememberSaveable {mutableStateOf<String?>(null)}
+    val openedPlaylist=playlists.firstOrNull {it.id==selectedPlaylistId}
     var playlistDialogTrack by remember { mutableStateOf<OdifySong?>(null) }
     var replacementTrack by remember {mutableStateOf<OdifySong?>(null)}
     var openLibraryPlaylists by rememberSaveable { mutableIntStateOf(0) }
@@ -317,11 +319,12 @@ fun OdifyRoot(
     }
     var queueOpen by remember { mutableStateOf(false) }
     var youtubeOpen by remember { mutableStateOf(false) }
-    BackHandler(enabled = queueOpen || expanded ||
+    BackHandler(enabled = queueOpen || expanded || selectedPlaylistId!=null ||
         selectedTab != OdifyTab.Home || tabHistory.isNotEmpty()) {
         when {
             queueOpen -> queueOpen = false
             expanded -> onExpandedChange(false)
+            selectedPlaylistId!=null -> selectedPlaylistId=null
             else -> navigateBack()
         }
     }
@@ -386,7 +389,7 @@ fun OdifyRoot(
 
     // Both controls live in a stable overlay. Animating layout height caused
     // the old mini-player to snap down after the navigation animation finished.
-    val navShown = navVisible
+    val navShown = navVisible && selectedPlaylistId==null
     val navFraction by animateFloatAsState(
         targetValue = if (navShown) 1f else 0f,
         animationSpec = spring(dampingRatio = .95f, stiffness = 420f),
@@ -506,6 +509,7 @@ fun OdifyRoot(
                     onProfile = { navigateTo(OdifyTab.Profile) },
                     onOpenYoutube = { youtubeOpen = true },
                     playlists = playlists, playlistFocus = openLibraryPlaylists,currentSongId=playback.mediaId,
+                    onOpenPlaylist={selectedPlaylistId=it.id},
                     onCreatePlaylist = ::createPlaylist,
                     onDeletePlaylist = { id ->
                         playlistStore.delete(id); playlistVersion++
@@ -526,6 +530,12 @@ fun OdifyRoot(
                 ) }
                 }
             }
+            }
+            openedPlaylist?.let {playlist ->
+                val tracks=remember(playlist,songs) {playlistStore.resolved(playlist,songs)}
+                OdifyPlaylistDetail(playlist,tracks,playback.mediaId,onDismiss={selectedPlaylistId=null},onPlay=::playList,
+                    onDelete={playlistStore.delete(playlist.id);playlistVersion++;selectedPlaylistId=null},
+                    onRemoveSong={playlistStore.removeSong(playlist.id,it);playlistVersion++})
             }
         }
 
@@ -642,7 +652,7 @@ fun OdifyRoot(
                     onSaveDevice = { onSaveDevice(active) },
                     onAudioRequest = { kind, link, reason -> onAudioRequest(active, kind, link, reason) },
                     onReplaceAudio = {replacementTrack=active},
-                    externalPlayback=active.id.startsWith("youtube:"),
+                    externalPlayback=active.isYoutubeStream,
                     onOpenExternal=onOpenExternalVideo,
                     onDragProgress = { playerDragFraction = it }
                 )
@@ -1033,7 +1043,8 @@ private fun OdifyLibraryScreen(
     playlistFocus: Int,
     onCreatePlaylist: (String) -> String,
     onDeletePlaylist: (String) -> Unit,
-    onRemoveFromPlaylist: (String, String) -> Unit,currentSongId:String?=null
+    onRemoveFromPlaylist: (String, String) -> Unit,currentSongId:String?=null,
+    onOpenPlaylist:(OdifyPlaylist)->Unit
 ) {
     var editingSong by remember { mutableStateOf<OdifySong?>(null) }
     var selection by rememberSaveable { mutableStateOf("Playlists") }
@@ -1082,9 +1093,9 @@ private fun OdifyLibraryScreen(
         }
         if (selection == "Playlists") {
             OdifyPlaylistLibrary(
-                playlists = playlists, songs = songs, onPlay = onPlay,currentSongId=currentSongId,
+                playlists = playlists, songs = songs,
                 onCreate = onCreatePlaylist, onDelete = onDeletePlaylist,
-                onRemoveSong = onRemoveFromPlaylist
+                onOpenPlaylist=onOpenPlaylist
             )
         } else {
         Text(

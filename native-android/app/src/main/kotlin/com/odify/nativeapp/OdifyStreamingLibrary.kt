@@ -57,7 +57,7 @@ internal class OdifyStreamingLibrary(private val context:Context, name:String="o
                 .put("data".toByteArray()).putInt(1600).array())
         }
     }
-    fun video(song:OdifySong)=YoutubeVideo(song.id.removePrefix("youtube:"),song.title,song.artist,"")
+    fun video(song:OdifySong)=YoutubeVideo(song.playbackVideoId.ifBlank {song.id.removePrefix("youtube:")},song.title,song.artist,"")
     @Synchronized fun associateChart(videoId:String,chartId:String) {
         val data=prefs.getString(videoId,null)?.let {JSONObject(it)} ?: return
         val charts=data.optJSONArray("charts") ?: JSONArray()
@@ -132,5 +132,6 @@ internal fun queueSong(item:androidx.media3.common.MediaItem):OdifySong {
     return OdifySong(item.mediaId,metadata.title?.toString().orEmpty(),metadata.artist?.toString().orEmpty(),
         metadata.albumTitle?.toString().orEmpty(),"",artworkPath=metadata.artworkUri?.path,
         sourceUri=item.localConfiguration?.uri?.toString(),durationMs=metadata.extras?.getLong("odify.duration") ?: 0L,
-        contentMd5=metadata.extras?.getString("odify.contentMd5").orEmpty())
+        contentMd5=metadata.extras?.getString("odify.contentMd5").orEmpty(),
+        playbackVideoId=metadata.extras?.getString("odify.playbackVideoId").orEmpty())
 }

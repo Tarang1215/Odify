@@ -31,9 +31,10 @@ data class OdifySong(
     val lyrics: String = "",
     val contentMd5: String = "",
     val chartId: String = "",
-    val chartAliases: List<String> = emptyList()
+    val chartAliases: List<String> = emptyList(),
+    val playbackVideoId: String = ""
 ) {
-    val isYoutubeStream:Boolean get()=id.startsWith("youtube:") &&
+    val isYoutubeStream:Boolean get()=(id.startsWith("youtube:") || playbackVideoId.isNotBlank()) &&
         (filePath.endsWith("youtube_queue_marker.wav") || filePath.isBlank() &&
             (sourceUri.isNullOrBlank() || sourceUri.endsWith("youtube_queue_marker.wav")))
     val isCloud: Boolean get() = id.startsWith("gdrive:") || sourceUri?.startsWith("https://") == true && !id.startsWith("localfolder:")
@@ -58,6 +59,7 @@ data class OdifySong(
                         putString("odify.contentMd5",contentMd5)
                         putLong("odify.duration",durationMs)
                         putBoolean("odify.youtubeStream",isYoutubeStream)
+                        putString("odify.playbackVideoId",playbackVideoId)
                     })
                 .apply {
                     if (!artworkPath.isNullOrBlank()) {

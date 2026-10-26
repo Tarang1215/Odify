@@ -87,10 +87,11 @@ class OdifyPlaybackService : MediaSessionService() {
             override fun onMediaItemTransition(item: MediaItem?, reason: Int) {
                 listeningJob?.cancel()
                 if (item == null) return
-                if(item.mediaId.startsWith("youtube:") && item.mediaMetadata.extras?.getBoolean("odify.youtubeStream")==true) {
+                if(item.mediaMetadata.extras?.getBoolean("odify.youtubeStream")==true) {
                     player.pause()
                     val following=(player.currentMediaItemIndex+1 until player.mediaItemCount).map {queueSong(player.getMediaItemAt(it))}
-                    OdifyYoutubeRuntime.play(applicationContext,OdifyStreamingLibrary(applicationContext).video(queueSong(item)),following)
+                    OdifyYoutubeRuntime.play(applicationContext,OdifyStreamingLibrary(applicationContext).video(queueSong(item)),following,
+                        presentation=queueSong(item),shuffle=player.shuffleModeEnabled,repeat=player.repeatMode==Player.REPEAT_MODE_ONE)
                     return
                 }
                 val entry = java.util.UUID.randomUUID().toString()

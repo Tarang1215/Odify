@@ -12,11 +12,14 @@ import android.view.Window
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.composed
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.*
@@ -29,7 +32,13 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.DialogWindowProvider
@@ -97,10 +106,64 @@ internal suspend fun odifyModalSnapshot(window:Window):OdifyModalSnapshot? {
                     dstSize=frame.size)}
             }
             Column(Modifier.fillMaxWidth().heightIn(max=LocalContext.current.resources.configuration.screenHeightDp.dp*.86f)
-                .odifyGlass(backdrop,RoundedCornerShape(28.dp),tint,transparencyOverride=.48f)
+                .odifyGlass(backdrop,RoundedCornerShape(28.dp),tint,transparencyOverride=.72f)
                 .padding(21.dp),content=content)
         }
     }
+}
+
+/** A bottom-anchored lens of the actual player, with one bounded source capture. */
+@Composable internal fun OdifyGlassSheet(onDismiss:()->Unit,tint:Color=LocalOdifyModalTint.current,
+    maxHeightFraction:Float=.82f,content:@Composable ColumnScope.()->Unit) {
+    val host=LocalView.current
+    val context=LocalContext.current
+    val source=(host.parent as? DialogWindowProvider)?.window ?: context.modalActivity()?.window
+    var snapshot by remember(source) {mutableStateOf<OdifyModalSnapshot?>(null)}
+    var captured by remember(source) {mutableStateOf(false)}
+    LaunchedEffect(source) {snapshot=source?.let {odifyModalSnapshot(it)};captured=true}
+    if(!captured)return
+    Dialog(onDismissRequest=onDismiss,properties=DialogProperties(usePlatformDefaultWidth=false,decorFitsSystemWindows=false)) {
+        val view=LocalView.current
+        DisposableEffect(view) {
+            (view.parent as? DialogWindowProvider)?.window?.apply {
+                setBackgroundDrawable(ColorDrawable(android.graphics.Color.TRANSPARENT));setDimAmount(0f)
+            }
+            onDispose {}
+        }
+        val backdrop=rememberOdifyBackdrop()
+        val reveal=remember {Animatable(0f)}
+        LaunchedEffect(Unit) {reveal.animateTo(1f,tween(280,easing=FastOutSlowInEasing))}
+        Box(Modifier.fillMaxSize()) {
+            Canvas(Modifier.matchParentSize().recordOdifyBackdrop(backdrop)) {
+                drawRect(Color(0xFF101216))
+                snapshot?.let {drawImage(it.image,dstSize=IntSize(size.width.roundToInt(),size.height.roundToInt()))}
+            }
+            Box(Modifier.matchParentSize().background(Color.Black.copy(alpha=.20f))
+                .clickable(interactionSource=remember {MutableInteractionSource()},indication=null,onClick=onDismiss))
+            Column(Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(horizontal=12.dp,vertical=10.dp)
+                .widthIn(max=520.dp).fillMaxWidth()
+                .graphicsLayer {translationY=(1f-reveal.value)*56.dp.toPx();alpha=reveal.value}
+                .heightIn(max=LocalConfiguration.current.screenHeightDp.dp*maxHeightFraction)
+                .odifyGlass(backdrop,RoundedCornerShape(30.dp),tint,transparencyOverride=.76f)
+                .padding(horizontal=16.dp,vertical=12.dp),horizontalAlignment=Alignment.CenterHorizontally) {
+                Box(Modifier.padding(bottom=14.dp).size(32.dp,4.dp).background(Color.White.copy(alpha=.30f),RoundedCornerShape(2.dp)))
+                CompositionLocalProvider(LocalContentColor provides Color(0xFFF5F6F7)) {
+                    ProvideTextStyle(MaterialTheme.typography.bodyMedium.copy(fontSize=14.sp)) {content()}
+                }
+            }
+        }
+    }
+}
+
+@Composable internal fun OdifySheetTrackHeader(song:OdifySong) {
+    Row(Modifier.fillMaxWidth().padding(start=6.dp,end=6.dp,bottom=12.dp),verticalAlignment=Alignment.CenterVertically) {
+        AlbumArt(song,Modifier.size(44.dp),RoundedCornerShape(12.dp))
+        Column(Modifier.weight(1f).padding(start=12.dp)) {
+            Text(song.title,fontSize=14.sp,fontWeight=FontWeight.SemiBold,maxLines=1,overflow=androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+            Text(song.artist,fontSize=11.sp,color=Color.White.copy(alpha=.62f),maxLines=1,overflow=androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+        }
+    }
+    HorizontalDivider(color=Color.White.copy(alpha=.10f),modifier=Modifier.padding(bottom=6.dp))
 }
 
 @Composable internal fun OdifyGlassAlertDialog(onDismissRequest:()->Unit,confirmButton:@Composable ()->Unit,
@@ -121,7 +184,7 @@ internal suspend fun odifyModalSnapshot(window:Window):OdifyModalSnapshot? {
 @Composable internal fun OdifyGlassMenu(expanded:Boolean,onDismissRequest:()->Unit,
     shape:Shape=RoundedCornerShape(24.dp),containerColor:Color=Color.Transparent,
     content:@Composable ColumnScope.()->Unit) {
-    if(expanded) OdifyGlassDialog(onDismissRequest,content=content)
+    if(expanded) OdifyGlassSheet(onDismissRequest,maxHeightFraction=.72f,content=content)
 }
 
 /** Neutral source has no connection to album color, including while scrolling. */
