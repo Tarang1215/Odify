@@ -97,9 +97,15 @@ class OdifyYoutubePlaybackService:Service() {
         // focus request receives LOSS when Chromium starts, and pauses the very
         // same video. Let WebView handle interruptions; retain the noisy receiver.
         ContextCompat.registerReceiver(this,noisy,IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY),ContextCompat.RECEIVER_NOT_EXPORTED)
+        // The first foreground notification must describe the actual song too;
+        // constructing Chromium can take time before the first playback poll.
+        card?.update(OdifyYoutubeRuntime.session.value)
         startForeground(8002,notification())
     }
     override fun onStartCommand(intent:Intent?,flags:Int,startId:Int):Int {
+        if(OdifyYoutubeRuntime.session.value.video==null) {
+            stopForeground(STOP_FOREGROUND_REMOVE);stopSelf();return START_NOT_STICKY
+        }
         when(intent?.action) {
             "load" -> load()
             "pause" -> command("odifyPause()")
