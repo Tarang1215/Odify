@@ -151,6 +151,7 @@ class OdifyYoutubePlaybackService:Service() {
             // Preserve the playback document while the owning foreground service
             // handles lock-screen/background audio. No Activity is retained.
             override fun onWindowVisibilityChanged(visibility:Int) {super.onWindowVisibilityChanged(View.VISIBLE)}
+            override fun onVisibilityAggregated(isVisible:Boolean) {super.onVisibilityAggregated(true)}
         }.apply {
             settings.javaScriptEnabled=true;settings.domStorageEnabled=true
             settings.allowFileAccess=false;settings.allowContentAccess=false

@@ -12,17 +12,22 @@ internal object OdifyWidgetGlass {
         if(art!=null) {
             val thumb=Bitmap.createScaledBitmap(art,48,48,true)
             val blur=OdifyModalRaster.blur(thumb,10)
-            paint.alpha=65;paint.isFilterBitmap=true
+            paint.alpha=20;paint.isFilterBitmap=true
             canvas.drawBitmap(blur,null,Rect(0,0,w,h),paint)
             if(blur!==thumb)blur.recycle();if(thumb!==art)thumb.recycle()
         }
         paint.alpha=255
         paint.shader=LinearGradient(0f,0f,w*.6f,h.toFloat(),
-            intArrayOf(0x35FFFFFF,0x04FFFFFF,0x10FFFFFF),floatArrayOf(0f,.55f,1f),Shader.TileMode.CLAMP)
+            intArrayOf(0x14FFFFFF,0x00FFFFFF,0x08FFFFFF),floatArrayOf(0f,.55f,1f),Shader.TileMode.CLAMP)
         canvas.drawRect(0f,0f,w.toFloat(),h.toFloat(),paint)
-        paint.shader=RadialGradient(w*.22f,-h*.42f,w*.8f,
-            intArrayOf(0x24FFFFFF,0x00FFFFFF),null,Shader.TileMode.CLAMP)
-        canvas.drawOval(-w*.25f,-h*1.1f,w*1.1f,h*.82f,paint)
+        paint.shader=RadialGradient(w*.05f,-h*.9f,w*.72f,
+            intArrayOf(0x1AFFFFFF,0x00FFFFFF),null,Shader.TileMode.CLAMP)
+        canvas.drawRect(0f,0f,w.toFloat(),h.toFloat(),paint)
+        paint.shader=LinearGradient(0f,0f,w.toFloat(),h.toFloat(),
+            intArrayOf(0x40FFFFFF,0x00FFFFFF,0x28FFFFFF),floatArrayOf(0f,.52f,1f),Shader.TileMode.CLAMP)
+        paint.style=Paint.Style.STROKE;paint.strokeWidth=1.3f
+        canvas.drawRoundRect(1.6f,1.6f,w-1.6f,h-1.6f,25f,25f,paint)
+        paint.style=Paint.Style.FILL
         paint.shader=null
         return result
     }

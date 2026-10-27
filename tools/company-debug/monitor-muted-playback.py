@@ -23,7 +23,9 @@ def sessions(raw):
             end+=1
         block='\n'.join(lines[start:end]);state=re.search(r'state=([A-Z_]+)\((\d+)\)',block)
         title=re.search(r'metadata:.*description=(.*)',block)
+        position=re.search(r'position=(-?\d+)',block)
         result.append(dict(header=header,state=int(state.group(2)) if state else 0,
+            position=int(position.group(1)) if position else None,
             description=title.group(1)[:200] if title else ''))
     return result
 
@@ -37,7 +39,7 @@ def main():
     if args.self_test:
         sample=f'  Sessions Stack:\n    Odify {PKG}/Odify/7\n      ownerPid=123\n      package={PKG}\n      active=true\n      state=PlaybackState {{state=PLAYING(3), position=1000}}\n      metadata: size=12, description=Song, Artist, Album\n    Other other.package/Player/9\n      package=other.package\n      metadata: private other song\n'
         rows=sessions(sample)
-        assert len(rows)==1 and rows[0]['state']==3 and 'Other' not in str(rows)
+        assert len(rows)==1 and rows[0]['state']==3 and rows[0]['position']==1000 and 'Other' not in str(rows)
         print('Session parser self-test passed; no device accessed.');return
     if not 15<=args.seconds<=1800:parser.error('--seconds must be 15..1800')
     sdk=os.environ.get('ANDROID_HOME') or os.environ.get('ANDROID_SDK_ROOT')
@@ -58,7 +60,7 @@ def main():
                     encoding='utf-8',errors='replace',timeout=15)
                 pid=process.stdout.strip() if process.returncode==0 else ''
                 rows=sessions(call('shell','dumpsys','media_session'))
-                playing=any(row['state'] in (3,6,8) for row in rows)
+                playing=any(row['state']==3 for row in rows)
                 elapsed=round(time.monotonic()-began,1)
                 if not initial_pid:
                     if not pid or not playing:raise RuntimeError('Start Odify playback at volume zero, then return to the launcher before monitoring')

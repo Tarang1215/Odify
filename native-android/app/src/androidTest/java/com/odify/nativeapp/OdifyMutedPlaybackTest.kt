@@ -63,7 +63,7 @@ class OdifyMutedPlaybackTest {
         try {
             ActivityScenario.launch(MainActivity::class.java).use {
                 main {OdifyYoutubeRuntime.play(context,store.video(first),listOf(next),presentation=first)}
-                until("first video playing") {OdifyYoutubeRuntime.session.value.playback.playing}
+                until("first video makes real progress") {OdifyYoutubeRuntime.session.value.playback.let {it.playing && it.position>1200}}
                 until("official media description",5000) {
                     val current=OdifyYoutubeRuntime.session.value
                     controllers().firstOrNull()?.metadata?.description?.title?.toString()==current.presentation?.title
@@ -73,18 +73,39 @@ class OdifyMutedPlaybackTest {
                         .put("sessions",JSONArray(controllers().map {c ->JSONObject().put("title",c.metadata?.description?.title?.toString())
                             .put("artist",c.metadata?.description?.subtitle?.toString()).put("state",c.playbackState?.state).put("openable",c.sessionActivity!=null)})))
                 }
-                test.uiAutomation.performGlobalAction(AccessibilityService.GLOBAL_ACTION_HOME);SystemClock.sleep(700);capture("youtube-home")
+                val beforeHome=OdifyYoutubeRuntime.session.value.playback.position
+                test.uiAutomation.performGlobalAction(AccessibilityService.GLOBAL_ACTION_HOME)
+                until("background playback progress",10000) {OdifyYoutubeRuntime.session.value.playback.let {it.playing && it.position>beforeHome+1000}}
+                capture("youtube-home")
                 test.uiAutomation.performGlobalAction(AccessibilityService.GLOBAL_ACTION_QUICK_SETTINGS);SystemClock.sleep(700);capture("youtube-quick-settings")
-                fun widget(command:Int) {main {
+                android.os.ParcelFileDescriptor.AutoCloseInputStream(test.uiAutomation.executeShellCommand("cmd statusbar collapse")).use {it.readBytes()}
+                test.uiAutomation.performGlobalAction(AccessibilityService.GLOBAL_ACTION_HOME)
+                val info=test.uiAutomation.serviceInfo
+                info.flags=info.flags or android.accessibilityservice.AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS
+                test.uiAutomation.serviceInfo=info
+                fun widget(command:Int) {
+                    val id="${context.packageName}:id/${context.resources.getResourceEntryName(command)}"
+                    var root=test.uiAutomation.rootInActiveWindow
+                    assertEquals("Widget controls must run in their actual launcher host","com.sec.android.app.launcher",root?.packageName?.toString())
+                    var target=root?.findAccessibilityNodeInfosByViewId(id)?.firstOrNull()
+                    if(target==null) {
+                        val metrics=context.resources.displayMetrics
+                        val line="input swipe ${(metrics.widthPixels*.86).toInt()} ${(metrics.heightPixels*.42).toInt()} ${(metrics.widthPixels*.17).toInt()} ${(metrics.heightPixels*.42).toInt()} 350"
+                        android.os.ParcelFileDescriptor.AutoCloseInputStream(test.uiAutomation.executeShellCommand(line)).use {it.readBytes()}
+                        SystemClock.sleep(400);root=test.uiAutomation.rootInActiveWindow
+                        assertEquals("com.sec.android.app.launcher",root?.packageName?.toString())
+                        target=root?.findAccessibilityNodeInfosByViewId(id)?.firstOrNull()
+                    }
+                    val button=requireNotNull(target){"Place Odify 4x1 widget on one of the first two home pages"}
                     val track=OdifyWidgetPlayback.read(context)
                     report.put(JSONObject().put("step","widget-command").put("control",command).put("trackPlaying",track.playing)
                         .put("intent",OdifyYoutubeRuntime.session.value.playIntent).put("at",SystemClock.elapsedRealtime()))
-                    val views=OdifyWidgetPlayback.views(context,track,true,compact=true)
-                        .apply(context,android.widget.FrameLayout(context))
-                    assertTrue(views.findViewById<android.view.View>(command).performClick())
-                }}
+                    assertTrue(button.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK))
+                }
+                until("still playing before widget pause",5000){OdifyYoutubeRuntime.session.value.playback.playing}
                 widget(R.id.widget_toggle)
-                until("widget pause",5000) {!OdifyYoutubeRuntime.session.value.playback.playing}
+                until("widget pause",5000) {OdifyYoutubeRuntime.session.value.let {!it.playIntent && !it.playback.playing}}
+                SystemClock.sleep(600)
                 widget(R.id.widget_toggle)
                 until("widget resume",5000) {OdifyYoutubeRuntime.session.value.playback.playing}
                 widget(R.id.widget_next)
@@ -123,7 +144,7 @@ class OdifyMutedPlaybackTest {
         try {
             ActivityScenario.launch(MainActivity::class.java).use {
                 main {OdifyYoutubeRuntime.play(context,store.video(first),emptyList(),presentation=first)}
-                until("single choice playing") {OdifyYoutubeRuntime.session.value.playback.playing}
+                until("single choice makes real progress") {OdifyYoutubeRuntime.session.value.playback.let {it.playing && it.position>1200}}
                 until("automatic following queue",10000) {OdifyYoutubeRuntime.session.value.following.isNotEmpty()}
                 test.uiAutomation.performGlobalAction(AccessibilityService.GLOBAL_ACTION_HOME)
                 if(android.os.Build.VERSION.SDK_INT>=29) {

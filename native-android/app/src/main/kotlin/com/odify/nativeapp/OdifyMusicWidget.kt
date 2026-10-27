@@ -99,7 +99,7 @@ internal object OdifyWidgetPlayback {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         return RemoteViews(context.packageName,if(compact)R.layout.odify_music_widget_compact else R.layout.odify_music_widget).apply {
             setTextViewText(R.id.widget_title,state.title)
-            setTextViewText(R.id.widget_artist,if(!compact && state.id.isNotBlank() && !controllable)"${state.artist} · 앱에서 이어 듣기" else state.artist)
+            setTextViewText(R.id.widget_artist,state.artist)
             setImageViewBitmap(R.id.widget_glow,glass ?: OdifyWidgetGlass.render(art,compact))
             setViewVisibility(R.id.widget_previous,if(compact && widthDp<330)View.GONE else View.VISIBLE)
             setOnClickPendingIntent(R.id.widget_root,open)
