@@ -165,7 +165,7 @@ private fun NativeOdify() {
         ?: OdifySong("youtube:${it.videoId}",it.title,it.channel,"YouTube","",
             artworkPath=youtubeCover,durationMs=youtubeState.duration)}
     val visiblePlayback=if(youtubeSong==null) playback else OdifyPlaybackSnapshot(
-        mediaId=youtubeSong.id,isPlaying=youtubeState.playing || youtubeState.buffering,position=youtubeState.position,duration=youtubeState.duration,
+        mediaId=youtubeSong.id,isPlaying=youtubeSession.playIntent && OdifyPlaybackContinuity.foreground(youtubeState),position=youtubeState.position,duration=youtubeState.duration,
         queueIds=listOf(youtubeSong.id)+youtubeSession.following.map {it.id},currentQueueIndex=0,
         queueKeys=listOf(youtubeSession.entryKey)+youtubeSession.followingKeys,
         nextMediaId=youtubeSession.following.firstOrNull()?.id,
@@ -797,7 +797,7 @@ private fun NativeOdify() {
                     }
                 }
             },
-            onTogglePlayback = { if(youtubeVideo!=null) webCommand(if(youtubeState.playing || youtubeState.buffering) "odifyPause()" else "odifyPlay()") else toggle() },
+            onTogglePlayback = { if(youtubeVideo!=null) webCommand(if(youtubeSession.playIntent && OdifyPlaybackContinuity.foreground(youtubeState)) "odifyPause()" else "odifyPlay()") else toggle() },
             onPrevious = { if(youtubeVideo!=null) OdifyYoutubeRuntime.service?.previous() else controller?.seekToPreviousMediaItem() },
             onNext = { val latest=OdifyYoutubeRuntime.session.value;if(latest.video!=null) {if(latest.following.isNotEmpty()) OdifyYoutubeRuntime.service?.next()} else controller?.seekToNextMediaItem() },
             onSeek = { progress -> if(youtubeVideo!=null) webCommand("odifySeek(${progress.coerceAtLeast(0)/1000.0})") else controller?.seekTo(progress) },
