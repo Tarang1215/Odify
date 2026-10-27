@@ -9,6 +9,7 @@ import android.os.Handler
 import android.os.Looper
 import android.view.PixelCopy
 import android.view.Window
+import androidx.core.view.WindowCompat
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -74,6 +75,21 @@ private val LocalNeutralBackdrop=staticCompositionLocalOf<OdifyBackdrop?> {null}
 
 internal data class OdifyModalSnapshot(val image:ImageBitmap,val origin:Offset,val size:IntSize,val frost:ImageBitmap=image)
 
+/** Material 3 1.3.1 initializes sheet icons from the device theme. Our modal
+ * surfaces remain dark even when the phone uses its light theme. */
+@Composable private fun OdifyModalSystemBars() {
+    val view=LocalView.current
+    DisposableEffect(view) {
+        (view.parent as? DialogWindowProvider)?.window?.let {window ->
+            WindowCompat.getInsetsController(window,window.decorView).apply {
+                isAppearanceLightStatusBars=false
+                isAppearanceLightNavigationBars=false
+            }
+        }
+        onDispose {}
+    }
+}
+
 private tailrec fun Context.modalActivity():Activity?=when(this) {
     is Activity -> this
     is ContextWrapper -> baseContext.modalActivity()
@@ -116,6 +132,7 @@ internal suspend fun odifyModalSnapshot(window:Window,transparency:Float=.76f):O
     LaunchedEffect(sourceWindow) {snapshot=sourceWindow?.let {odifyModalSnapshot(it,.72f)};captured=true}
     if(!captured)return
     Dialog(onDismissRequest=onDismiss,properties=DialogProperties(usePlatformDefaultWidth=true)) {
+        OdifyModalSystemBars()
         val view=LocalView.current
         DisposableEffect(view) {
             val window=(view.parent as? DialogWindowProvider)?.window
@@ -185,6 +202,7 @@ internal suspend fun odifyModalSnapshot(window:Window,transparency:Float=.76f):O
         modifier=Modifier.padding(horizontal=12.dp*(1-expansion.value)),containerColor=Color.Transparent,
         scrimColor=Color.Black.copy(alpha=.20f*progress.value),tonalElevation=0.dp,
         shape=RoundedCornerShape(30.dp),dragHandle=null,contentWindowInsets={WindowInsets(0,0,0,0)}) {
+        OdifyModalSystemBars()
         BackHandler(enabled=expanded) {settleExpansion(false)}
         var origin by remember {mutableStateOf(Offset.Zero)}
         var panelSize by remember {mutableStateOf(IntSize.Zero)}
