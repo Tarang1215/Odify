@@ -37,8 +37,14 @@ class OdifyMutedPlaybackTest {
         signal.await(2,java.util.concurrent.TimeUnit.SECONDS)
         error("Timed out: $label; ${OdifyYoutubeRuntime.session.value.playback}; script=${details.get()}")
     }
-    private fun controllers()=context.getSystemService(MediaSessionManager::class.java)
-        .getActiveSessions(null).filter {it.packageName==context.packageName}
+    private fun controllers():List<android.media.session.MediaController> {
+        // Keep the privileged session read scoped to the query. Applying shell
+        // identity across playback also changes the process's audio permissions.
+        test.uiAutomation.adoptShellPermissionIdentity("android.permission.MEDIA_CONTENT_CONTROL")
+        return try {context.getSystemService(MediaSessionManager::class.java)
+            .getActiveSessions(null).filter {it.packageName==context.packageName}}
+        finally {test.uiAutomation.dropShellPermissionIdentity()}
+    }
     private fun capture(name:String) {
         val image=test.uiAutomation.takeScreenshot() ?: return
         File(context.cacheDir,"muted-$name.png").outputStream().use {image.compress(android.graphics.Bitmap.CompressFormat.PNG,100,it)}
@@ -59,7 +65,6 @@ class OdifyMutedPlaybackTest {
                 .put("intent",s.playIntent).put("playing",s.playback.playing).put("buffering",s.playback.buffering)
                 .put("position",s.playback.position).put("ready",s.playback.ready))
         }}
-        test.uiAutomation.adoptShellPermissionIdentity("android.permission.MEDIA_CONTENT_CONTROL")
         try {
             ActivityScenario.launch(MainActivity::class.java).use {
                 main {OdifyYoutubeRuntime.play(context,store.video(first),listOf(next),presentation=first)}
