@@ -38,8 +38,8 @@ class OdifyMutedPlaybackTest {
         error("Timed out: $label; ${OdifyYoutubeRuntime.session.value.playback}; script=${details.get()}")
     }
     private fun controllers():List<android.media.session.MediaController> {
-        // Keep the privileged session read scoped to the query. Applying shell
-        // identity across playback also changes the process's audio permissions.
+        // Privileged identity is needed only for enumerating sessions, so keep
+        // it scoped to the query rather than the whole playback test.
         test.uiAutomation.adoptShellPermissionIdentity("android.permission.MEDIA_CONTENT_CONTROL")
         return try {context.getSystemService(MediaSessionManager::class.java)
             .getActiveSessions(null).filter {it.packageName==context.packageName}}
@@ -88,18 +88,26 @@ class OdifyMutedPlaybackTest {
                 val info=test.uiAutomation.serviceInfo
                 info.flags=info.flags or android.accessibilityservice.AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS
                 test.uiAutomation.serviceInfo=info
+                fun launcherRoot():android.view.accessibility.AccessibilityNodeInfo {
+                    val deadline=SystemClock.elapsedRealtime()+5000
+                    while(SystemClock.elapsedRealtime()<deadline) {
+                        if(android.os.Build.VERSION.SDK_INT>=34)test.uiAutomation.clearCache()
+                        val root=test.uiAutomation.rootInActiveWindow
+                        if(root?.packageName?.toString()=="com.sec.android.app.launcher")return root
+                        SystemClock.sleep(100)
+                    }
+                    error("Launcher did not become ready after closing Quick Settings")
+                }
                 fun widget(command:Int) {
                     val id="${context.packageName}:id/${context.resources.getResourceEntryName(command)}"
-                    var root=test.uiAutomation.rootInActiveWindow
-                    assertEquals("Widget controls must run in their actual launcher host","com.sec.android.app.launcher",root?.packageName?.toString())
-                    var target=root?.findAccessibilityNodeInfosByViewId(id)?.firstOrNull()
+                    var root=launcherRoot()
+                    var target=root.findAccessibilityNodeInfosByViewId(id)?.firstOrNull()
                     if(target==null) {
                         val metrics=context.resources.displayMetrics
                         val line="input swipe ${(metrics.widthPixels*.86).toInt()} ${(metrics.heightPixels*.42).toInt()} ${(metrics.widthPixels*.17).toInt()} ${(metrics.heightPixels*.42).toInt()} 350"
                         android.os.ParcelFileDescriptor.AutoCloseInputStream(test.uiAutomation.executeShellCommand(line)).use {it.readBytes()}
-                        SystemClock.sleep(400);root=test.uiAutomation.rootInActiveWindow
-                        assertEquals("com.sec.android.app.launcher",root?.packageName?.toString())
-                        target=root?.findAccessibilityNodeInfosByViewId(id)?.firstOrNull()
+                        SystemClock.sleep(400);root=launcherRoot()
+                        target=root.findAccessibilityNodeInfosByViewId(id)?.firstOrNull()
                     }
                     val button=requireNotNull(target){"Place Odify 4x1 widget on one of the first two home pages"}
                     val track=OdifyWidgetPlayback.read(context)
