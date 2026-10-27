@@ -23,11 +23,8 @@ internal object OdifyWidgetGlass {
         paint.shader=RadialGradient(w*.05f,-h*.9f,w*.72f,
             intArrayOf(0x1AFFFFFF,0x00FFFFFF),null,Shader.TileMode.CLAMP)
         canvas.drawRect(0f,0f,w.toFloat(),h.toFloat(),paint)
-        paint.shader=LinearGradient(0f,0f,w.toFloat(),h.toFloat(),
-            intArrayOf(0x40FFFFFF,0x00FFFFFF,0x28FFFFFF),floatArrayOf(0f,.52f,1f),Shader.TileMode.CLAMP)
-        paint.style=Paint.Style.STROKE;paint.strokeWidth=1.3f
-        canvas.drawRoundRect(1.6f,1.6f,w-1.6f,h-1.6f,25f,25f,paint)
-        paint.style=Paint.Style.FILL
+        // The drawable owns the one outline at the actual widget boundary.
+        // An inset raster rim stretches differently in 4x1 and 4x2 hosts.
         paint.shader=null
         return result
     }
