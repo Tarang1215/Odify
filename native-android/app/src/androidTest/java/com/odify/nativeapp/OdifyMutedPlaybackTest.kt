@@ -12,6 +12,7 @@ import org.junit.Test
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import kotlinx.coroutines.*
 
 /** Explicit opt-in REAL playback test. User authorized muted office playback on
  * 2026-10-27. Never include in the office-safe fixture suite or run at volume >0. */
@@ -27,7 +28,14 @@ class OdifyMutedPlaybackTest {
             muted();var ready=false;main {ready=predicate()};if(ready)return
             SystemClock.sleep(100)
         }
-        error("Timed out: $label; ${OdifyYoutubeRuntime.session.value.playback}")
+        val details=java.util.concurrent.atomic.AtomicReference<String>()
+        val signal=java.util.concurrent.CountDownLatch(1)
+        main {val view=OdifyYoutubeRuntime.view.value
+            if(view==null)signal.countDown() else view.evaluateJavascript("JSON.stringify({snapshot:window.odifySnapshot&&window.odifySnapshot(),pending:window.pendingCommand,wants:window.wantsPlayback})") {
+                details.set(it);signal.countDown()
+            }}
+        signal.await(2,java.util.concurrent.TimeUnit.SECONDS)
+        error("Timed out: $label; ${OdifyYoutubeRuntime.session.value.playback}; script=${details.get()}")
     }
     private fun controllers()=context.getSystemService(MediaSessionManager::class.java)
         .getActiveSessions(null).filter {it.packageName==context.packageName}
@@ -45,6 +53,12 @@ class OdifyMutedPlaybackTest {
         val first=available.firstOrNull {it.title.equals("Messy",true)} ?: requireNotNull(available.firstOrNull())
         val next=requireNotNull(available.firstOrNull {store.video(it).videoId!=store.video(first).videoId})
         val report=JSONArray()
+        val traceScope=CoroutineScope(SupervisorJob()+Dispatchers.Main.immediate)
+        traceScope.launch {OdifyYoutubeRuntime.session.collect {s ->
+            if(report.length()<300)report.put(JSONObject().put("step","state").put("at",SystemClock.elapsedRealtime())
+                .put("intent",s.playIntent).put("playing",s.playback.playing).put("buffering",s.playback.buffering)
+                .put("position",s.playback.position).put("ready",s.playback.ready))
+        }}
         test.uiAutomation.adoptShellPermissionIdentity("android.permission.MEDIA_CONTENT_CONTROL")
         try {
             ActivityScenario.launch(MainActivity::class.java).use {
@@ -63,6 +77,8 @@ class OdifyMutedPlaybackTest {
                 test.uiAutomation.performGlobalAction(AccessibilityService.GLOBAL_ACTION_QUICK_SETTINGS);SystemClock.sleep(700);capture("youtube-quick-settings")
                 fun widget(command:Int) {main {
                     val track=OdifyWidgetPlayback.read(context)
+                    report.put(JSONObject().put("step","widget-command").put("control",command).put("trackPlaying",track.playing)
+                        .put("intent",OdifyYoutubeRuntime.session.value.playIntent).put("at",SystemClock.elapsedRealtime()))
                     val views=OdifyWidgetPlayback.views(context,track,true,compact=true)
                         .apply(context,android.widget.FrameLayout(context))
                     assertTrue(views.findViewById<android.view.View>(command).performClick())
@@ -85,6 +101,7 @@ class OdifyMutedPlaybackTest {
                 assertEquals(0,audio.getStreamVolume(AudioManager.STREAM_MUSIC))
             }
         } finally {
+            traceScope.cancel()
             runCatching {main {report.put(JSONObject().put("step","final-diagnostics").put("sessions",JSONArray(controllers().map {c ->
                 JSONObject().put("title",c.metadata?.description?.title?.toString()).put("state",c.playbackState?.state)
                     .put("openable",c.sessionActivity!=null)})))}
