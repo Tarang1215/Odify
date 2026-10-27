@@ -86,12 +86,18 @@ class OdifyMutedPlaybackTest {
                 android.os.ParcelFileDescriptor.AutoCloseInputStream(test.uiAutomation.executeShellCommand("cmd statusbar collapse")).use {it.readBytes()}
                 test.uiAutomation.performGlobalAction(AccessibilityService.GLOBAL_ACTION_HOME)
                 val info=test.uiAutomation.serviceInfo
-                info.flags=info.flags or android.accessibilityservice.AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS
+                info.flags=info.flags or android.accessibilityservice.AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS or
+                    android.accessibilityservice.AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS
                 test.uiAutomation.serviceInfo=info
                 fun launcherRoot():android.view.accessibility.AccessibilityNodeInfo {
                     val deadline=SystemClock.elapsedRealtime()+5000
                     while(SystemClock.elapsedRealtime()<deadline) {
                         if(android.os.Build.VERSION.SDK_INT>=34)test.uiAutomation.clearCache()
+                        // A Samsung media chip can remain the accessibility
+                        // active window while the launcher has input focus.
+                        val focused=test.uiAutomation.windows.firstOrNull {it.isFocused &&
+                            it.root?.packageName?.toString()=="com.sec.android.app.launcher"}?.root
+                        if(focused!=null)return focused
                         val root=test.uiAutomation.rootInActiveWindow
                         if(root?.packageName?.toString()=="com.sec.android.app.launcher")return root
                         SystemClock.sleep(100)
