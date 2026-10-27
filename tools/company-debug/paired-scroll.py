@@ -17,7 +17,11 @@ with (base/'paused-harness.txt').open('w',encoding='utf-8') as log:
   while call('shell','run-as',pkg,'test','-f','cache/company-scroll-ready').returncode:
    if p.poll() is not None or time.monotonic()>deadline:raise RuntimeError('Paused harness did not become ready; inspect log')
    time.sleep(.4)
-  result=subprocess.run([sys.executable,str(Path(__file__).with_name('measure-scroll.py')),name],timeout=110,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
+  result=subprocess.run([sys.executable,str(Path(__file__).with_name('measure-scroll.py')),name],timeout=110,
+      stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,encoding='utf-8',errors='replace',
+      creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
+  (base/'measurement-log.txt').write_text(result.stdout,encoding='utf-8')
+  print(result.stdout,flush=True)
  finally:
   call('shell','run-as',pkg,'touch','cache/company-scroll-stop')
   try:p.wait(timeout=18)

@@ -86,6 +86,13 @@ class OdifyYoutubePlaybackService:Service() {
                 "next" -> handoff()
             }
         }
+        OdifyWidgetPlayback.bind(this,"youtube") {action ->
+            when(action) {
+                "toggle" -> command(if(OdifyYoutubeRuntime.session.value.playback.playing)"odifyPause()" else "odifyPlay()")
+                "previous" -> previous()
+                "next" -> handoff()
+            }
+        }
         // Chromium owns audio focus for its media element. A second service
         // focus request receives LOSS when Chromium starts, and pauses the very
         // same video. Let WebView handle interruptions; retain the noisy receiver.
@@ -195,6 +202,11 @@ class OdifyYoutubePlaybackService:Service() {
         }
         if(state.playing) {if(!wake.isHeld) wake.acquire(6*60*60*1000L)} else if(wake.isHeld) wake.release()
         card?.update(OdifyYoutubeRuntime.session.value)
+        val current=OdifyYoutubeRuntime.session.value
+        val song=current.presentation
+        OdifyWidgetPlayback.publish(this,OdifyWidgetTrack("youtube",song?.id ?: "youtube:${current.video?.videoId}",
+            song?.title ?: current.video?.title ?: "Odify",song?.artist ?: current.video?.channel.orEmpty(),
+            song?.artworkPath.orEmpty(),state.playing,previous=true,next=current.following.isNotEmpty()))
         val needsForeground=state.playing || !state.ready && state.error.isBlank()
         if(needsForeground && !foreground){startForeground(8002,notification());foreground=true}
         else if(!needsForeground && foreground){stopForeground(STOP_FOREGROUND_DETACH);foreground=false}
@@ -256,6 +268,7 @@ class OdifyYoutubePlaybackService:Service() {
         browser?.let {(it.parent as? ViewGroup)?.removeView(it);it.stopLoading();it.loadUrl("about:blank");it.destroy()};browser=null
         nativeController?.release();nativeController=null
         metadataScope.cancel();card?.close();card=null
+        OdifyWidgetPlayback.unbind(this,"youtube")
         stopForeground(STOP_FOREGROUND_REMOVE)
         getSystemService(NotificationManager::class.java).cancel(8002)
         if(wake.isHeld) wake.release()

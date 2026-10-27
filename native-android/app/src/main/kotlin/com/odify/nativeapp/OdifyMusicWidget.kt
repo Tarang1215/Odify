@@ -1,0 +1,117 @@
+package com.odify.nativeapp
+
+import android.app.PendingIntent
+import android.appwidget.AppWidgetManager
+import android.appwidget.AppWidgetProvider
+import android.content.ComponentName
+import android.content.Context
+import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.widget.RemoteViews
+import kotlinx.coroutines.*
+import org.json.JSONObject
+
+internal data class OdifyWidgetTrack(val owner:String="",val id:String="",val title:String="Odify",
+    val artist:String="음악을 골라 들어보세요",val artwork:String="",val playing:Boolean=false,
+    val previous:Boolean=false,val next:Boolean=false)
+
+/** One event-driven presentation for both engines. Position ticks never redraw
+ * launcher widgets. A dead service must never be revived by a stale control. */
+internal object OdifyWidgetPlayback {
+    private val scope=CoroutineScope(SupervisorJob()+Dispatchers.Main.immediate)
+    private val commands=mutableMapOf<String,(String)->Unit>()
+    private var current:OdifyWidgetTrack?=null
+    private var rendering:Job?=null
+    private fun prefs(context:Context)=context.getSharedPreferences("odify_music_widget",0)
+    fun bind(context:Context,owner:String,command:(String)->Unit) {
+        commands[owner]=command;refresh(context)
+    }
+    fun unbind(context:Context,owner:String) {
+        commands.remove(owner)
+        if(current?.owner==owner)current=current?.copy(playing=false)
+        refresh(context)
+    }
+    fun read(context:Context):OdifyWidgetTrack=current ?: runCatching {
+        val item=JSONObject(prefs(context).getString("track","{}").orEmpty())
+        OdifyWidgetTrack(item.optString("owner"),item.optString("id"),item.optString("title","Odify"),
+            item.optString("artist","음악을 골라 들어보세요"),item.optString("artwork"))
+    }.getOrDefault(OdifyWidgetTrack())
+    fun publish(context:Context,value:OdifyWidgetTrack) {
+        if(current==value)return
+        current=value
+        prefs(context).edit().putString("track",JSONObject().put("owner",value.owner).put("id",value.id)
+            .put("title",value.title).put("artist",value.artist).put("artwork",value.artwork).toString()).apply()
+        refresh(context)
+    }
+    fun dispatch(owner:String,command:String):Boolean {
+        if(command !in setOf("toggle","previous","next"))return false
+        val value=current ?: return false
+        if(value.owner!=owner || command=="previous" && !value.previous || command=="next" && !value.next)return false
+        val target=commands[owner] ?: return false
+        target(command);return true
+    }
+    fun refresh(context:Context):Job? {
+        val app=context.applicationContext
+        val manager=AppWidgetManager.getInstance(app)
+        val ids=manager.getAppWidgetIds(ComponentName(app,OdifyMusicWidget::class.java))
+        if(ids.isEmpty())return null
+        rendering?.cancel()
+        val state=read(app);val controllable=commands.containsKey(state.owner)
+        rendering=scope.launch {
+            val art=withContext(Dispatchers.IO){decode(state.artwork)}
+            manager.updateAppWidget(ids,views(app,state,controllable,art))
+        }
+        return rendering
+    }
+    internal fun views(context:Context,state:OdifyWidgetTrack,controllable:Boolean,art:Bitmap?=null):RemoteViews {
+        val open=PendingIntent.getActivity(context,9000,Intent(context,MainActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        fun control(command:String,code:Int):PendingIntent=if(!controllable)open else PendingIntent.getBroadcast(context,code,
+            Intent(context,OdifyMusicWidget::class.java).setAction(ACTION_CONTROL)
+                .putExtra("owner",state.owner).putExtra("command",command),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        return RemoteViews(context.packageName,R.layout.odify_music_widget).apply {
+            setTextViewText(R.id.widget_title,state.title)
+            setTextViewText(R.id.widget_artist,if(state.id.isNotBlank() && !controllable)"${state.artist} · 앱에서 이어 듣기" else state.artist)
+            setOnClickPendingIntent(R.id.widget_root,open)
+            if(art!=null)setImageViewBitmap(R.id.widget_art,art) else setImageViewResource(R.id.widget_art,R.drawable.widget_music)
+            setImageViewResource(R.id.widget_toggle,if(controllable && state.playing)R.drawable.widget_pause else R.drawable.widget_play)
+            setContentDescription(R.id.widget_toggle,if(!controllable)"Odify 열기" else if(state.playing)"일시정지" else "재생")
+            setOnClickPendingIntent(R.id.widget_toggle,control("toggle",9001))
+            setOnClickPendingIntent(R.id.widget_previous,control("previous",9002))
+            setOnClickPendingIntent(R.id.widget_next,control("next",9003))
+            setFloat(R.id.widget_previous,"setAlpha",if(controllable && !state.previous).35f else 1f)
+            setFloat(R.id.widget_next,"setAlpha",if(controllable && !state.next).35f else 1f)
+        }
+    }
+    private fun decode(path:String):Bitmap?=runCatching {
+        if(path.isBlank())return@runCatching null
+        val options=BitmapFactory.Options().apply {inJustDecodeBounds=true};BitmapFactory.decodeFile(path,options)
+        if(options.outWidth !in 1..8192 || options.outHeight !in 1..8192)return@runCatching null
+        var sample=1;while(maxOf(options.outWidth,options.outHeight)/sample>192)sample*=2
+        BitmapFactory.decodeFile(path,BitmapFactory.Options().apply {inSampleSize=sample})
+    }.getOrNull()
+    const val ACTION_CONTROL="com.odify.nativeapp.WIDGET_CONTROL"
+}
+
+class OdifyMusicWidget:AppWidgetProvider() {
+    override fun onUpdate(context:Context,manager:AppWidgetManager,ids:IntArray) {OdifyWidgetPlayback.refresh(context)}
+    override fun onAppWidgetOptionsChanged(context:Context,manager:AppWidgetManager,id:Int,options:android.os.Bundle) {
+        OdifyWidgetPlayback.refresh(context)
+    }
+    override fun onReceive(context:Context,intent:Intent) {
+        super.onReceive(context,intent)
+        if(intent.action==OdifyWidgetPlayback.ACTION_CONTROL) {
+            // Explicit immutable PendingIntents; only this application's receiver
+            // can address its registered engine. Never start an empty service.
+            OdifyWidgetPlayback.dispatch(intent.getStringExtra("owner").orEmpty(),intent.getStringExtra("command").orEmpty())
+        }
+        // Keep the process alive until the cover decode and launcher update
+        // finish, including a launcher update after the app process was killed.
+        val pending=goAsync()
+        val job=OdifyWidgetPlayback.refresh(context)
+        if(job==null)pending.finish() else job.invokeOnCompletion {pending.finish()}
+    }
+}

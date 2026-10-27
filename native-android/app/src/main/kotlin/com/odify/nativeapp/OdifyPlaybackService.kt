@@ -82,8 +82,24 @@ class OdifyPlaybackService : MediaSessionService() {
             setWakeMode(C.WAKE_MODE_LOCAL)
         }
         session = MediaSession.Builder(this, player).build()
+        OdifyWidgetPlayback.bind(this,"native") {action ->
+            when(action) {
+                "toggle" -> if(player.isPlaying)player.pause() else if(player.currentMediaItem!=null) {player.prepare();player.play()}
+                "previous" -> player.seekToPreviousMediaItem()
+                "next" -> player.seekToNextMediaItem()
+            }
+        }
         val listeningStore = OdifyListeningStore(applicationContext)
         player.addListener(object : Player.Listener {
+            override fun onEvents(player:Player,events:Player.Events) {
+                if(OdifyYoutubeRuntime.session.value.video!=null)return
+                val item=player.currentMediaItem ?: return
+                if(item.mediaMetadata.extras?.getBoolean("odify.youtubeStream")==true)return
+                val metadata=item.mediaMetadata
+                OdifyWidgetPlayback.publish(applicationContext,OdifyWidgetTrack("native",item.mediaId,
+                    metadata.title?.toString() ?: "Odify",metadata.artist?.toString().orEmpty(),
+                    metadata.artworkUri?.path.orEmpty(),player.isPlaying,player.hasPreviousMediaItem(),player.hasNextMediaItem()))
+            }
             override fun onMediaItemTransition(item: MediaItem?, reason: Int) {
                 listeningJob?.cancel()
                 if (item == null) return
@@ -122,6 +138,7 @@ class OdifyPlaybackService : MediaSessionService() {
     }
 
     override fun onDestroy() {
+        OdifyWidgetPlayback.unbind(this,"native")
         listeningScope.cancel()
         session?.run {
             player.release()

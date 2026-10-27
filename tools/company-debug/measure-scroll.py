@@ -10,11 +10,13 @@ def tree():
  call('shell','uiautomator','dump','/data/local/tmp/odify-scroll.xml')
  return ET.fromstring(call('exec-out','cat','/data/local/tmp/odify-scroll.xml'))
 def bounds(label):
- n=next((n for n in tree().iter('node') if n.get('text')==label or n.get('content-desc')==label),None)
+ current=tree()
+ n=next((n for n in current.iter('node') if n.get('text')==label or n.get('content-desc')==label),None)
+ (base/'last-ui.xml').write_text(ET.tostring(current,encoding='unicode'),encoding='utf-8')
  if n is None:raise RuntimeError('Missing non-playback control: '+label)
  return list(map(int,re.findall(r'\d+',n.get('bounds'))))
 def tap(label):
- if label not in ['홈','탐색','BIG Naughty','리센느','컬렉션 닫기','전체 화면으로 펼치기']:raise ValueError(label)
+ if label not in ['홈','탐색','BIG Naughty','리센느',os.environ.get('ODIFY_BENCHMARK_ARTIST','리센느'),'컬렉션 닫기','전체 화면으로 펼치기']:raise ValueError(label)
  x1,y1,x2,y2=bounds(label);call('shell','input','tap',str((x1+x2)//2),str((y1+y2)//2));time.sleep(.55)
 def swipe(x1,y1,x2,y2,ms=360):call('shell','input','swipe',str(x1),str(y1),str(x2),str(y2),str(ms))
 def phase(name,action):
@@ -42,9 +44,10 @@ tap('홈');top();report={}
 phase('home-reversals',lambda:[(swipe(720,2570,720,900),swipe(720,900,720,2570)) for _ in range(3)])
 top()
 swipe(720,2400,720,1800,250);time.sleep(.3)
-x1,y1,x2,y2=bounds('리센느');y=y1-140
+artist=os.environ.get('ODIFY_BENCHMARK_ARTIST','리센느')
+x1,y1,x2,y2=bounds(artist);y=y1-140
 phase('artist-horizontal',lambda:[(swipe(1200,y,220,y),swipe(220,y,1200,y)) for _ in range(3)])
-tap('리센느');tap('전체 화면으로 펼치기')
+tap(artist);tap('전체 화면으로 펼치기')
 phase('artist-reversals',lambda:[(swipe(750,2600,750,1200),swipe(750,1200,750,2600)) for _ in range(3)])
 tap('컬렉션 닫기')
 top()

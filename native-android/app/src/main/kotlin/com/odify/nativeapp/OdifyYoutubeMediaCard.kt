@@ -31,54 +31,78 @@ internal class OdifyYoutubeMediaCard(context:Context,private val notificationId:
     private var metadataKey=""
     private var notificationKey=""
     private var artwork:Bitmap?=null
+    private var artworkPath:String?=null
     private var artworkJob:Job?=null
     private var closed=false
     init {
         manager.createNotificationChannel(NotificationChannel(CHANNEL,"Odify 재생",NotificationManager.IMPORTANCE_LOW))
+        session.setPlaybackToLocal(android.media.AudioAttributes.Builder()
+            .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
+            .setContentType(android.media.AudioAttributes.CONTENT_TYPE_MUSIC).build())
+        session.setSessionActivity(openIntent())
     }
     private fun metadata(cover:Bitmap?=null):MediaMetadata {
         val song=value.presentation;val video=value.video
-        return MediaMetadata.Builder().putString(MediaMetadata.METADATA_KEY_TITLE,song?.title ?: video?.title ?: "Odify")
-            .putString(MediaMetadata.METADATA_KEY_ARTIST,song?.artist ?: video?.channel.orEmpty())
+        val title=song?.title?.takeIf {it.isNotBlank()} ?: video?.title?.takeIf {it.isNotBlank()} ?: "Odify"
+        val artist=song?.artist?.takeIf {it.isNotBlank()} ?: video?.channel.orEmpty()
+        val uri=artworkPath?.let {android.net.Uri.fromFile(java.io.File(it)).toString()}
+        return MediaMetadata.Builder().putString(MediaMetadata.METADATA_KEY_TITLE,title)
+            .putString(MediaMetadata.METADATA_KEY_DISPLAY_TITLE,title)
+            .putString(MediaMetadata.METADATA_KEY_ARTIST,artist)
+            .putString(MediaMetadata.METADATA_KEY_DISPLAY_SUBTITLE,artist)
+            .putString(MediaMetadata.METADATA_KEY_DISPLAY_DESCRIPTION,song?.album.orEmpty())
             .putString(MediaMetadata.METADATA_KEY_ALBUM,song?.album.orEmpty())
             .putString(MediaMetadata.METADATA_KEY_MEDIA_ID,song?.id ?: video?.videoId.orEmpty())
             .putLong(MediaMetadata.METADATA_KEY_DURATION,value.playback.duration.takeIf {it>0} ?: song?.durationMs ?: 0)
+            .putString(MediaMetadata.METADATA_KEY_ALBUM_ART_URI,uri)
+            .putString(MediaMetadata.METADATA_KEY_ART_URI,uri)
+            .putString(MediaMetadata.METADATA_KEY_DISPLAY_ICON_URI,uri)
+            .putBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON,cover)
             .putBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART,cover).putBitmap(MediaMetadata.METADATA_KEY_ART,cover).build()
     }
     fun update(current:YoutubeSessionState) {
         if(closed || current.video==null)return
-        value=current;session.isActive=true
+        value=current
         val state=current.playback
         val actions=PlaybackState.ACTION_PLAY or PlaybackState.ACTION_PAUSE or PlaybackState.ACTION_PLAY_PAUSE or
             PlaybackState.ACTION_SEEK_TO or PlaybackState.ACTION_SKIP_TO_PREVIOUS or PlaybackState.ACTION_STOP or
             (if(current.following.isNotEmpty())PlaybackState.ACTION_SKIP_TO_NEXT else 0L)
-        session.setPlaybackState(PlaybackState.Builder().setActions(actions)
-            .setState(if(state.error.isNotBlank())PlaybackState.STATE_ERROR else if(state.playing)PlaybackState.STATE_PLAYING
-                else if(!state.ready)PlaybackState.STATE_BUFFERING else PlaybackState.STATE_PAUSED,
-                state.position,if(state.playing)1f else 0f,SystemClock.elapsedRealtime()).build())
         val song=current.presentation
         val path=song?.artworkPath ?: if(song==null)java.io.File(app.cacheDir,"youtube_search_${current.video.videoId}.jpg").absolutePath else null
         val key=listOf(current.video.videoId,song?.id,song?.title,song?.artist,song?.album,path,state.duration,song?.durationMs).joinToString("\u0000")
         if(key!=metadataKey) {
-            metadataKey=key;artworkJob?.cancel();artwork=null
-            session.setMetadata(metadata())
-            if(!path.isNullOrBlank())artworkJob=scope.launch {
+            metadataKey=key
+            val changedCover=path!=artworkPath
+            if(changedCover){artworkJob?.cancel();artwork=null;artworkPath=path}
+            session.setMetadata(metadata(artwork))
+            if(changedCover && !path.isNullOrBlank())artworkJob=scope.launch {
                 val loaded=withContext(Dispatchers.IO) {decodeCover(path)}
-                if(!closed && metadataKey==key) {
+                if(!closed && artworkPath==path) {
                     artwork=loaded;session.setMetadata(metadata(loaded));manager.notify(notificationId,notification())
                 }
             }
         }
+        // Publish a complete description before making a new session visible.
+        // System UI may read it immediately on activation or STATE_PLAYING.
+        session.setPlaybackState(PlaybackState.Builder().setActions(actions)
+            .setState(if(state.error.isNotBlank())PlaybackState.STATE_ERROR else if(state.playing)PlaybackState.STATE_PLAYING
+                else if(!state.ready)PlaybackState.STATE_BUFFERING else PlaybackState.STATE_PAUSED,
+                state.position,if(state.playing)1f else 0f,SystemClock.elapsedRealtime()).build())
+        session.isActive=true
         val cardKey="$key:${state.playing}:${state.ready}:${state.error}:${current.following.isNotEmpty()}"
         if(cardKey!=notificationKey){notificationKey=cardKey;manager.notify(notificationId,notification())}
     }
     private fun action(name:String,code:Int)=PendingIntent.getService(app,notificationId*10+code,
         Intent(app,OdifyYoutubePlaybackService::class.java).setAction(name),PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+    private fun openIntent()=PendingIntent.getActivity(app,notificationId,
+        Intent(app,MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
     fun notification():Notification {
         val current=value;val song=current.presentation
-        val open=PendingIntent.getActivity(app,notificationId,Intent(app,MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val open=openIntent()
         val builder=Notification.Builder(app,CHANNEL).setSmallIcon(android.R.drawable.ic_media_play)
             .setContentTitle(song?.title ?: current.video?.title ?: "Odify")
+            .setTicker(song?.title ?: current.video?.title ?: "Odify")
+            .setCategory(Notification.CATEGORY_TRANSPORT).setShowWhen(false)
             .setContentText(current.playback.error.ifBlank {song?.artist ?: current.video?.channel ?: "음악 연결 중"})
             .setContentIntent(open).setDeleteIntent(action("stop",4)).setVisibility(Notification.VISIBILITY_PUBLIC)
             .setOnlyAlertOnce(true).setOngoing(current.playback.playing).setLargeIcon(artwork)
@@ -92,7 +116,7 @@ internal class OdifyYoutubeMediaCard(context:Context,private val notificationId:
     }
     fun dismiss() {
         if(closed)return
-        artworkJob?.cancel();metadataKey="";notificationKey="";value=YoutubeSessionState();artwork=null
+        artworkJob?.cancel();metadataKey="";notificationKey="";value=YoutubeSessionState();artwork=null;artworkPath=null
         session.setPlaybackState(PlaybackState.Builder().setState(PlaybackState.STATE_STOPPED,0,0f).setActions(0).build())
         session.setMetadata(null);session.isActive=false;manager.cancel(notificationId)
     }

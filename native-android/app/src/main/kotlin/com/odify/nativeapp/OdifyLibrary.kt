@@ -52,6 +52,8 @@ data class OdifySong(
         .setMediaMetadata(
             MediaMetadata.Builder()
                 .setTitle(title)
+                .setDisplayTitle(title)
+                .setSubtitle(artist)
                 .setArtist(artist)
                 .setAlbumTitle(album)
                     .setExtras(android.os.Bundle().apply {

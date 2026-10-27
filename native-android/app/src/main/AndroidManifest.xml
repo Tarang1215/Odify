@@ -37,6 +37,10 @@
         <service
             android:name="androidx.work.impl.foreground.SystemForegroundService"
             android:foregroundServiceType="dataSync" tools:node="merge" />
+        <receiver android:name=".OdifyMusicWidget" android:exported="false" android:label="Odify">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/odify_music_widget_info" />
+        </receiver>
         <service
             android:name=".OdifyYoutubePlaybackService"
             android:exported="false"

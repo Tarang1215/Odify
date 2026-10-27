@@ -56,7 +56,16 @@ class OdifyCompanyUiTest {
             repeat(3) {
                 main {selected.value=false};waitFor("Retained explore")
                 assertNull(node("Retained home"))
-                tap("Retained explore",pause=250)
+                // The active empty page intentionally has no clickable node.
+                // Inject a real tap to test hit testing and click-through.
+                val area=Rect();waitFor("Retained explore").getBoundsInScreen(area)
+                val began=SystemClock.uptimeMillis()
+                for(action in listOf(MotionEvent.ACTION_DOWN,MotionEvent.ACTION_UP)) {
+                    val event=MotionEvent.obtain(began,SystemClock.uptimeMillis(),action,area.centerX().toFloat(),area.centerY().toFloat(),0)
+                    event.source=android.view.InputDevice.SOURCE_TOUCHSCREEN
+                    test.uiAutomation.injectInputEvent(event,true);event.recycle()
+                }
+                Thread.sleep(250)
                 main {selected.value=true};waitFor("Retained home")
             }
             main {assertEquals(1,homeMounts);assertEquals(1,exploreMounts);assertEquals(0,inactiveClicks)}
@@ -106,13 +115,19 @@ class OdifyCompanyUiTest {
                 card!!.update(value)
                 val controller=android.media.session.MediaController(context,card!!.session.sessionToken)
                 assertEquals("Messy",controller.metadata!!.getString(android.media.MediaMetadata.METADATA_KEY_TITLE))
+                assertEquals("Messy",controller.metadata!!.description.title.toString())
+                assertEquals("ROSÉ",controller.metadata!!.description.subtitle.toString())
+                assertNotNull(controller.sessionActivity)
                 assertEquals("ROSÉ",controller.metadata!!.getString(android.media.MediaMetadata.METADATA_KEY_ARTIST))
                 assertEquals(android.media.session.PlaybackState.STATE_PAUSED,controller.playbackState!!.state)
                 assertEquals(180000L,controller.metadata!!.getLong(android.media.MediaMetadata.METADATA_KEY_DURATION))
                 card!!.update(value.copy(playback=value.playback.copy(duration=185000),presentation=song.copy(title="Updated title")))
                 assertEquals("Updated title",controller.metadata!!.getString(android.media.MediaMetadata.METADATA_KEY_TITLE))
+                assertEquals("Updated title",controller.metadata!!.description.title.toString())
                 assertEquals(185000L,controller.metadata!!.getLong(android.media.MediaMetadata.METADATA_KEY_DURATION))
                 val notification=card!!.notification()
+                assertEquals(android.app.Notification.CATEGORY_TRANSPORT,notification.category)
+                assertEquals("Updated title",notification.tickerText.toString())
                 assertNotNull(notification.deleteIntent)
                 assertEquals(0,notification.flags and android.app.Notification.FLAG_ONGOING_EVENT)
                 controller.transportControls.apply {play();pause();seekTo(42000);skipToNext();skipToPrevious();stop()}
@@ -128,6 +143,29 @@ class OdifyCompanyUiTest {
             while(manager.activeNotifications.any {it.id==8099} && SystemClock.elapsedRealtime()<removalDeadline)SystemClock.sleep(20)
             assertFalse(manager.activeNotifications.any {it.id==8099})
         } finally {main {card?.close()}}
+    }
+
+    @Test fun widgetUsesOfficialPresentationAndRejectsStaleControlsWithoutStartingPlayback() {
+        val previous=OdifyWidgetPlayback.read(context)
+        val calls=mutableListOf<String>()
+        try {main {
+            OdifyWidgetPlayback.bind(context,"widget-fixture") {calls.add(it)}
+            val track=OdifyWidgetTrack("widget-fixture","fixture:messy","Messy","ROSÉ",next=true,previous=true)
+            OdifyWidgetPlayback.publish(context,track)
+            val views=OdifyWidgetPlayback.views(context,track,true).apply(context,android.widget.FrameLayout(context))
+            assertEquals("Messy",views.findViewById<android.widget.TextView>(R.id.widget_title).text.toString())
+            assertEquals("ROSÉ",views.findViewById<android.widget.TextView>(R.id.widget_artist).text.toString())
+            assertTrue(views.findViewById<android.view.View>(R.id.widget_toggle).hasOnClickListeners())
+            assertTrue(OdifyWidgetPlayback.dispatch("widget-fixture","toggle"))
+            assertTrue(OdifyWidgetPlayback.dispatch("widget-fixture","next"))
+            assertFalse(OdifyWidgetPlayback.dispatch("another-engine","toggle"))
+            OdifyWidgetPlayback.unbind(context,"widget-fixture")
+            assertFalse(OdifyWidgetPlayback.dispatch("widget-fixture","toggle"))
+            assertEquals(listOf("toggle","next"),calls)
+            val idle=OdifyWidgetPlayback.views(context,track,false).apply(context,android.widget.FrameLayout(context))
+            assertEquals("Odify 열기",idle.findViewById<android.view.View>(R.id.widget_toggle).contentDescription.toString())
+            assertNull(OdifyYoutubeRuntime.service)
+        }} finally {main {OdifyWidgetPlayback.unbind(context,"widget-fixture");OdifyWidgetPlayback.publish(context,previous)}}
     }
 
     @Test fun immutableGlassRasterBlursTheSceneAndKeepsItsInteriorOpaque() {
@@ -260,6 +298,9 @@ class OdifyCompanyUiTest {
     }
 
     private fun node(label:String):AccessibilityNodeInfo? {
+        // Android 17 can retain the outgoing pager subtree after a gesture.
+        // Read fresh accessibility data instead of failing against stale nodes.
+        if(android.os.Build.VERSION.SDK_INT>=34)test.uiAutomation.clearCache()
         fun find(value:AccessibilityNodeInfo?):AccessibilityNodeInfo? {
             if(value==null)return null
             if(value.text?.toString()==label || value.contentDescription?.toString()==label)return value
