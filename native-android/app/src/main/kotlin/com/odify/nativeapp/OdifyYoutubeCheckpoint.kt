@@ -16,7 +16,8 @@ internal class OdifyYoutubeCheckpoint(context:Context,name:String="odify_youtube
     private var encoded=""
     fun token()=epoch.get()
     fun inactive()=synchronized(epoch) {epoch.incrementAndGet();prefs.edit().putBoolean("active",false).apply();Unit}
-    fun write(value:YoutubeSessionState,token:Int,now:Long=System.currentTimeMillis()):Boolean {
+    fun clear()=synchronized(epoch) {epoch.incrementAndGet();prefs.edit().clear().apply();Unit}
+    fun write(value:YoutubeSessionState,token:Int,now:Long=System.currentTimeMillis(),active:Boolean=true):Boolean {
         val video=value.video ?: return false
         if(!video.videoId.matches(videoId))return false
         fun songs(items:List<OdifySong>,limit:Int)=JSONArray().apply {items.take(limit).forEach {put(song(it))}}
@@ -34,7 +35,7 @@ internal class OdifyYoutubeCheckpoint(context:Context,name:String="odify_youtube
         return synchronized(epoch) {
             if(token!=epoch.get())false else {
                 prefs.edit().putString("session",raw).putLong("position",value.playback.position).putLong("duration",value.playback.duration)
-                    .putLong("at",now).putBoolean("active",true).apply();true
+                    .putLong("at",now).putBoolean("active",active).apply();true
             }
         }
     }
@@ -56,9 +57,16 @@ internal class OdifyYoutubeCheckpoint(context:Context,name:String="odify_youtube
         YoutubeSessionState(YoutubeVideo(id,item.optString("title"),item.optString("channel"),""),
             playback=YoutubeWebState(position=prefs.getLong("position",0).coerceAtLeast(0),duration=prefs.getLong("duration",0).coerceAtLeast(0),buffering=true),
             following=following,repeat=raw.optBoolean("repeat"),shuffle=raw.optBoolean("shuffle"),
-            presentation=raw.optJSONObject("presentation")?.let(::readSong),
+            presentation=raw.optJSONObject("presentation")?.let(::readSong)?.forYoutubePlayback(id),
             entryKey=raw.optString("entry").ifBlank {UUID.randomUUID().toString()},followingKeys=keys,previous=songs("previous",100))
     }.getOrNull()
+    fun restorePaused(owner:String,id:String,now:Long=System.currentTimeMillis()):YoutubeSessionState? {
+        if(owner!="youtube")return null
+        val saved=restore(now,requireActive=false) ?: return null
+        if((saved.presentation?.id ?: "youtube:${saved.video?.videoId}")!=id)return null
+        return saved.copy(playIntent=false,playback=saved.playback.copy(
+            playing=false,buffering=false,ready=true,ended=false,error=""))
+    }
     private fun song(value:OdifySong)=JSONObject().put("id",value.id).put("title",value.title).put("artist",value.artist)
         .put("album",value.album).put("file",value.filePath).put("art",value.artworkPath).put("duration",value.durationMs)
         .put("source",value.sourceUri).put("genre",value.genre).put("md5",value.contentMd5).put("video",value.playbackVideoId)

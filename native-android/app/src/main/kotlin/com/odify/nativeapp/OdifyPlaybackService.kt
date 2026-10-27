@@ -89,7 +89,7 @@ class OdifyPlaybackService : MediaSessionService() {
         session = MediaSession.Builder(this, player).setSessionActivity(open).build()
         OdifyWidgetPlayback.bind(this,"native",available={player.currentMediaItem!=null}) {action ->
             when(action) {
-                "toggle" -> if(player.isPlaying)player.pause() else if(player.currentMediaItem!=null) {player.prepare();player.play()}
+                "toggle" -> OdifyPlaybackCommands.toggle(player)
                 "previous" -> player.seekToPreviousMediaItem()
                 "next" -> player.seekToNextMediaItem()
             }
@@ -114,30 +114,31 @@ class OdifyPlaybackService : MediaSessionService() {
                                 val latestKey=latest?.mediaMetadata?.extras?.getString("odify.queueEntry") ?: latest?.mediaId
                                 if(latestKey==key && player.mediaItemCount==count && !player.hasNextMediaItem() &&
                                     player.repeatMode==Player.REPEAT_MODE_OFF && next.isNotEmpty()) {
-                                    player.addMediaItems(next.map {it.mediaItem()})
+                                    player.addMediaItems(next.queuedMediaItems(applicationContext))
                                     if(player.playbackState==Player.STATE_ENDED && player.playWhenReady) {
                                         player.seekToNextMediaItem();player.prepare();player.play()
                                     }
                                 }
                             } catch(cancel:CancellationException){throw cancel}
-                            catch(error:Exception){android.util.Log.w("OdifyAutoplay","Following queue unavailable",error)}
+                            catch(error:Exception){plannedEntry="";android.util.Log.w("OdifyAutoplay","Following queue unavailable",error)}
                         }
                     }
                 }
                 val metadata=item.mediaMetadata
                 OdifyWidgetPlayback.publish(applicationContext,OdifyWidgetTrack("native",item.mediaId,
                     metadata.title?.toString() ?: "Odify",metadata.artist?.toString().orEmpty(),
-                    metadata.artworkUri?.path.orEmpty(),player.isPlaying,player.hasPreviousMediaItem(),player.hasNextMediaItem()))
+                    metadata.artworkUri?.path.orEmpty(),OdifyPlaybackCommands.hasPlayIntent(player),player.hasPreviousMediaItem(),player.hasNextMediaItem()))
             }
             override fun onMediaItemTransition(item: MediaItem?, reason: Int) {
                 listeningJob?.cancel()
                 if (item == null) return
                 if(item.mediaMetadata.extras?.getBoolean("odify.youtubeStream")==true) {
+                    val autoStart=player.playWhenReady
                     player.pause()
                     val following=(player.currentMediaItemIndex+1 until player.mediaItemCount).map {queueSong(player.getMediaItemAt(it))}
                     val previous=(0 until player.currentMediaItemIndex).map {queueSong(player.getMediaItemAt(it))}
                     OdifyYoutubeRuntime.play(applicationContext,OdifyStreamingLibrary(applicationContext).video(queueSong(item)),following,
-                        presentation=queueSong(item),shuffle=player.shuffleModeEnabled,repeat=player.repeatMode==Player.REPEAT_MODE_ONE,previous=previous)
+                        presentation=queueSong(item),shuffle=player.shuffleModeEnabled,repeat=player.repeatMode==Player.REPEAT_MODE_ONE,previous=previous,autoStart=autoStart)
                     player.clearMediaItems()
                     return
                 }

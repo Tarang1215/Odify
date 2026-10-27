@@ -203,6 +203,43 @@ class OdifyCompanyUiTest {
         } finally {context.deleteSharedPreferences(name)}
     }
 
+    @Test fun pausedResumeMatchesTheLastSourceAndKeepsPositionWithoutAutoplay() {
+        val name="company-paused-resume-${System.nanoTime()}"
+        try {
+            val checkpoint=OdifyYoutubeCheckpoint(context,name)
+            val song=OdifySong("youtube:abcdefghijk","Song","Artist","Album","/download.m4a",durationMs=180000)
+            val state=YoutubeSessionState(YoutubeVideo("abcdefghijk","Upload","Channel",""),
+                YoutubeWebState(playing=true,position=73000,duration=180000,ready=true),
+                presentation=song,following=listOf(song),previous=listOf(song))
+            val token=checkpoint.token()
+            assertTrue(checkpoint.write(state,token,1_000_000,active=false))
+            assertNull("A user pause must not be eligible for automatic service recovery",checkpoint.restore(1_000_100))
+            val paused=requireNotNull(checkpoint.restorePaused("youtube",song.id,1_000_100))
+            assertFalse(paused.playIntent);assertFalse(paused.playback.playing);assertFalse(paused.playback.buffering)
+            assertTrue(paused.playback.ready);assertEquals(73000L,paused.playback.position)
+            assertTrue(requireNotNull(paused.presentation).isYoutubeStream)
+            assertEquals(state.followingKeys,paused.followingKeys);assertEquals(state.previous,paused.previous)
+            assertNull(checkpoint.restorePaused("native",song.id,1_000_100))
+            assertNull(checkpoint.restorePaused("youtube","youtube:another",1_000_100))
+            checkpoint.clear()
+            assertNull(checkpoint.restorePaused("youtube",song.id,1_000_200))
+            assertFalse("An old IO token must not revive a cleared session",checkpoint.write(state,token,1_000_300))
+        } finally {context.deleteSharedPreferences(name)}
+    }
+
+    @Test fun mixedQueuesUseARealMarkerAndPreserveTheChosenStreamingTransport() {
+        val stream=OdifySong("youtube:abcdefghijk","Stream","Artist","Album","",playbackVideoId="abcdefghijk")
+        val native=OdifySong("gdrive:native","Native","Artist","Album","",sourceUri="https://drive.example/native")
+        val queue=listOf(stream,native).queuedMediaItems(context)
+        assertTrue(java.io.File(requireNotNull(queue[0].localConfiguration?.uri?.path)).isFile)
+        assertTrue(requireNotNull(queue[0].localConfiguration?.uri?.path).endsWith("youtube_queue_marker.wav"))
+        val restored=queueSong(queue[0])
+        assertTrue(restored.isYoutubeStream);assertEquals(stream.id,restored.id)
+        assertEquals("abcdefghijk",restored.playbackVideoId);assertNull(restored.sourceUri)
+        assertEquals(native.sourceUri,queueSong(queue[1]).sourceUri)
+        assertEquals("",stream.filePath)
+    }
+
     @Test fun compactWidgetFitsOneRowAndHasTransparentGlassMaterial() {
         main {
             assertTrue(android.appwidget.AppWidgetManager.getInstance(context).installedProviders.any {

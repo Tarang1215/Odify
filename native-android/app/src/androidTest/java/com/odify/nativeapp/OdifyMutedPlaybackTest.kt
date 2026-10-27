@@ -58,6 +58,9 @@ class OdifyMutedPlaybackTest {
         }
         val first=available.firstOrNull {it.title.equals("Messy",true)} ?: requireNotNull(available.firstOrNull())
         val next=requireNotNull(available.firstOrNull {store.video(it).videoId!=store.video(first).videoId})
+        val nativeFuture=androidx.media3.session.MediaController.Builder(context,
+            androidx.media3.session.SessionToken(context,android.content.ComponentName(context,OdifyPlaybackService::class.java))).buildAsync()
+        val native=nativeFuture.get(10,java.util.concurrent.TimeUnit.SECONDS)
         val report=JSONArray()
         val traceScope=CoroutineScope(SupervisorJob()+Dispatchers.Main.immediate)
         traceScope.launch {OdifyYoutubeRuntime.session.collect {s ->
@@ -67,7 +70,7 @@ class OdifyMutedPlaybackTest {
         }}
         try {
             ActivityScenario.launch(MainActivity::class.java).use {
-                main {OdifyYoutubeRuntime.play(context,store.video(first),listOf(next),presentation=first)}
+                main {native.pause();native.clearMediaItems();OdifyYoutubeRuntime.play(context,store.video(first),listOf(next),presentation=first)}
                 until("first video makes real progress") {OdifyYoutubeRuntime.session.value.playback.let {it.playing && it.position>1200}}
                 until("official media description",5000) {
                     val current=OdifyYoutubeRuntime.session.value
@@ -134,6 +137,12 @@ class OdifyMutedPlaybackTest {
                 widget(R.id.widget_toggle)
                 until("widget pause",5000) {OdifyYoutubeRuntime.session.value.let {!it.playIntent && !it.playback.playing}}
                 SystemClock.sleep(600)
+                widget(R.id.widget_next)
+                until("paused next keeps its transport and pause") {val s=OdifyYoutubeRuntime.session.value
+                    s.video?.videoId==store.video(next).videoId && s.playback.ready && !s.playback.buffering && !s.playback.playing && !s.playIntent}
+                widget(R.id.widget_previous)
+                until("paused previous stays paused") {val s=OdifyYoutubeRuntime.session.value
+                    s.video?.videoId==store.video(first).videoId && s.playback.ready && !s.playback.buffering && !s.playback.playing && !s.playIntent}
                 widget(R.id.widget_toggle)
                 until("widget resume",5000) {OdifyYoutubeRuntime.session.value.playback.playing}
                 widget(R.id.widget_next)
@@ -155,9 +164,63 @@ class OdifyMutedPlaybackTest {
                 JSONObject().put("title",c.metadata?.description?.title?.toString()).put("state",c.playbackState?.state)
                     .put("openable",c.sessionActivity!=null)})))}
                 File(context.cacheDir,"muted-playback-report.json").writeText(report.toString(2))}
-            main {OdifyYoutubeRuntime.stop(context)}
+            main {OdifyYoutubeRuntime.stop(context);native.pause();native.clearMediaItems();native.release()}
             android.os.ParcelFileDescriptor.AutoCloseInputStream(test.uiAutomation.executeShellCommand("cmd statusbar collapse")).use {it.readBytes()}
             test.uiAutomation.dropShellPermissionIdentity()
+        }
+    }
+
+    private fun silentWave():File {
+        val samples=16000
+        val data=java.nio.ByteBuffer.allocate(44+samples*2).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+        data.put("RIFF".toByteArray()).putInt(36+samples*2).put("WAVEfmt ".toByteArray())
+            .putInt(16).putShort(1).putShort(1).putInt(16000).putInt(32000).putShort(2).putShort(16)
+            .put("data".toByteArray()).putInt(samples*2)
+        return File(context.cacheDir,"muted-qa-${System.nanoTime()}.wav").apply {writeBytes(data.array())}
+    }
+
+    @Test fun nativeEndCanRestartThroughTheSharedAppAndWidgetCommandAtZeroVolume() {
+        muted();val file=silentWave();var player:androidx.media3.exoplayer.ExoPlayer?=null
+        try {
+            main {
+                player=androidx.media3.exoplayer.ExoPlayer.Builder(context).build().apply {
+                    setMediaItem(androidx.media3.common.MediaItem.fromUri(android.net.Uri.fromFile(file)))
+                    prepare();play()
+                }
+            }
+            until("silent native file ends",8000){player?.playbackState==androidx.media3.common.Player.STATE_ENDED}
+            main {OdifyPlaybackCommands.toggle(requireNotNull(player))}
+            until("ended native file restarts",5000){player?.isPlaying==true && requireNotNull(player).currentPosition in 50..899}
+            main {OdifyPlaybackCommands.toggle(requireNotNull(player));assertFalse(requireNotNull(player).playWhenReady)}
+        } finally {main {player?.release()};file.delete()}
+    }
+
+    @Test fun pausedMixedQueueNeverStartsAudioWhileSkippingAcrossEngines() {
+        muted();val file=silentWave();val oldWidget=OdifyWidgetPlayback.read(context)
+        val store=OdifyStreamingLibrary(context);val original=requireNotNull(store.all().firstOrNull())
+        val first=original.forYoutubePlayback(store.video(original).videoId)
+        val next=OdifySong("qa:paused-native","Silent QA","Odify QA","",file.absolutePath,durationMs=1000)
+        val future=androidx.media3.session.MediaController.Builder(context,
+            androidx.media3.session.SessionToken(context,android.content.ComponentName(context,OdifyPlaybackService::class.java))).buildAsync()
+        val native=future.get(10,java.util.concurrent.TimeUnit.SECONDS)
+        try {
+            ActivityScenario.launch(MainActivity::class.java).use {
+                main {native.pause();native.clearMediaItems();OdifyYoutubeRuntime.play(context,store.video(first),listOf(next),presentation=first)}
+                until("mixed queue first playing"){OdifyYoutubeRuntime.session.value.playback.playing}
+                main {OdifyYoutubeRuntime.command("odifyPause()")};SystemClock.sleep(700)
+                main {OdifyYoutubeRuntime.next(context)}
+                until("paused native handoff",10000){OdifyYoutubeRuntime.session.value.video==null &&
+                    native.currentMediaItem?.mediaId==next.id && native.playbackState==androidx.media3.common.Player.STATE_READY}
+                main {assertFalse(native.playWhenReady);assertFalse(native.isPlaying);native.seekToPreviousMediaItem()}
+                until("paused return to youtube"){val s=OdifyYoutubeRuntime.session.value
+                    s.video?.videoId==store.video(first).videoId && s.playback.ready && !s.playback.buffering && !s.playIntent}
+                SystemClock.sleep(700)
+                main {assertFalse(OdifyYoutubeRuntime.session.value.playback.playing)}
+            }
+        } finally {
+            main {OdifyYoutubeRuntime.stop(context);native.pause();native.clearMediaItems();native.release()
+                OdifyWidgetPlayback.publish(context,oldWidget)}
+            file.delete()
         }
     }
 

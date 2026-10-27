@@ -32,6 +32,7 @@ function player(name = 'playing', ready = true) {
 test('buffering preserves play intent and document identity', () => {
   const p = player(); p.state(3);
   assert.equal(p.snapshot().videoId, 'cmpRLQZkTb8');
+  assert.equal(p.snapshot().documentVersion, 0);
   assert.equal(p.snapshot().buffering, true);
   assert.equal(p.snapshot().playing, false);
 });

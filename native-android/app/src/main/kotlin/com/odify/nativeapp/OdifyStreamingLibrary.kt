@@ -72,7 +72,7 @@ internal class OdifyStreamingLibrary(private val context:Context, name:String="o
     }
     // Media3 can prepare a mixed queue without treating a YouTube page as an audio URL.
     // PlaybackService intercepts this marker at the transition, before it can play.
-    private fun placeholder():File=File(context.filesDir,"youtube_queue_marker.wav").also {file ->
+    internal fun placeholder():File=File(context.filesDir,"youtube_queue_marker.wav").also {file ->
         if(!file.isFile) synchronized(OdifyStreamingLibrary::class.java) {
             if(!file.isFile) file.writeBytes(java.nio.ByteBuffer.allocate(1644).order(java.nio.ByteOrder.LITTLE_ENDIAN)
                 .put("RIFF".toByteArray()).putInt(1636).put("WAVEfmt ".toByteArray()).putInt(16)
@@ -157,9 +157,11 @@ internal class OdifyListenClock {
 
 internal fun queueSong(item:androidx.media3.common.MediaItem):OdifySong {
     val metadata=item.mediaMetadata
-    return OdifySong(item.mediaId,metadata.title?.toString().orEmpty(),metadata.artist?.toString().orEmpty(),
+    val song=OdifySong(item.mediaId,metadata.title?.toString().orEmpty(),metadata.artist?.toString().orEmpty(),
         metadata.albumTitle?.toString().orEmpty(),"",artworkPath=metadata.artworkUri?.path,
         sourceUri=item.localConfiguration?.uri?.toString(),durationMs=metadata.extras?.getLong("odify.duration") ?: 0L,
         contentMd5=metadata.extras?.getString("odify.contentMd5").orEmpty(),
         playbackVideoId=metadata.extras?.getString("odify.playbackVideoId").orEmpty())
+    return if(metadata.extras?.getBoolean("odify.youtubeStream")==true)
+        song.forYoutubePlayback(song.playbackVideoId.ifBlank {song.id.removePrefix("youtube:")}) else song
 }

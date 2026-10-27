@@ -1,4 +1,4 @@
-> **현재 네이티브 앱 작업:** [2026-10-27 점심 인계: 4×1 위젯·연속 재생 준비와 남은 실기기 확인](docs/COMPACT_WIDGET_CONTINUITY_20261027.md), [성능·상태바·아티스트 중복 검증](docs/SYSTEM_MEDIA_WIDGET_PERFORMANCE_20261027.md), [이전 회사 → 집 인계](docs/HANDOFF_20261026_COMPANY_TO_HOME.md). 아래는 초기 Flutter 프로젝트 설명이므로 현재 앱 ID/설치/검증 상태는 최신 문서를 우선 확인하세요.
+> **현재 네이티브 앱 작업:** [2026-10-27 추가 품질 점검: 재생·복원·대기열](docs/PLAYBACK_AUDIT_20261027.md), [4×1 위젯·연속 재생 인계](docs/COMPACT_WIDGET_CONTINUITY_20261027.md), [성능·상태바·아티스트 중복 검증](docs/SYSTEM_MEDIA_WIDGET_PERFORMANCE_20261027.md), [이전 회사 → 집 인계](docs/HANDOFF_20261026_COMPANY_TO_HOME.md). 아래는 초기 Flutter 프로젝트 설명이므로 현재 앱 ID/설치/검증 상태는 최신 문서를 우선 확인하세요.
 
 # Odify — SpotiFLAC 기반 Android 음악 앱
 

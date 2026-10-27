@@ -67,7 +67,7 @@ internal object OdifyYoutubeWebPage {
         val seconds=if(value.isFinite()) value.toInt().coerceAtLeast(0) else 0
         return "${seconds/60}:${(seconds%60).toString().padStart(2,'0')}"
     }
-    fun html(id:String,origin:String,resumeMillis:Long=0,autoStart:Boolean=true):String {
+    fun html(id:String,origin:String,resumeMillis:Long=0,autoStart:Boolean=true,documentVersion:Int=0):String {
         require(Regex("[A-Za-z0-9_-]{11}").matches(id))
         require(Regex("https://[a-zA-Z0-9.]+").matches(origin))
         return """<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -78,7 +78,7 @@ internal object OdifyYoutubeWebPage {
         function odifyPlay(){errorCode=0;wantsPlayback=true;pendingCommand=1;commandedAt=Date.now();lastPlayAt=commandedAt;if(ready)player.playVideo()}
         function odifyPause(){wantsPlayback=false;pendingCommand=2;commandedAt=Date.now();if(ready)player.pauseVideo()}
         function odifySeek(t){if(ready)player.seekTo(t,true)}
-        window.odifySnapshot=function(){var s=ready?player.getPlayerState():-1;if(s===2&&pendingCommand===1){if(Date.now()-commandedAt>=3000){wantsPlayback=false;pendingCommand=0}else if(Date.now()-lastPlayAt>=500){lastPlayAt=Date.now();player.playVideo()}}return{videoId:'$id',ready:ready,error:errorCode,state:s,wantsPlayback:wantsPlayback,playing:wantsPlayback&&s===1,buffering:wantsPlayback&&(s===3||s===-1||s===5||(s===2&&pendingCommand===1)),position:ready?player.getCurrentTime():0,duration:ready?player.getDuration():0}};
+        window.odifySnapshot=function(){var s=ready?player.getPlayerState():-1;if(s===2&&pendingCommand===1){if(Date.now()-commandedAt>=3000){wantsPlayback=false;pendingCommand=0}else if(Date.now()-lastPlayAt>=500){lastPlayAt=Date.now();player.playVideo()}}return{videoId:'$id',documentVersion:$documentVersion,ready:ready,error:errorCode,state:s,wantsPlayback:wantsPlayback,playing:wantsPlayback&&s===1,buffering:wantsPlayback&&(s===3||s===-1||s===5||(s===2&&pendingCommand===1)),position:ready?player.getCurrentTime():0,duration:ready?player.getDuration():0}};
         </script><script src="https://www.youtube.com/iframe_api"></script></body></html>""".trimIndent()
     }
 }
