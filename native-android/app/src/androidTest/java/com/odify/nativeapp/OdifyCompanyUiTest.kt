@@ -481,9 +481,10 @@ class OdifyCompanyUiTest {
                             "home" -> Box(Modifier.fillMaxSize().statusBarsPadding()) {
                                 OdifyPersonalHome(fixture.take(1),false,listOf(OdifyMix("fixture","A very long artist name with a collection for quiet evenings",
                                     "A long collection description that stays inside its glass surface",fixture)),emptyList(),{},{},{},{},{_,_->plays++},{},{},
-                                    catalogSongs=fixture.take(1),loadArtistTracks={artist ->(1..60).map {
+                                    catalogSongs=fixture.take(1)+fixture[0].copy(id="fixture:duplicate",title=" A quiet moment "),loadArtistTracks={artist ->(1..60).map {
                                         ExploreTrack("online-$it","New artist song $it",artist,"",listOf("Pop"),it)
-                                    }},onPlayOnline={onlineSelected=it.id})
+                                    }+listOf(ExploreTrack("online-duplicate","New artist song 1 [Official Audio]",artist,"",emptyList(),61),
+                                        ExploreTrack("online-owned","A quiet moment (Official MV)",artist,"",emptyList(),62))},onPlayOnline={onlineSelected=it.id})
                             }
                         }
                         OdifyQueueDialog(queue.value,0,onMove={from,to ->

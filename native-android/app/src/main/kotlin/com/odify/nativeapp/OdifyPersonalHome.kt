@@ -198,11 +198,13 @@ fun OdifyPersonalHome(
             TextButton(onClick=onSearch,modifier=Modifier.padding(top=8.dp)) {Text("떠오르는 노래나 가사로 검색",color=homeGrey,fontSize=12.sp)}
         }
     }
-    OdifyRetainedGlassSheet(selectedMix,onDismiss={selectedMix=null},maxHeightFraction=.84f,transparency=.28f) {mix ->
+    OdifyRetainedGlassSheet(selectedMix,onDismiss={selectedMix=null},maxHeightFraction=.84f,transparency=.28f) {selection ->
+        val mix=remember(selection,artistTracks) {if(selection.key.startsWith("artist:"))
+            selection.copy(songs=OdifyArtistTracks.owned(selection.songs,selection.name,artistTracks.mapNotNull {it.music?.artist}.distinct()))
+            else selection}
         val online=remember(mix,artistTracks,catalogSongs,moodOnline,ownedIndex) {when {
-            mix.key.startsWith("artist:") -> OdifyDiscovery.newTracks(artistTracks,catalogSongs,ownedIndex).filterNot {track ->
-                mix.songs.any {OdifyYouTubeMatcher.norm(it.title)==OdifyYouTubeMatcher.norm(track.title)}
-            }
+            mix.key.startsWith("artist:") -> OdifyArtistTracks.additional(
+                OdifyDiscovery.newTracks(artistTracks,catalogSongs,ownedIndex),mix.songs,mix.name)
             mix.key.startsWith("mood:") -> OdifyDiscovery.newTracks(artistTracks+moodOnline[mix.key.removePrefix("mood:")].orEmpty(),catalogSongs,ownedIndex)
             else -> emptyList()
         }}

@@ -108,9 +108,9 @@ internal class OdifyArtistCatalog(private val context:Context) {
                         return@withContext result
                     }
                 }
-                if(videos.isNotEmpty())return@withContext videos.mapIndexed {index,video ->
+                if(videos.isNotEmpty())return@withContext OdifyArtistTracks.additional(videos.mapIndexed {index,video ->
                     ExploreTrack("youtube:${video.videoId}",video.title,video.channel,"",emptyList(),index+1)
-                }
+                },emptyList(),name)
             } catch(cancel:CancellationException) {throw cancel}
             catch(failure:Exception) {lastFailure=failure}
         }
@@ -141,7 +141,7 @@ internal class OdifyArtistCatalog(private val context:Context) {
             if(row.optString("kind")!="song" || !id.matches(Regex("[0-9]+")) || title.isBlank() ||
                 !(OdifyDiscovery.sameArtist(name,canonical) || row.optString("artistId") in canonicalIds || alias!=null && row.optString("artistId")==alias))return@mapNotNull null
             OdifyCatalogHttp.parse(row)?.track(index+1)
-        }.distinctBy {OdifyYouTubeMatcher.norm(it.artist) to OdifyYouTubeMatcher.norm(it.title)}
+        }.let {OdifyArtistTracks.additional(it,emptyList(),artist)}
     }
     private fun request(address:String):String {
         val connection=URL(address).openConnection() as HttpURLConnection
