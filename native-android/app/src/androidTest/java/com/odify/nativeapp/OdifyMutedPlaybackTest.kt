@@ -106,14 +106,23 @@ class OdifyMutedPlaybackTest {
                 }
                 fun widget(command:Int) {
                     val id="${context.packageName}:id/${context.resources.getResourceEntryName(command)}"
+                    fun control(node:android.view.accessibility.AccessibilityNodeInfo):android.view.accessibility.AccessibilityNodeInfo? {
+                        if(node.viewIdResourceName==id)return node
+                        for(index in 0 until node.childCount)node.getChild(index)?.let {child ->
+                            control(child)?.let {return it}
+                        }
+                        return null
+                    }
                     var root=launcherRoot()
-                    var target=root.findAccessibilityNodeInfosByViewId(id)?.firstOrNull()
+                    // Resolve foreign RemoteViews IDs from node metadata; the
+                    // launcher's own Resources cannot resolve our resource IDs.
+                    var target=control(root)
                     if(target==null) {
                         val metrics=context.resources.displayMetrics
                         val line="input swipe ${(metrics.widthPixels*.86).toInt()} ${(metrics.heightPixels*.42).toInt()} ${(metrics.widthPixels*.17).toInt()} ${(metrics.heightPixels*.42).toInt()} 350"
                         android.os.ParcelFileDescriptor.AutoCloseInputStream(test.uiAutomation.executeShellCommand(line)).use {it.readBytes()}
                         SystemClock.sleep(400);root=launcherRoot()
-                        target=root.findAccessibilityNodeInfosByViewId(id)?.firstOrNull()
+                        target=control(root)
                     }
                     val button=requireNotNull(target){"Place Odify 4x1 widget on one of the first two home pages"}
                     val track=OdifyWidgetPlayback.read(context)
