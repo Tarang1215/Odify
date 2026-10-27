@@ -13,6 +13,7 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.background
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -69,6 +70,37 @@ class OdifyCompanyUiTest {
                 main {selected.value=true};waitFor("Retained home")
             }
             main {assertEquals(1,homeMounts);assertEquals(1,exploreMounts);assertEquals(0,inactiveClicks)}
+        }
+    }
+
+    @Test fun fullScreenDestinationCoversRetainedPagesAndBlocksHiddenControls() {
+        val covered=mutableStateOf(false);var mounts=0;var backgroundClicks=0
+        ActivityScenario.launch(MainActivity::class.java).use {scenario ->
+            scenario.onActivity {activity ->activity.setContent {
+                MaterialTheme {Box(Modifier.fillMaxSize()) {
+                    OdifyPageLayer(true,true,1,{},interactive=!covered.value) {
+                        remember {mounts++;true}
+                        TextButton(onClick={backgroundClicks++},modifier=Modifier.fillMaxSize()) {Text("Retained library controls")}
+                    }
+                    if(covered.value)Box(Modifier.fillMaxSize().odifyDestinationLayer().background(Color.Blue),
+                        contentAlignment=androidx.compose.ui.Alignment.Center) {Text("Full-screen destination")}
+                }}
+            }}
+            waitFor("Retained library controls");main {covered.value=true};val top=waitFor("Full-screen destination")
+            assertNull("The library must not remain exposed to accessibility",node("Retained library controls"))
+            val screenshot=requireNotNull(test.uiAutomation.takeScreenshot())
+            try {
+                val pixel=screenshot.getPixel(screenshot.width/4,screenshot.height/2)
+                assertTrue("The destination must draw above the active retained page",
+                    android.graphics.Color.blue(pixel)>200 && android.graphics.Color.red(pixel)<30)
+            } finally {screenshot.recycle()}
+            val bounds=Rect();top.getBoundsInScreen(bounds);val began=SystemClock.uptimeMillis()
+            for(action in listOf(MotionEvent.ACTION_DOWN,MotionEvent.ACTION_UP)) {
+                val event=MotionEvent.obtain(began,SystemClock.uptimeMillis(),action,bounds.centerX().toFloat(),bounds.centerY().toFloat(),0)
+                event.source=android.view.InputDevice.SOURCE_TOUCHSCREEN;test.uiAutomation.injectInputEvent(event,true);event.recycle()
+            }
+            main {assertEquals(0,backgroundClicks);covered.value=false};waitFor("Retained library controls")
+            main {assertEquals("Returning must reuse the prepared library",1,mounts)}
         }
     }
 

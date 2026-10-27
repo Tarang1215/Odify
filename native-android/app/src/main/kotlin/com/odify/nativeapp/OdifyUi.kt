@@ -467,7 +467,8 @@ fun OdifyRoot(
 
     // Both controls live in a stable overlay. Animating layout height caused
     // the old mini-player to snap down after the navigation animation finished.
-    val navShown = navVisible && !playlistVisible.currentState && !playlistVisible.targetState
+    val playlistCovered=playlistVisible.currentState || playlistVisible.targetState
+    val navShown = navVisible && !playlistCovered
     val navFraction by animateFloatAsState(
         targetValue = if (navShown) 1f else 0f,
         animationSpec = spring(dampingRatio = .95f, stiffness = 420f),
@@ -495,7 +496,7 @@ fun OdifyRoot(
                 .recordOdifyBackdrop(pageBackdrop)
                 // Scroll content fills the screen: no fixed opaque 135dp bottom slab.
                 // Each scrollable page owns its last-item clearance instead.
-                .pointerInput(active?.id, selectedTab) {
+                .pointerInput(active?.id, selectedTab,playlistCovered) {
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
                         var previousY = down.position.y
@@ -503,7 +504,7 @@ fun OdifyRoot(
                         var horizontal = 0f
                         var vertical = 0f
                         var childOwnsGesture = false
-                        val primary = selectedTab in odifyPrimaryTabs
+                            val primary = !playlistCovered && selectedTab in odifyPrimaryTabs
                         while (true) {
                             // Children get first refusal: horizontal album rows
                             // and sliders must keep ownership of their gestures.
@@ -534,7 +535,7 @@ fun OdifyRoot(
             cachedPages.forEach {pageTab ->
                 key(pageTab) {
                 OdifyPageLayer(active=pageTab==selectedTab,initiallyVisible=pageTab==OdifyTab.Home,
-                    direction=pageDirection,onHidden={
+                    direction=pageDirection,interactive=!playlistCovered,onHidden={
                         if(pageTab!=OdifyTab.Home && pageTab!=OdifyTab.Explore)cachedPages.remove(pageTab)
                     }) {
             pageState.SaveableStateProvider(pageTab.name) {
@@ -628,6 +629,7 @@ fun OdifyRoot(
             }
             }
             AnimatedVisibility(visibleState=playlistVisible,
+                modifier=Modifier.odifyDestinationLayer(),
                 enter=fadeIn(tween(460))+slideInVertically(tween(520,easing=FastOutSlowInEasing)) {it/14}+scaleIn(tween(520,easing=FastOutSlowInEasing),initialScale=.96f),
                 exit=fadeOut(tween(340))+slideOutVertically(tween(420,easing=FastOutSlowInEasing)) {it/18}+scaleOut(tween(420),targetScale=.97f),
                 label="playlist-destination") {

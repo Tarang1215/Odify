@@ -16,7 +16,7 @@ import androidx.compose.ui.zIndex
 /** Keep expensive page composition, animate its render layer, and leave hidden
  * pages unplaced and inaccessible. No list remeasurement on every motion frame. */
 @Composable internal fun OdifyPageLayer(active:Boolean,initiallyVisible:Boolean,direction:Int,
-    onHidden:()->Unit,content:@Composable ()->Unit) {
+    onHidden:()->Unit,interactive:Boolean=true,content:@Composable ()->Unit) {
     val motion=remember {Animatable(if(initiallyVisible)1f else 0f)}
     val currentHidden by rememberUpdatedState(onHidden)
     val moving by remember {derivedStateOf {motion.value>.001f}}
@@ -26,7 +26,7 @@ import androidx.compose.ui.zIndex
         if(!active)currentHidden()
     }
     Box(Modifier.fillMaxSize().zIndex(if(active)1f else if(place)0f else -1f)
-        .then(if(active)Modifier else Modifier.clearAndSetSemantics {})
+        .then(if(active && interactive)Modifier else Modifier.clearAndSetSemantics {})
         .layout {measurable,constraints ->
             val child=if(place)measurable.measure(constraints) else null
             layout(constraints.maxWidth,constraints.maxHeight) {child?.place(0,0)}
@@ -38,4 +38,10 @@ import androidx.compose.ui.zIndex
         // Register the active page's entire area for hit testing, so an empty
         // area cannot click through to an outgoing page during its fade.
         .pointerInput(Unit) {awaitPointerEventScope {while(true)awaitPointerEvent()}}) {content()}
+}
+
+/** Full-screen destinations must cover the retained pages' positive z-index,
+ * including empty header areas that otherwise pass taps to the page below. */
+internal fun Modifier.odifyDestinationLayer()=zIndex(2f).pointerInput(Unit) {
+    awaitPointerEventScope {while(true)awaitPointerEvent()}
 }
