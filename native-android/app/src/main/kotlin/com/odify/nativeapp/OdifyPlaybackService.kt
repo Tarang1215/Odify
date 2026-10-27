@@ -81,7 +81,10 @@ class OdifyPlaybackService : MediaSessionService() {
             setHandleAudioBecomingNoisy(true)
             setWakeMode(C.WAKE_MODE_LOCAL)
         }
-        session = MediaSession.Builder(this, player).build()
+        val open=android.app.PendingIntent.getActivity(this,8001,
+            Intent(this,MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
+            android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE)
+        session = MediaSession.Builder(this, player).setSessionActivity(open).build()
         OdifyWidgetPlayback.bind(this,"native",available={player.currentMediaItem!=null}) {action ->
             when(action) {
                 "toggle" -> if(player.isPlaying)player.pause() else if(player.currentMediaItem!=null) {player.prepare();player.play()}

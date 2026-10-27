@@ -1,8 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/widget_root" android:layout_width="match_parent" android:layout_height="match_parent"
-    android:orientation="vertical" android:gravity="center_vertical" android:padding="12dp"
-    android:background="@drawable/widget_glass">
+    android:clipToOutline="true" android:background="@drawable/widget_glass">
+    <ImageView android:id="@+id/widget_glow" android:layout_width="match_parent" android:layout_height="match_parent"
+        android:scaleType="fitXY" android:importantForAccessibility="no" />
+    <LinearLayout android:layout_width="match_parent" android:layout_height="match_parent"
+        android:orientation="vertical" android:gravity="center_vertical" android:padding="12dp">
     <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center_vertical">
         <ImageView android:id="@+id/widget_art" android:layout_width="56dp" android:layout_height="56dp"
             android:src="@drawable/widget_music" android:scaleType="centerCrop" android:contentDescription="앨범 표지"
@@ -31,4 +34,5 @@
             android:src="@drawable/widget_next" android:background="@drawable/widget_button" android:padding="14dp"
             android:contentDescription="다음 곡" />
     </LinearLayout>
-</LinearLayout>
+    </LinearLayout>
+</FrameLayout>

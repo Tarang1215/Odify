@@ -9,6 +9,8 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.widget.RemoteViews
+import android.util.SizeF
+import android.view.View
 import kotlinx.coroutines.*
 import org.json.JSONObject
 
@@ -24,6 +26,8 @@ internal object OdifyWidgetPlayback {
     private val commands=mutableMapOf<String,Endpoint>()
     private var current:OdifyWidgetTrack?=null
     private var rendering:Job?=null
+    private data class Material(val art:Bitmap?,val compact:Bitmap,val full:Bitmap)
+    private val materials=android.util.LruCache<String,Material>(3)
     private fun prefs(context:Context)=context.getSharedPreferences("odify_music_widget",0)
     fun bind(context:Context,owner:String,available:()->Boolean={true},command:(String)->Unit) {
         commands[owner]=Endpoint(available,command);refresh(context)
@@ -56,17 +60,36 @@ internal object OdifyWidgetPlayback {
     fun refresh(context:Context):Job? {
         val app=context.applicationContext
         val manager=AppWidgetManager.getInstance(app)
-        val ids=manager.getAppWidgetIds(ComponentName(app,OdifyMusicWidget::class.java))
+        val ids=(manager.getAppWidgetIds(ComponentName(app,OdifyMusicWidget::class.java)).toList()+
+            manager.getAppWidgetIds(ComponentName(app,OdifyCompactMusicWidget::class.java)).toList()).toIntArray()
         if(ids.isEmpty())return null
         rendering?.cancel()
         val state=read(app);val controllable=commands[state.owner]?.available?.invoke()==true
         rendering=scope.launch {
-            val art=withContext(Dispatchers.IO){decode(state.artwork)}
-            manager.updateAppWidget(ids,views(app,state,controllable,art))
+            val material=withContext(Dispatchers.IO){
+                val key="${state.artwork}:${java.io.File(state.artwork).lastModified()}"
+                materials.get(key) ?: decode(state.artwork).let {art ->
+                    Material(art,OdifyWidgetGlass.render(art,true),OdifyWidgetGlass.render(art,false)).also {materials.put(key,it)}
+                }
+            }
+            for(id in ids) {
+                val result=if(android.os.Build.VERSION.SDK_INT>=31)RemoteViews(mapOf(
+                    SizeF(250f,48f) to views(app,state,controllable,material.art,true,250,material.compact),
+                    SizeF(330f,48f) to views(app,state,controllable,material.art,true,330,material.compact),
+                    SizeF(250f,140f) to views(app,state,controllable,material.art,false,360,material.full))) else {
+                    val options=manager.getAppWidgetOptions(id)
+                    val height=options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT)
+                    val compact=if(height>0)height<140 else manager.getAppWidgetInfo(id)?.provider?.className==OdifyCompactMusicWidget::class.java.name
+                    views(app,state,controllable,material.art,compact,options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH,250),
+                        if(compact)material.compact else material.full)
+                }
+                manager.updateAppWidget(id,result)
+            }
         }
         return rendering
     }
-    internal fun views(context:Context,state:OdifyWidgetTrack,controllable:Boolean,art:Bitmap?=null):RemoteViews {
+    internal fun views(context:Context,state:OdifyWidgetTrack,controllable:Boolean,art:Bitmap?=null,
+        compact:Boolean=false,widthDp:Int=360,glass:Bitmap?=null):RemoteViews {
         val open=PendingIntent.getActivity(context,9000,Intent(context,MainActivity::class.java)
             .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
@@ -74,9 +97,11 @@ internal object OdifyWidgetPlayback {
             Intent(context,OdifyMusicWidget::class.java).setAction(ACTION_CONTROL)
                 .putExtra("owner",state.owner).putExtra("command",command),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        return RemoteViews(context.packageName,R.layout.odify_music_widget).apply {
+        return RemoteViews(context.packageName,if(compact)R.layout.odify_music_widget_compact else R.layout.odify_music_widget).apply {
             setTextViewText(R.id.widget_title,state.title)
-            setTextViewText(R.id.widget_artist,if(state.id.isNotBlank() && !controllable)"${state.artist} · 앱에서 이어 듣기" else state.artist)
+            setTextViewText(R.id.widget_artist,if(!compact && state.id.isNotBlank() && !controllable)"${state.artist} · 앱에서 이어 듣기" else state.artist)
+            setImageViewBitmap(R.id.widget_glow,glass ?: OdifyWidgetGlass.render(art,compact))
+            setViewVisibility(R.id.widget_previous,if(compact && widthDp<330)View.GONE else View.VISIBLE)
             setOnClickPendingIntent(R.id.widget_root,open)
             if(art!=null)setImageViewBitmap(R.id.widget_art,art) else setImageViewResource(R.id.widget_art,R.drawable.widget_music)
             setImageViewResource(R.id.widget_toggle,if(controllable && state.playing)R.drawable.widget_pause else R.drawable.widget_play)
@@ -98,7 +123,7 @@ internal object OdifyWidgetPlayback {
     const val ACTION_CONTROL="com.odify.nativeapp.WIDGET_CONTROL"
 }
 
-class OdifyMusicWidget:AppWidgetProvider() {
+open class OdifyMusicWidget:AppWidgetProvider() {
     override fun onUpdate(context:Context,manager:AppWidgetManager,ids:IntArray) {OdifyWidgetPlayback.refresh(context)}
     override fun onAppWidgetOptionsChanged(context:Context,manager:AppWidgetManager,id:Int,options:android.os.Bundle) {
         OdifyWidgetPlayback.refresh(context)
@@ -117,3 +142,5 @@ class OdifyMusicWidget:AppWidgetProvider() {
         if(job==null)pending.finish() else job.invokeOnCompletion {pending.finish()}
     }
 }
+
+class OdifyCompactMusicWidget:OdifyMusicWidget()

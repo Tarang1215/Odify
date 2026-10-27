@@ -179,6 +179,31 @@ class OdifyCompanyUiTest {
         }} finally {main {OdifyWidgetPlayback.unbind(context,"widget-fixture");OdifyWidgetPlayback.publish(context,previous)}}
     }
 
+    @Test fun compactWidgetFitsOneRowAndHasTransparentGlassMaterial() {
+        main {
+            assertTrue(android.appwidget.AppWidgetManager.getInstance(context).installedProviders.any {
+                it.provider==android.content.ComponentName(context,OdifyCompactMusicWidget::class.java)})
+            val track=OdifyWidgetTrack("fixture","fixture:compact","A very long title with an album version","Odify Artist",next=true,previous=true)
+            val density=context.resources.displayMetrics.density
+            for((widthDp,heightDp) in listOf(360 to 64,276 to 51)) {
+                val views=OdifyWidgetPlayback.views(context,track,true,compact=true,widthDp=widthDp)
+                    .apply(context,android.widget.FrameLayout(context))
+                val width=(widthDp*density).toInt();val height=(heightDp*density).toInt()
+                views.measure(android.view.View.MeasureSpec.makeMeasureSpec(width,android.view.View.MeasureSpec.EXACTLY),
+                    android.view.View.MeasureSpec.makeMeasureSpec(height,android.view.View.MeasureSpec.EXACTLY))
+                views.layout(0,0,width,height)
+                val title=views.findViewById<android.widget.TextView>(R.id.widget_title)
+                assertTrue("Title retains useful width",title.width>50*density)
+                assertEquals(if(widthDp<330)android.view.View.GONE else android.view.View.VISIBLE,
+                    views.findViewById<android.view.View>(R.id.widget_previous).visibility)
+                val image=Bitmap.createBitmap(width,height,Bitmap.Config.ARGB_8888);views.draw(Canvas(image))
+                assertTrue("Glass must retain transparency",android.graphics.Color.alpha(image.getPixel(width/2,height/2)) in 1..254)
+                File(context.cacheDir,"company-widget-compact-$widthDp.png").outputStream().use {image.compress(Bitmap.CompressFormat.PNG,100,it)}
+                image.recycle()
+            }
+        }
+    }
+
     @Test fun immutableGlassRasterBlursTheSceneAndKeepsItsInteriorOpaque() {
         val source=Bitmap.createBitmap(64,64,Bitmap.Config.ARGB_8888)
         Canvas(source).apply {

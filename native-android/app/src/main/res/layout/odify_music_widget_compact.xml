@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_root" android:layout_width="match_parent" android:layout_height="match_parent"
+    android:background="@drawable/widget_glass" android:clipToOutline="true">
+    <ImageView android:id="@+id/widget_glow" android:layout_width="match_parent" android:layout_height="match_parent"
+        android:scaleType="fitXY" android:importantForAccessibility="no" />
+    <LinearLayout android:layout_width="match_parent" android:layout_height="match_parent"
+        android:gravity="center_vertical" android:paddingStart="8dp" android:paddingEnd="8dp">
+        <ImageView android:id="@+id/widget_art" android:layout_width="40dp" android:layout_height="40dp"
+            android:src="@drawable/widget_music" android:scaleType="centerCrop" android:contentDescription="앨범 표지"
+            android:background="@drawable/widget_art_round" android:clipToOutline="true" />
+        <LinearLayout android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content"
+            android:orientation="vertical" android:layout_marginStart="9dp" android:layout_marginEnd="3dp">
+            <TextView android:id="@+id/widget_title" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:text="Odify" android:textColor="#FAFBFF" android:textSize="14sp" android:textStyle="bold"
+                android:singleLine="true" android:ellipsize="end" android:shadowColor="#90000000" android:shadowRadius="2" />
+            <TextView android:id="@+id/widget_artist" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:text="음악을 골라 들어보세요" android:textColor="#DBE1EC" android:textSize="10sp"
+                android:singleLine="true" android:ellipsize="end" android:layout_marginTop="3dp"
+                android:shadowColor="#90000000" android:shadowRadius="2" />
+        </LinearLayout>
+        <ImageButton android:id="@+id/widget_previous" android:layout_width="48dp" android:layout_height="48dp"
+            android:src="@drawable/widget_previous" android:background="@drawable/widget_button" android:padding="14dp"
+            android:contentDescription="이전 곡" />
+        <ImageButton android:id="@+id/widget_toggle" android:layout_width="48dp" android:layout_height="48dp"
+            android:src="@drawable/widget_play" android:background="@drawable/widget_button" android:padding="13dp"
+            android:contentDescription="Odify 열기" />
+        <ImageButton android:id="@+id/widget_next" android:layout_width="48dp" android:layout_height="48dp"
+            android:src="@drawable/widget_next" android:background="@drawable/widget_button" android:padding="14dp"
+            android:contentDescription="다음 곡" />
+    </LinearLayout>
+</FrameLayout>
