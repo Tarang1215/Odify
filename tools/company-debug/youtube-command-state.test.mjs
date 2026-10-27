@@ -72,3 +72,20 @@ test('a rejected resume eventually returns to a real paused state', () => {
   assert.equal(p.snapshot().wantsPlayback, false);
   assert.equal(p.snapshot().buffering, false);
 });
+
+test('a late player readiness starts its own command acknowledgement window', () => {
+  const p = player('playing', false); p.time(10000); p.onReady(); p.state(2);
+  assert.equal(p.snapshot().buffering, true);
+  assert.equal(p.snapshot().wantsPlayback, true);
+});
+
+test('a pending resume retries a stale pause with a bound and respects a new pause', () => {
+  const p = player(); p.state(1); p.context.odifyPause(); p.state(2);
+  p.context.odifyPlay(); p.state(2); const before = p.calls.length;
+  p.time(600); p.snapshot(); assert.equal(p.calls.length, before + 1);
+  assert.equal(p.calls.at(-1), 'play');
+  p.snapshot(); assert.equal(p.calls.length, before + 1);
+  p.context.odifyPause(); const paused = p.calls.length;
+  p.time(1500); p.snapshot(); assert.equal(p.calls.length, paused);
+  assert.equal(p.snapshot().wantsPlayback, false);
+});

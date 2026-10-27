@@ -192,7 +192,7 @@ class OdifyYoutubePlaybackService:Service() {
             override fun run() {
                 if(request!=generation) return
                 val commandAtRequest=commandVersion
-                val snapshot=(if(pausedByCommand)"if(window.odifyPause)odifyPause();" else "")+
+                val snapshot=(if(pausedByCommand)"if(window.odifyPause && window.odifySnapshot && window.odifySnapshot().wantsPlayback)odifyPause();" else "")+
                     "window.odifySnapshot ? JSON.stringify(window.odifySnapshot()) : null"
                 web.evaluateJavascript(snapshot) { raw ->
                     if(request!=generation || commandAtRequest!=commandVersion || OdifyYoutubeRuntime.session.value.entryKey!=entry) return@evaluateJavascript
