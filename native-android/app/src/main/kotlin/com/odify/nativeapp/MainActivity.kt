@@ -143,6 +143,15 @@ private fun NativeOdify() {
     var controller by remember { mutableStateOf<MediaController?>(null) }
     var playback by remember { mutableStateOf(OdifyPlaybackSnapshot()) }
     var expanded by remember { mutableStateOf(false) }
+    val notificationPermission=rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
+    fun requestPlaybackNotifications() {
+        if(android.os.Build.VERSION.SDK_INT<33 || androidx.core.content.ContextCompat.checkSelfPermission(context,
+                android.Manifest.permission.POST_NOTIFICATIONS)==android.content.pm.PackageManager.PERMISSION_GRANTED)return
+        val preferences=context.getSharedPreferences("odify_playback_permissions",0)
+        if(preferences.getBoolean("notifications_requested",false))return
+        preferences.edit().putBoolean("notifications_requested",true).apply()
+        notificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+    }
     val youtubeSession by OdifyYoutubeRuntime.session.collectAsState()
     val youtubeVideo=youtubeSession.video
     val youtubeState=youtubeSession.playback
@@ -609,6 +618,7 @@ private fun NativeOdify() {
     var externalLookupJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     fun playYoutubeVideo(queue: List<YoutubeVideo>, index: Int) {
         if(index !in queue.indices) return
+        requestPlaybackNotifications()
         val streaming=OdifyStreamingLibrary(context.applicationContext)
         streaming.rememberAll(queue)
         controller?.pause()
@@ -657,6 +667,7 @@ private fun NativeOdify() {
             return
         }
         if (items.isEmpty() || index !in items.indices) return
+        requestPlaybackNotifications()
         if(items[index].isYoutubeStream) {
             player.pause();player.clearMediaItems();expanded=true
             OdifyYoutubeRuntime.play(context,OdifyStreamingLibrary(context).video(items[index]),items.drop(index+1),presentation=items[index],previous=items.take(index))
@@ -733,7 +744,7 @@ private fun NativeOdify() {
             youtubeConnected = youtubeConnected,
             youtubeStatus = youtubeStatus,
             onConnectYoutube = { connectYoutube() },
-            onExternalYoutubeStarted = { controller?.pause() },
+            onExternalYoutubeStarted = { requestPlaybackNotifications();controller?.pause() },
             onPlayYoutubeVideo = { queue,index -> playYoutubeVideo(queue,index) },
             onExternalTrack = { artist, title,chartId -> playExternalTrack(artist, title,chartId) },
             phoneFolderStatus = phoneFolderStatus,
@@ -818,7 +829,7 @@ private fun NativeOdify() {
                 val following=if(youtubeVideo!=null)OdifyYoutubeRuntime.session.value.following else controller?.let {player ->
                     (player.currentMediaItemIndex+1 until player.mediaItemCount).map {queueSong(player.getMediaItemAt(it))}
                 }.orEmpty()
-                controller?.pause();controller?.clearMediaItems();expanded=true;OdifyYoutubeRuntime.play(context,video,following,presentation=audioOverrides.resolve(song))
+                requestPlaybackNotifications();controller?.pause();controller?.clearMediaItems();expanded=true;OdifyYoutubeRuntime.play(context,video,following,presentation=audioOverrides.resolve(song))
             },
             onAudioRequest = { track, kind, link, reason ->
                 scope.launch {
