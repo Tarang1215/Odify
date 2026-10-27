@@ -1,5 +1,6 @@
 import java.security.KeyStore
 import java.security.MessageDigest
+import org.gradle.api.tasks.testing.Test
 
 plugins {
     id("com.android.application")
@@ -76,6 +77,14 @@ dependencies {
     androidTestImplementation("androidx.test:runner:1.6.2")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     debugImplementation("androidx.compose.ui:ui-tooling")
+}
+
+tasks.withType<Test>().configureEach {
+    if(name=="testDebugUnitTest") {
+        val scripts=layout.buildDirectory.dir("reports/youtube-player")
+        outputs.dir(scripts)
+        systemProperty("odify.playbackFixtureDir",scripts.get().asFile.absolutePath)
+    }
 }
 
 // Enforce identity for local builds too. Never issue an incompatible APK just

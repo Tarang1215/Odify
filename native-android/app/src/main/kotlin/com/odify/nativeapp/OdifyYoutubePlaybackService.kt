@@ -77,6 +77,7 @@ class OdifyYoutubePlaybackService:Service() {
     private var foreground=true
     private var activeId:String?=null
     private var generation=0
+    private var commandVersion=0
     private var consumedEnd=false
     private var handingOff=false
     private var nativeController:MediaController?=null
@@ -182,8 +183,9 @@ class OdifyYoutubePlaybackService:Service() {
         val poll=object:Runnable {
             override fun run() {
                 if(request!=generation) return
+                val commandAtRequest=commandVersion
                 web.evaluateJavascript("window.odifySnapshot ? JSON.stringify(window.odifySnapshot()) : null") { raw ->
-                    if(request!=generation) return@evaluateJavascript
+                    if(request!=generation || commandAtRequest!=commandVersion) return@evaluateJavascript
                     runCatching {
                         if(raw=="null") {
                             if(SystemClock.elapsedRealtime()-began>20_000) publish(YoutubeWebState(error="YouTube 연결이 지연되고 있습니다."))
@@ -201,10 +203,11 @@ class OdifyYoutubePlaybackService:Service() {
                             153 -> "YouTube 플레이어의 앱 식별을 확인하지 못했습니다."
                             else -> "YouTube 재생 오류 ($code)"
                         }
-                        publish(YoutubeWebState(state==1,(item.optDouble("position")*1000).toLong().coerceAtLeast(0),
-                            (item.optDouble("duration")*1000).toLong().coerceAtLeast(0),item.optBoolean("ready"),error,state==0,
+                        val wantsPlayback=item.optBoolean("wantsPlayback",true)
+                        publish(YoutubeWebState(item.optBoolean("playing",state==1 && wantsPlayback),(item.optDouble("position")*1000).toLong().coerceAtLeast(0),
+                            (item.optDouble("duration")*1000).toLong().coerceAtLeast(0),item.optBoolean("ready"),error,state==0 && wantsPlayback,
                             item.optBoolean("buffering",state==3)))
-                        if(state==0 && !consumedEnd) {
+                        if(state==0 && wantsPlayback && !pausedByCommand && !consumedEnd) {
                             consumedEnd=true
                             if(OdifyYoutubeRuntime.session.value.repeat) command("odifySeek(0);odifyPlay()") else handoff()
                         }
@@ -216,6 +219,7 @@ class OdifyYoutubePlaybackService:Service() {
         };handler.post(poll)
     }
     fun command(js:String) {
+        if(js.contains("odifyPause()") || js.contains("odifyPlay()"))commandVersion++
         if(js.contains("odifyPause()")){pausedByCommand=true;waitingForAutoplay=null;checkpoint.inactive();checkpointAt=0L}
         if(js.contains("odifyPlay()"))pausedByCommand=false
         if(browser==null && js.contains("odifyPlay()") && OdifyYoutubeRuntime.session.value.video!=null) {

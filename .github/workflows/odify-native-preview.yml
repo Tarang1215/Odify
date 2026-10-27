@@ -21,6 +21,7 @@ on:
     paths:
       - 'native-android/**'
       - '.github/workflows/odify-native-preview.yml'
+      - 'tools/company-debug/youtube-command-state.test.mjs'
   workflow_dispatch:
 
 permissions:
@@ -93,6 +94,12 @@ jobs:
             --output native-android/licenses/Pretendard-OFL.txt
       - name: Verify audio metadata parser tests
         run: gradle -p native-android :app:testDebugUnitTest --stacktrace --no-daemon
+      - name: Set up JavaScript regression runtime
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify generated playback command state without audio
+        run: node --test tools/company-debug/youtube-command-state.test.mjs
       - name: Compile standalone preview APK
         run: gradle -p native-android :app:assembleDebug :app:assembleDebugAndroidTest --stacktrace --no-daemon
       - name: Verify APK independent package

@@ -6,6 +6,11 @@ import org.junit.Test
 class OdifyYoutubeWebPageTest {
     @Test fun generatesIdentifiedVisiblePlayerWithoutEmbeddingUntrustedMetadata() {
         val page=OdifyYoutubeWebPage.html("cmpRLQZkTb8","https://com.odify.music.nativepreview.v11.debug")
+        // Execute these exact generated scripts in the no-audio JS regression
+        // harness too, rather than maintaining a second implementation.
+        val scripts=java.io.File(System.getProperty("odify.playbackFixtureDir","build/reports/youtube-player")).apply {mkdirs()}
+        java.io.File(scripts,"playing.html").writeText(page)
+        java.io.File(scripts,"paused.html").writeText(OdifyYoutubeWebPage.html("abcdefghijk","https://com.odify.music.nativepreview.v11.debug",42000,false))
         assertTrue(page.contains("videoId:'cmpRLQZkTb8'"))
         assertTrue(page.contains("origin:'https://com.odify.music.nativepreview.v11.debug'"))
         assertTrue(page.contains("controls:1"))
