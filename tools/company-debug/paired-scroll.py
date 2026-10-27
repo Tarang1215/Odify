@@ -11,7 +11,7 @@ if awake not in ['0','1','2','3','4','5','6','7']:raise RuntimeError('Cannot rea
 call('shell','am','force-stop',pkg)
 call('shell','run-as',pkg,'rm','-f','cache/company-scroll-ready','cache/company-scroll-stop')
 with (base/'paused-harness.txt').open('w',encoding='utf-8') as log:
- p=subprocess.Popen([adb,'shell','am','instrument','-w','-r','-e','class','com.odify.nativeapp.OdifyCompanyScrollHarness',pkg+'.test/androidx.test.runner.AndroidJUnitRunner'],stdout=log,stderr=subprocess.STDOUT,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
+ p=subprocess.Popen([adb,'shell','am','instrument','--user','0','-w','-r','-e','class','com.odify.nativeapp.OdifyCompanyScrollHarness',pkg+'.test/androidx.test.runner.AndroidJUnitRunner'],stdout=log,stderr=subprocess.STDOUT,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
  try:
   deadline=time.monotonic()+45
   while call('shell','run-as',pkg,'test','-f','cache/company-scroll-ready').returncode:
