@@ -197,7 +197,7 @@ class OdifyCompanyUiTest {
                 assertEquals(if(widthDp<330)android.view.View.GONE else android.view.View.VISIBLE,
                     views.findViewById<android.view.View>(R.id.widget_previous).visibility)
                 val image=Bitmap.createBitmap(width,height,Bitmap.Config.ARGB_8888);views.draw(Canvas(image))
-                assertTrue("Glass must retain transparency",android.graphics.Color.alpha(image.getPixel(width/2,height/2)) in 1..254)
+                assertTrue("Glass must retain transparency",android.graphics.Color.alpha(image.getPixel(width/2,(2*density).toInt())) in 1..254)
                 File(context.cacheDir,"company-widget-compact-$widthDp.png").outputStream().use {image.compress(Bitmap.CompressFormat.PNG,100,it)}
                 image.recycle()
             }

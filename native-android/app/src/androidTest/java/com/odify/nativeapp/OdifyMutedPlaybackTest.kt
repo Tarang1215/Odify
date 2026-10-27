@@ -85,8 +85,12 @@ class OdifyMutedPlaybackTest {
                 assertEquals(0,audio.getStreamVolume(AudioManager.STREAM_MUSIC))
             }
         } finally {
+            runCatching {main {report.put(JSONObject().put("step","final-diagnostics").put("sessions",JSONArray(controllers().map {c ->
+                JSONObject().put("title",c.metadata?.description?.title?.toString()).put("state",c.playbackState?.state)
+                    .put("openable",c.sessionActivity!=null)})))}
+                File(context.cacheDir,"muted-playback-report.json").writeText(report.toString(2))}
             main {OdifyYoutubeRuntime.stop(context)}
-            test.uiAutomation.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK)
+            android.os.ParcelFileDescriptor.AutoCloseInputStream(test.uiAutomation.executeShellCommand("cmd statusbar collapse")).use {it.readBytes()}
             test.uiAutomation.dropShellPermissionIdentity()
         }
     }
