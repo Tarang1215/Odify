@@ -149,6 +149,8 @@ class OdifyCompanyUiTest {
         val previous=OdifyWidgetPlayback.read(context)
         val calls=mutableListOf<String>()
         try {main {
+            assertTrue(android.appwidget.AppWidgetManager.getInstance(context).installedProviders.any {
+                it.provider==android.content.ComponentName(context,OdifyMusicWidget::class.java)})
             OdifyWidgetPlayback.bind(context,"widget-fixture") {calls.add(it)}
             val track=OdifyWidgetTrack("widget-fixture","fixture:messy","Messy","ROSÉ",next=true,previous=true)
             OdifyWidgetPlayback.publish(context,track)
@@ -156,6 +158,15 @@ class OdifyCompanyUiTest {
             assertEquals("Messy",views.findViewById<android.widget.TextView>(R.id.widget_title).text.toString())
             assertEquals("ROSÉ",views.findViewById<android.widget.TextView>(R.id.widget_artist).text.toString())
             assertTrue(views.findViewById<android.view.View>(R.id.widget_toggle).hasOnClickListeners())
+            val density=context.resources.displayMetrics.density
+            val width=(360*density).toInt();val height=(156*density).toInt()
+            views.measure(android.view.View.MeasureSpec.makeMeasureSpec(width,android.view.View.MeasureSpec.EXACTLY),
+                android.view.View.MeasureSpec.makeMeasureSpec(height,android.view.View.MeasureSpec.EXACTLY))
+            views.layout(0,0,width,height)
+            val preview=Bitmap.createBitmap(width,height,Bitmap.Config.ARGB_8888)
+            views.draw(Canvas(preview))
+            File(context.cacheDir,"company-widget.png").outputStream().use {preview.compress(Bitmap.CompressFormat.PNG,100,it)}
+            preview.recycle()
             assertTrue(OdifyWidgetPlayback.dispatch("widget-fixture","toggle"))
             assertTrue(OdifyWidgetPlayback.dispatch("widget-fixture","next"))
             assertFalse(OdifyWidgetPlayback.dispatch("another-engine","toggle"))
