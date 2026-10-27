@@ -1,8 +1,10 @@
 # 2026-10-27 추가 품질 점검
 
-사용자의 전체 보강 요청에 따라 기존 디자인을 유지하면서 재생·복원·대기열의 연결을 점검했다. 기준 설치는 preview12.64(76), 준비 버전은 **preview12.67(79)**다. 기존 기록은 [위젯/연속 재생 인계](COMPACT_WIDGET_CONTINUITY_20261027.md)에 남아 있다.
+사용자의 전체 보강 요청에 따라 기존 디자인을 유지하면서 재생·복원·대기열의 연결을 점검했다. 기준 설치는 preview12.64(76), 준비 버전은 **preview12.68(80)**다. 기존 기록은 [위젯/연속 재생 인계](COMPACT_WIDGET_CONTINUITY_20261027.md)에 남아 있다.
 
 ## 발견한 문제와 수정
+
+- .66 실기기 검사에서 Native 끝난 곡 재시작, 실제 위젯 제어, 일시정지 혼합 대기열은 통과했으나 직후 ForegroundServiceDidNotStartInTimeException으로 프로세스가 종료됐다. 기존 YouTube 서비스가 일시정지/Native 전환으로 foreground에서 내려간 상태에서 새 startForegroundService 요청을 받으면 onCreate가 다시 호출되지 않는데, 승격이 onCreate에만 있었다. 모든 onStartCommand 진입에서도 실제 곡 정보로 즉시 승격해 Android의 기한을 충족한다. 같은 4개 실제 재생 검사로 다시 확인한다.
 
 - 실제 아티스트 메뉴를 열면 밝은 시스템 테마를 따르는 Material 3 1.3.1 창에서 상태바 시계/아이콘이 검게 바뀌어 어두운 배경에 묻혔다. 앱의 어두운 유리 메뉴/대화상자 창에는 밝은 시스템 아이콘을 명시한다. 기기의 테마는 바꾸지 않는다. 원인 확인: [사용 중인 Material 3 소스](https://dl.google.com/dl/android/maven2/androidx/compose/material3/material3-android/1.3.1/material3-android-1.3.1-sources.jar)의 ModalBottomSheet.android.kt는 기기의 isSystemInDarkTheme로 초기 상태를 정한다.
 

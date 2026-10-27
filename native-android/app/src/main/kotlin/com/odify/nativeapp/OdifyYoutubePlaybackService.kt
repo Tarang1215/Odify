@@ -145,6 +145,10 @@ class OdifyYoutubePlaybackService:Service() {
         startForeground(8002,notification())
     }
     override fun onStartCommand(intent:Intent?,flags:Int,startId:Int):Int {
+        // A fresh startForegroundService request also has a promotion deadline
+        // when this instance already exists but was detached while paused.
+        card?.update(OdifyYoutubeRuntime.session.value)
+        startForeground(8002,notification());foreground=true
         if(OdifyYoutubeRuntime.session.value.video==null) {
             val restored=if(intent==null || intent.action=="play")checkpoint.restore(requireActive=intent==null) else null
             if(restored!=null) {
