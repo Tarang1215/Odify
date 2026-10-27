@@ -31,6 +31,8 @@ class OdifyPlaybackService : MediaSessionService() {
     private var cacheDb: StandaloneDatabaseProvider? = null
     private val listeningScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var listeningJob: Job? = null
+    private var autoplayJob:Job?=null
+    private var plannedEntry=""
 
     override fun onCreate() {
         super.onCreate()
@@ -98,6 +100,30 @@ class OdifyPlaybackService : MediaSessionService() {
                 if(OdifyYoutubeRuntime.session.value.video!=null)return
                 val item=player.currentMediaItem ?: run {OdifyWidgetPlayback.refresh(applicationContext);return}
                 if(item.mediaMetadata.extras?.getBoolean("odify.youtubeStream")==true)return
+                if(player.playerError==null && OdifyAutoplayPolicy.shouldExtend(player.playWhenReady,
+                    player.repeatMode!=Player.REPEAT_MODE_OFF,player.hasNextMediaItem()) && autoplayJob?.isActive!=true) {
+                    val key=item.mediaMetadata.extras?.getString("odify.queueEntry") ?: item.mediaId
+                    if(key!=plannedEntry) {
+                        plannedEntry=key
+                        val count=player.mediaItemCount
+                        val queue=(0 until count).map {queueSong(player.getMediaItemAt(it))}
+                        autoplayJob=listeningScope.launch {
+                            try {
+                                val next=OdifyAutoplay.following(applicationContext,queueSong(item),queue)
+                                val latest=player.currentMediaItem
+                                val latestKey=latest?.mediaMetadata?.extras?.getString("odify.queueEntry") ?: latest?.mediaId
+                                if(latestKey==key && player.mediaItemCount==count && !player.hasNextMediaItem() &&
+                                    player.repeatMode==Player.REPEAT_MODE_OFF && next.isNotEmpty()) {
+                                    player.addMediaItems(next.map {it.mediaItem()})
+                                    if(player.playbackState==Player.STATE_ENDED && player.playWhenReady) {
+                                        player.seekToNextMediaItem();player.prepare();player.play()
+                                    }
+                                }
+                            } catch(cancel:CancellationException){throw cancel}
+                            catch(error:Exception){android.util.Log.w("OdifyAutoplay","Following queue unavailable",error)}
+                        }
+                    }
+                }
                 val metadata=item.mediaMetadata
                 OdifyWidgetPlayback.publish(applicationContext,OdifyWidgetTrack("native",item.mediaId,
                     metadata.title?.toString() ?: "Odify",metadata.artist?.toString().orEmpty(),

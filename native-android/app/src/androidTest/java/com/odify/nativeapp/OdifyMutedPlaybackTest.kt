@@ -94,4 +94,49 @@ class OdifyMutedPlaybackTest {
             test.uiAutomation.dropShellPermissionIdentity()
         }
     }
+
+    @Test fun singleChoiceContinuesAfterItsEndAndRecoversABackgroundRendererAtZeroVolume() {
+        muted()
+        val store=OdifyStreamingLibrary(context)
+        val original=requireNotNull(store.all().firstOrNull())
+        val first=original.copy(filePath="",sourceUri=null,playbackVideoId=store.video(original).videoId)
+        val nativeFuture=androidx.media3.session.MediaController.Builder(context,
+            androidx.media3.session.SessionToken(context,android.content.ComponentName(context,OdifyPlaybackService::class.java))).buildAsync()
+        val native=nativeFuture.get(10,java.util.concurrent.TimeUnit.SECONDS)
+        try {
+            ActivityScenario.launch(MainActivity::class.java).use {
+                main {OdifyYoutubeRuntime.play(context,store.video(first),emptyList(),presentation=first)}
+                until("single choice playing") {OdifyYoutubeRuntime.session.value.playback.playing}
+                until("automatic following queue",10000) {OdifyYoutubeRuntime.session.value.following.isNotEmpty()}
+                test.uiAutomation.performGlobalAction(AccessibilityService.GLOBAL_ACTION_HOME)
+                if(android.os.Build.VERSION.SDK_INT>=29) {
+                    var previous:android.webkit.WebView?=null
+                    main {previous=OdifyYoutubeRuntime.view.value
+                        assertTrue("Renderer termination request",requireNotNull(previous?.webViewRenderProcess).terminate())}
+                    until("recover renderer without killing host",30000) {
+                        OdifyYoutubeRuntime.view.value!=null && OdifyYoutubeRuntime.view.value!==previous &&
+                            OdifyYoutubeRuntime.session.value.playback.playing
+                    }
+                    assertEquals(store.video(first).videoId,OdifyYoutubeRuntime.session.value.video?.videoId)
+                }
+                until("duration available",10000) {OdifyYoutubeRuntime.session.value.playback.duration>5000}
+                main {
+                    val remaining=OdifyYoutubeRuntime.session.value.playback.duration/1000.0-1.0
+                    OdifyYoutubeRuntime.command("odifySeek($remaining)")
+                }
+                until("natural next after one selected song",30000) {
+                    val state=OdifyYoutubeRuntime.session.value
+                    // Recommendations may legitimately hand off to the native
+                    // engine; either engine must move past the selected song.
+                    state.video?.videoId!=store.video(first).videoId &&
+                        (state.playback.playing || state.video==null && native.isPlaying && native.currentMediaItem?.mediaId!=first.id)
+                }
+                assertEquals(0,audio.getStreamVolume(AudioManager.STREAM_MUSIC))
+            }
+        } finally {
+            main {OdifyYoutubeRuntime.stop(context)}
+            // A natural transition may have selected a local/Drive recording.
+            main {native.pause();native.clearMediaItems();native.release()}
+        }
+    }
 }

@@ -179,6 +179,30 @@ class OdifyCompanyUiTest {
         }} finally {main {OdifyWidgetPlayback.unbind(context,"widget-fixture");OdifyWidgetPlayback.publish(context,previous)}}
     }
 
+    @Test fun activeResumeCheckpointPreservesQueueAndCannotUndoAnIntentionalPause() {
+        val name="company-resume-${System.nanoTime()}"
+        try {
+            val checkpoint=OdifyYoutubeCheckpoint(context,name)
+            val current=OdifySong("youtube:abcdefghijk","Messy","ROSÉ","F1","",artworkPath="/art.jpg",playbackVideoId="abcdefghijk")
+            val next=current.copy(id="gdrive:next",title="Next",filePath="",sourceUri="https://drive.example/next",playbackVideoId="")
+            val state=YoutubeSessionState(YoutubeVideo("abcdefghijk","Upload","Channel",""),
+                YoutubeWebState(playing=true,position=42000,duration=180000,ready=true),following=listOf(next,next),
+                presentation=current,previous=listOf(next))
+            val beforePause=checkpoint.token()
+            assertTrue(checkpoint.write(state,beforePause,1_000_000))
+            val restored=requireNotNull(checkpoint.restore(1_000_100))
+            assertEquals("Messy",restored.presentation?.title);assertEquals(42000L,restored.playback.position)
+            assertEquals(state.followingKeys,restored.followingKeys);assertEquals(state.following,restored.following)
+            assertEquals(state.previous,restored.previous);assertTrue(restored.playback.buffering)
+            assertNull("Old active checkpoints expire",checkpoint.restore(100_000_000))
+            checkpoint.inactive()
+            assertFalse("An old IO write must not revive a paused session",checkpoint.write(state,beforePause,1_000_200))
+            assertNull(checkpoint.restore(1_000_300))
+            assertNotNull(checkpoint.restore(1_000_300,requireActive=false))
+            assertNull(checkpoint.restore(100_000_000))
+        } finally {context.deleteSharedPreferences(name)}
+    }
+
     @Test fun compactWidgetFitsOneRowAndHasTransparentGlassMaterial() {
         main {
             assertTrue(android.appwidget.AppWidgetManager.getInstance(context).installedProviders.any {

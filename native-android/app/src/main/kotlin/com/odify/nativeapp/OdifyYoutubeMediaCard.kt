@@ -86,10 +86,10 @@ internal class OdifyYoutubeMediaCard(context:Context,private val notificationId:
         // System UI may read it immediately on activation or STATE_PLAYING.
         session.setPlaybackState(PlaybackState.Builder().setActions(actions)
             .setState(if(state.error.isNotBlank())PlaybackState.STATE_ERROR else if(state.playing)PlaybackState.STATE_PLAYING
-                else if(!state.ready)PlaybackState.STATE_BUFFERING else PlaybackState.STATE_PAUSED,
+                else if(!state.ready || state.buffering)PlaybackState.STATE_BUFFERING else PlaybackState.STATE_PAUSED,
                 state.position,if(state.playing)1f else 0f,SystemClock.elapsedRealtime()).build())
         session.isActive=true
-        val cardKey="$key:${state.playing}:${state.ready}:${state.error}:${current.following.isNotEmpty()}"
+        val cardKey="$key:${state.playing}:${state.buffering}:${state.ready}:${state.error}:${current.following.isNotEmpty()}"
         if(cardKey!=notificationKey){notificationKey=cardKey;manager.notify(notificationId,notification())}
     }
     private fun action(name:String,code:Int)=PendingIntent.getService(app,notificationId*10+code,
@@ -105,11 +105,11 @@ internal class OdifyYoutubeMediaCard(context:Context,private val notificationId:
             .setCategory(Notification.CATEGORY_TRANSPORT).setShowWhen(false)
             .setContentText(current.playback.error.ifBlank {song?.artist ?: current.video?.channel ?: "음악 연결 중"})
             .setContentIntent(open).setDeleteIntent(action("stop",4)).setVisibility(Notification.VISIBILITY_PUBLIC)
-            .setOnlyAlertOnce(true).setOngoing(current.playback.playing).setLargeIcon(artwork)
+            .setOnlyAlertOnce(true).setOngoing(OdifyPlaybackContinuity.foreground(current.playback)).setLargeIcon(artwork)
             .setStyle(Notification.MediaStyle().setMediaSession(session.sessionToken).setShowActionsInCompactView(0,1,2))
             .addAction(Notification.Action.Builder(android.R.drawable.ic_media_previous,"이전 곡",action("previous",0)).build())
-            .addAction(Notification.Action.Builder(if(current.playback.playing)android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play,
-                if(current.playback.playing)"일시정지" else "재생",action(if(current.playback.playing)"pause" else "play",1)).build())
+            .addAction(Notification.Action.Builder(if(current.playback.playing || current.playback.buffering)android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play,
+                if(current.playback.playing || current.playback.buffering)"일시정지" else "재생",action(if(current.playback.playing || current.playback.buffering)"pause" else "play",1)).build())
             .addAction(Notification.Action.Builder(android.R.drawable.ic_media_next,"다음 곡",if(current.following.isEmpty())null else action("next",2)).build())
             .addAction(Notification.Action.Builder(android.R.drawable.ic_menu_close_clear_cancel,"재생 종료",action("stop",3)).build())
         return builder.build()

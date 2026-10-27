@@ -25,7 +25,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 internal data class YoutubeWebState(val playing:Boolean=false,val position:Long=0,
-    val duration:Long=0,val ready:Boolean=false,val error:String="",val ended:Boolean=false)
+    val duration:Long=0,val ready:Boolean=false,val error:String="",val ended:Boolean=false,val buffering:Boolean=false)
 
 /** Attach the service-owned renderer; visible playback belongs to OdifyRoot. */
 @Composable
@@ -67,16 +67,16 @@ internal object OdifyYoutubeWebPage {
         val seconds=if(value.isFinite()) value.toInt().coerceAtLeast(0) else 0
         return "${seconds/60}:${(seconds%60).toString().padStart(2,'0')}"
     }
-    fun html(id:String,origin:String):String {
+    fun html(id:String,origin:String,resumeMillis:Long=0,autoStart:Boolean=true):String {
         require(Regex("[A-Za-z0-9_-]{11}").matches(id))
         require(Regex("https://[a-zA-Z0-9.]+").matches(origin))
         return """<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
         <meta name="referrer" content="strict-origin-when-cross-origin"><style>html,body{margin:0;width:100%;height:100%;background:#000}#player{position:fixed;inset:0;width:100%;height:100%;border:0}</style></head>
         <body><div id="player"></div><script>
-        var player,ready=false,errorCode=0;
-        function onYouTubeIframeAPIReady(){player=new YT.Player('player',{videoId:'$id',width:'100%',height:'100%',playerVars:{playsinline:1,autoplay:1,controls:1,fs:0,origin:'$origin'},events:{onReady:function(){ready=true;player.playVideo()},onError:function(e){errorCode=e.data}}})}
-        function odifyPlay(){if(ready)player.playVideo()} function odifyPause(){if(ready)player.pauseVideo()} function odifySeek(t){if(ready)player.seekTo(t,true)}
-        window.odifySnapshot=function(){return{ready:ready,error:errorCode,state:ready?player.getPlayerState():-1,position:ready?player.getCurrentTime():0,duration:ready?player.getDuration():0}};
+        var player,ready=false,errorCode=0,wantsPlayback=$autoStart;
+        function onYouTubeIframeAPIReady(){player=new YT.Player('player',{videoId:'$id',width:'100%',height:'100%',playerVars:{playsinline:1,autoplay:${if(autoStart)1 else 0},controls:1,fs:0,origin:'$origin'},events:{onReady:function(){ready=true;if(${resumeMillis.coerceAtLeast(0)/1000.0}>0)player.seekTo(${resumeMillis.coerceAtLeast(0)/1000.0},true);if(wantsPlayback)player.playVideo();else player.pauseVideo()},onStateChange:function(e){if(e.data===1)wantsPlayback=true;if(e.data===2)wantsPlayback=false},onError:function(e){errorCode=e.data}}})}
+        function odifyPlay(){errorCode=0;wantsPlayback=true;if(ready)player.playVideo()} function odifyPause(){wantsPlayback=false;if(ready)player.pauseVideo()} function odifySeek(t){if(ready)player.seekTo(t,true)}
+        window.odifySnapshot=function(){var s=ready?player.getPlayerState():-1;return{videoId:'$id',ready:ready,error:errorCode,state:s,buffering:wantsPlayback&&(s===3||s===-1||s===5),position:ready?player.getCurrentTime():0,duration:ready?player.getDuration():0}};
         </script><script src="https://www.youtube.com/iframe_api"></script></body></html>""".trimIndent()
     }
 }
