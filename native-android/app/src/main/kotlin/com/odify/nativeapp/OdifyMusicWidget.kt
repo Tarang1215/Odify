@@ -20,12 +20,13 @@ internal data class OdifyWidgetTrack(val owner:String="",val id:String="",val ti
  * launcher widgets. A dead service must never be revived by a stale control. */
 internal object OdifyWidgetPlayback {
     private val scope=CoroutineScope(SupervisorJob()+Dispatchers.Main.immediate)
-    private val commands=mutableMapOf<String,(String)->Unit>()
+    private data class Endpoint(val available:()->Boolean,val command:(String)->Unit)
+    private val commands=mutableMapOf<String,Endpoint>()
     private var current:OdifyWidgetTrack?=null
     private var rendering:Job?=null
     private fun prefs(context:Context)=context.getSharedPreferences("odify_music_widget",0)
-    fun bind(context:Context,owner:String,command:(String)->Unit) {
-        commands[owner]=command;refresh(context)
+    fun bind(context:Context,owner:String,available:()->Boolean={true},command:(String)->Unit) {
+        commands[owner]=Endpoint(available,command);refresh(context)
     }
     fun unbind(context:Context,owner:String) {
         commands.remove(owner)
@@ -49,7 +50,8 @@ internal object OdifyWidgetPlayback {
         val value=current ?: return false
         if(value.owner!=owner || command=="previous" && !value.previous || command=="next" && !value.next)return false
         val target=commands[owner] ?: return false
-        target(command);return true
+        if(!target.available())return false
+        target.command(command);return true
     }
     fun refresh(context:Context):Job? {
         val app=context.applicationContext
@@ -57,7 +59,7 @@ internal object OdifyWidgetPlayback {
         val ids=manager.getAppWidgetIds(ComponentName(app,OdifyMusicWidget::class.java))
         if(ids.isEmpty())return null
         rendering?.cancel()
-        val state=read(app);val controllable=commands.containsKey(state.owner)
+        val state=read(app);val controllable=commands[state.owner]?.available?.invoke()==true
         rendering=scope.launch {
             val art=withContext(Dispatchers.IO){decode(state.artwork)}
             manager.updateAppWidget(ids,views(app,state,controllable,art))

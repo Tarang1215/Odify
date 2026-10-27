@@ -14,6 +14,7 @@ import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.drawscope.scale
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
@@ -109,6 +110,8 @@ fun Modifier.odifyGlass(backdrop: OdifyBackdrop, shape: Shape,glow:Color=Color.T
     val lens=remember {if(Build.VERSION.SDK_INT>=33) runCatching {android.graphics.RuntimeShader(OdifyGlassLens.source)}.getOrNull() else null}
     val sharpLens=remember {if(Build.VERSION.SDK_INT>=33) runCatching {android.graphics.RuntimeShader(OdifyGlassLens.source)}.getOrNull() else null}
     val lensCache=remember {OdifyLensCache()}
+    val rim=remember {Brush.verticalGradient(listOf(Color.White.copy(alpha=.22f),
+        Color.White.copy(alpha=.035f),Color.White.copy(alpha=.14f)))}
     graphicsLayer {
         this.shape=(shape as? OdifyDropletShape)?.frameShape() ?: shape
         clip=true
@@ -183,8 +186,13 @@ fun Modifier.odifyGlass(backdrop: OdifyBackdrop, shape: Shape,glow:Color=Color.T
             glow.copy(alpha=.035f),Color.Transparent),
             center=Offset(size.width*.22f,size.height*.8f),radius=size.width*.85f))
         drawContent()
-    }.border(.45.dp,Brush.verticalGradient(listOf(Color.White.copy(alpha=.22f),
-        Color.White.copy(alpha=.035f),Color.White.copy(alpha=.14f))),shape)
+        if(shape is OdifyDropletShape) {
+            // The render layer already clips this contour. A centered stroke
+            // leaves its inner half visible: same rim, without BorderModifier's
+            // repeated native Path.op difference on every liquid-neck frame.
+            drawOutline(shape.createOutline(size,layoutDirection,this),rim,style=Stroke(.9.dp.toPx()))
+        }
+    }.then(if(shape is OdifyDropletShape)Modifier else Modifier.border(.45.dp,rim,shape))
 }
 
 /** AGSL adaptation of Liquid Glass Studio's smooth SDF union, Snell refraction,

@@ -82,7 +82,7 @@ class OdifyPlaybackService : MediaSessionService() {
             setWakeMode(C.WAKE_MODE_LOCAL)
         }
         session = MediaSession.Builder(this, player).build()
-        OdifyWidgetPlayback.bind(this,"native") {action ->
+        OdifyWidgetPlayback.bind(this,"native",available={player.currentMediaItem!=null}) {action ->
             when(action) {
                 "toggle" -> if(player.isPlaying)player.pause() else if(player.currentMediaItem!=null) {player.prepare();player.play()}
                 "previous" -> player.seekToPreviousMediaItem()
@@ -93,7 +93,7 @@ class OdifyPlaybackService : MediaSessionService() {
         player.addListener(object : Player.Listener {
             override fun onEvents(player:Player,events:Player.Events) {
                 if(OdifyYoutubeRuntime.session.value.video!=null)return
-                val item=player.currentMediaItem ?: return
+                val item=player.currentMediaItem ?: run {OdifyWidgetPlayback.refresh(applicationContext);return}
                 if(item.mediaMetadata.extras?.getBoolean("odify.youtubeStream")==true)return
                 val metadata=item.mediaMetadata
                 OdifyWidgetPlayback.publish(applicationContext,OdifyWidgetTrack("native",item.mediaId,

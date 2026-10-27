@@ -86,7 +86,7 @@ class OdifyYoutubePlaybackService:Service() {
                 "next" -> handoff()
             }
         }
-        OdifyWidgetPlayback.bind(this,"youtube") {action ->
+        OdifyWidgetPlayback.bind(this,"youtube",available={browser!=null && OdifyYoutubeRuntime.session.value.video!=null}) {action ->
             when(action) {
                 "toggle" -> command(if(OdifyYoutubeRuntime.session.value.playback.playing)"odifyPause()" else "odifyPlay()")
                 "previous" -> previous()
