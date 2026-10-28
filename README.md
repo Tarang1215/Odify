@@ -1,3 +1,5 @@
+> **현재 네이티브 앱 작업:** [2026-10-28 위젯 재개·국가별 아티스트·화면 끔 검증](docs/WIDGET_RESUME_COUNTRY_ARTISTS_20261028.md), [2026-10-27 추가 품질 점검: 재생·복원·대기열](docs/PLAYBACK_AUDIT_20261027.md), [4×1 위젯·연속 재생 인계](docs/COMPACT_WIDGET_CONTINUITY_20261027.md), [성능·상태바·아티스트 중복 검증](docs/SYSTEM_MEDIA_WIDGET_PERFORMANCE_20261027.md), [이전 회사 → 집 인계](docs/HANDOFF_20261026_COMPANY_TO_HOME.md). 아래는 초기 Flutter 프로젝트 설명이므로 현재 앱 ID/설치/검증 상태는 최신 문서를 우선 확인하세요.
+
 # Odify — SpotiFLAC 기반 Android 음악 앱
 
 SpotiFLAC Mobile의 MIT 라이선스를 준수하는 **고정 업스트림 + Odify 변경사항(overlay)** 구조입니다. 기존 Flutter/Rust/Android 프로젝트를 처음부터 다시 구현하지 않습니다.

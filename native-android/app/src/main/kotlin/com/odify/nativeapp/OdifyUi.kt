@@ -23,6 +23,9 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.foundation.*
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.gestures.*
@@ -50,6 +53,8 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.shadow
@@ -87,6 +92,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.first
 import kotlin.math.abs
 
 private val ink = OdifyPalette.text
@@ -135,6 +141,32 @@ private object OdifyCoverMemory {
     }
 }
 
+@Composable private fun rememberBlurredCover(image:ImageBitmap?,coverPath:String?,backgroundBlur:androidx.compose.ui.unit.Dp):ImageBitmap? {
+    // Full-screen player scenery is static. Prepare its blur once at source
+    // resolution instead of filtering the phone's entire display every frame.
+    val configuration=androidx.compose.ui.platform.LocalConfiguration.current
+    val sceneScale=image?.let {maxOf(configuration.screenWidthDp.toFloat()/it.width,
+        configuration.screenHeightDp.toFloat()/it.height)} ?: 1f
+    val thumbnailScale=image?.let {(256f/maxOf(it.width,it.height)).coerceAtMost(1f)} ?: 1f
+    val blurRadius=(backgroundBlur.value/sceneScale*thumbnailScale*.6f).roundToInt().coerceAtLeast(1)
+    val blurKey=if(backgroundBlur.value>0 && coverPath!=null)"scene:$coverPath:$blurRadius" else null
+    val scene=remember(blurKey) {mutableStateOf(OdifyCoverMemory.peek(blurKey))}
+    LaunchedEffect(blurKey,image) {
+        val original=image
+        if(blurKey!=null && original!=null && scene.value==null) {
+            scene.value=withContext(Dispatchers.Default) {
+                val source=original.asAndroidBitmap()
+                val thumbnail=android.graphics.Bitmap.createScaledBitmap(source,
+                    (source.width*thumbnailScale).roundToInt().coerceAtLeast(1),
+                    (source.height*thumbnailScale).roundToInt().coerceAtLeast(1),true)
+                try {OdifyModalRaster.blur(thumbnail,blurRadius).asImageBitmap().also {OdifyCoverMemory.put(blurKey,it)}}
+                finally {if(thumbnail!==source)thumbnail.recycle()}
+            }
+        }
+    }
+    return scene.value
+}
+
 @Composable
 fun AlbumArt(
     song: OdifySong?,
@@ -142,7 +174,8 @@ fun AlbumArt(
     radius: androidx.compose.ui.graphics.Shape = RoundedCornerShape(14.dp),
     fallbackKey: Int = 0,
     muted: Boolean = false,
-    contentScale: ContentScale = ContentScale.Crop
+    contentScale: ContentScale = ContentScale.Crop,
+    backgroundBlur:androidx.compose.ui.unit.Dp=0.dp
 ) {
     val context=androidx.compose.ui.platform.LocalContext.current
     val remoteCover=if(song?.id?.startsWith("youtube:")==true && song.artworkPath.isNullOrBlank()) {
@@ -189,6 +222,7 @@ fun AlbumArt(
         }
     }
     val image = imageState.value
+    val scene=if(backgroundBlur.value>0)rememberBlurredCover(image,coverPath,backgroundBlur) else null
     val neutralPalette = listOf(
         listOf(Color(0xFF393D44), Color(0xFF858C94)),
         listOf(Color(0xFF242E39), Color(0xFF868A88)),
@@ -200,10 +234,11 @@ fun AlbumArt(
         modifier.clip(radius).background(Brush.linearGradient(swatch)),
         contentAlignment = Alignment.Center
     ) {
-        val bitmap = image
+        val bitmap = if(backgroundBlur.value>0)scene ?: image else image
         if (bitmap != null) {
             Image(bitmap = bitmap, contentDescription = song?.album ?: song?.title,
-                contentScale = contentScale, modifier = Modifier.fillMaxSize(),
+                contentScale = contentScale, modifier = Modifier.fillMaxSize().then(
+                    if(backgroundBlur.value>0 && scene==null)Modifier.blur(backgroundBlur) else Modifier),
                 colorFilter = if (muted) ColorFilter.colorMatrix(
                     ColorMatrix().apply { setToSaturation(0.20f) }
                 ) else null)
@@ -247,7 +282,7 @@ fun OdifyRoot(
     onImport: () -> Unit,
     onImportOffline: () -> Unit,
     onPlay: (List<OdifySong>, Int) -> Unit,
-    onMoveQueue: (Int, Int) -> Unit,
+    onMoveQueue: (String, String) -> Unit,
     onPlayYoutubeMatched: (List<OdifySong>,Int) -> Unit,
     onSelectQueue: (Int) -> Unit,
     onTogglePlayback: () -> Unit,
@@ -266,11 +301,34 @@ fun OdifyRoot(
     val context = androidx.compose.ui.platform.LocalContext.current
     val pageBackdrop = rememberOdifyBackdrop()
     val exploreRepository=remember {OdifyExploreRepository(context.applicationContext)}
+    val artistCatalog=remember {OdifyArtistCatalog(context.applicationContext)}
+    // Portrait rows must never scan/normalize the entire collection on the UI
+    // thread when a LazyRow composes another artist during a drag.
+    var artistTitlesReady by remember(songs) {mutableStateOf(false)}
+    val artistTitles by produceState<Map<String,List<String>>>(emptyMap(),songs) {
+        value=withContext(Dispatchers.Default) {songs.groupBy {OdifyMusicMatching.norm(it.artist)}
+            .mapValues {(_,rows)->rows.map {it.title}.distinct()}}
+        artistTitlesReady=true
+    }
+    suspend fun titlesForArtist(artist:String):List<String> {
+        val key=OdifyMusicMatching.norm(artist)
+        val index=if(artistTitlesReady)artistTitles else snapshotFlow {if(artistTitlesReady)artistTitles else null}.first {it!=null}!!
+        return index[key].orEmpty()
+    }
+    val discoveryCharts=remember {mutableStateMapOf<String,ExploreChart>()}
+    val discoveryTracks=remember(discoveryCharts.values.toList()) {
+        (0 until 100).flatMap {rank ->listOf("kr","jp","us").mapNotNull {discoveryCharts[it]?.tracks?.getOrNull(rank)}}
+    }
     val chartIndex by produceState(OdifyChartMatching.buildIndex(emptyList()),songs) {
         value=withContext(Dispatchers.Default) {OdifyChartMatching.buildIndex(songs)}
     }
     LaunchedEffect(exploreRepository) {
-        for(country in listOf("kr","jp","us")) exploreRepository.cached(country)
+        for(country in listOf("kr","jp","us")) exploreRepository.cached(country)?.let {discoveryCharts[country]=it}
+        for(country in listOf("kr","jp","us")) launch {
+            try {discoveryCharts[country]=exploreRepository.load(country)}
+            catch(cancel:kotlinx.coroutines.CancellationException) {throw cancel}
+            catch(_:Exception) { /* Cached charts remain available offline. */ }
+        }
     }
     val prefs = remember { context.getSharedPreferences("odify_native_ui", 0) }
     val playlistStore = remember { OdifyPlaylists(context.applicationContext) }
@@ -284,7 +342,18 @@ fun OdifyRoot(
         onDispose { listeningStore.preferences.unregisterOnSharedPreferenceChangeListener(listener) }
     }
     var playlistVersion by remember { mutableIntStateOf(0) }
+    DisposableEffect(playlistStore) {
+        val listener=android.content.SharedPreferences.OnSharedPreferenceChangeListener {_,_->playlistVersion++}
+        playlistStore.preferences.registerOnSharedPreferenceChangeListener(listener)
+        onDispose {playlistStore.preferences.unregisterOnSharedPreferenceChangeListener(listener)}
+    }
     val playlists = remember(playlistVersion) { playlistStore.all() }
+    var selectedPlaylistId by rememberSaveable {mutableStateOf<String?>(null)}
+    val openedPlaylist=playlists.firstOrNull {it.id==selectedPlaylistId}
+    var retainedPlaylist by remember {mutableStateOf<OdifyPlaylist?>(null)}
+    SideEffect {if(openedPlaylist!=null)retainedPlaylist=openedPlaylist}
+    val playlistVisible=remember {MutableTransitionState(false)}
+    playlistVisible.targetState=openedPlaylist!=null
     var playlistDialogTrack by remember { mutableStateOf<OdifySong?>(null) }
     var replacementTrack by remember {mutableStateOf<OdifySong?>(null)}
     var openLibraryPlaylists by rememberSaveable { mutableIntStateOf(0) }
@@ -293,12 +362,18 @@ fun OdifyRoot(
         playlistVersion++
         ""
     }.getOrElse { it.message ?: "플레이리스트 생성 실패" }
+    fun renamePlaylist(id:String,name:String):String=runCatching {
+        playlistStore.rename(id,name);playlistVersion++;""
+    }.getOrElse {it.message ?: "이름을 저장하지 못했습니다."}
     fun addToPlaylist(playlistId: String, songId: String): String = runCatching {
         val added = playlistStore.addSong(playlistId, songId)
         playlistVersion++
         if (!added) "이미 이 플레이리스트에 있는 곡입니다." else ""
     }.getOrElse { it.message ?: "플레이리스트 저장 실패" }
     var selectedTab by remember { mutableStateOf(OdifyTab.Home) }
+    val cachedPages=remember {mutableStateListOf(OdifyTab.Home)}
+    var pageDirection by remember {mutableIntStateOf(1)}
+    val focusManager=androidx.compose.ui.platform.LocalFocusManager.current
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var searchGenre by rememberSaveable { mutableStateOf("All") }
     var searchScope by rememberSaveable { mutableStateOf(OdifySearchScope.Music) }
@@ -308,20 +383,26 @@ fun OdifyRoot(
         if (tab != selectedTab) {
             tabHistory.add(selectedTab)
             if (tabHistory.size > 20) tabHistory.removeAt(0)
+            pageDirection=if(tab.ordinal>=selectedTab.ordinal)1 else -1
+            if(tab !in cachedPages)cachedPages.add(tab)
             selectedTab = tab
         }
     }
     fun navigateBack() {
-        selectedTab = if (tabHistory.isNotEmpty())
-            tabHistory.removeAt(tabHistory.lastIndex) else OdifyTab.Home
+        val destination=if(tabHistory.isNotEmpty())tabHistory.removeAt(tabHistory.lastIndex) else OdifyTab.Home
+        pageDirection=if(destination.ordinal>=selectedTab.ordinal)1 else -1
+        if(destination !in cachedPages)cachedPages.add(destination)
+        selectedTab=destination
     }
     var queueOpen by remember { mutableStateOf(false) }
+    var queueAnchor by remember {mutableStateOf<Offset?>(null)}
     var youtubeOpen by remember { mutableStateOf(false) }
-    BackHandler(enabled = queueOpen || expanded ||
+    BackHandler(enabled = queueOpen || expanded || selectedPlaylistId!=null ||
         selectedTab != OdifyTab.Home || tabHistory.isNotEmpty()) {
         when {
             queueOpen -> queueOpen = false
             expanded -> onExpandedChange(false)
+            selectedPlaylistId!=null -> selectedPlaylistId=null
             else -> navigateBack()
         }
     }
@@ -386,14 +467,15 @@ fun OdifyRoot(
 
     // Both controls live in a stable overlay. Animating layout height caused
     // the old mini-player to snap down after the navigation animation finished.
-    val navShown = navVisible
+    val playlistCovered=playlistVisible.currentState || playlistVisible.targetState
+    val navShown = navVisible && !playlistCovered
     val navFraction by animateFloatAsState(
         targetValue = if (navShown) 1f else 0f,
         animationSpec = spring(dampingRatio = .95f, stiffness = 420f),
         label = "odify-nav-and-mini-linked"
     )
     // Four primary destinations stay reachable; the full player covers them.
-    LaunchedEffect(selectedTab) { navVisible = true; compactPlayer = false }
+    LaunchedEffect(selectedTab) {focusManager.clearFocus();navVisible=true;compactPlayer=false}
 
     // Extend rounded nav background behind the Android gesture indicator.
     val gestureInset = WindowInsets.navigationBars.asPaddingValues()
@@ -414,7 +496,7 @@ fun OdifyRoot(
                 .recordOdifyBackdrop(pageBackdrop)
                 // Scroll content fills the screen: no fixed opaque 135dp bottom slab.
                 // Each scrollable page owns its last-item clearance instead.
-                .pointerInput(active?.id, selectedTab) {
+                .pointerInput(active?.id, selectedTab,playlistCovered) {
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
                         var previousY = down.position.y
@@ -422,7 +504,7 @@ fun OdifyRoot(
                         var horizontal = 0f
                         var vertical = 0f
                         var childOwnsGesture = false
-                        val primary = selectedTab in odifyPrimaryTabs
+                            val primary = !playlistCovered && selectedTab in odifyPrimaryTabs
                         while (true) {
                             // Children get first refusal: horizontal album rows
                             // and sliders must keep ownership of their gestures.
@@ -450,12 +532,12 @@ fun OdifyRoot(
                     }
                 }
         ) {
-            AnimatedContent(targetState = selectedTab, modifier = Modifier.fillMaxSize(),
-                transitionSpec = {
-                    val direction = if (odifyPrimaryTabs.indexOf(targetState) >= odifyPrimaryTabs.indexOf(initialState)) 1 else -1
-                    (slideInHorizontally(tween(230, easing = FastOutSlowInEasing)) { it*direction/5 } + fadeIn(tween(180)))
-                        .togetherWith(slideOutHorizontally(tween(200, easing = FastOutSlowInEasing)) { -it*direction/5 } + fadeOut(tween(150)))
-                }, label = "primary-page-change") { pageTab ->
+            cachedPages.forEach {pageTab ->
+                key(pageTab) {
+                OdifyPageLayer(active=pageTab==selectedTab,initiallyVisible=pageTab==OdifyTab.Home,
+                    direction=pageDirection,interactive=!playlistCovered,onHidden={
+                        if(pageTab!=OdifyTab.Home && pageTab!=OdifyTab.Explore)cachedPages.remove(pageTab)
+                    }) {
             pageState.SaveableStateProvider(pageTab.name) {
                 when (pageTab) {
                 OdifyTab.Home -> OdifyPersonalHome(
@@ -468,6 +550,21 @@ fun OdifyRoot(
                     onExplore = { navigateTo(OdifyTab.Explore) },
                     onSaveMix = ::saveMix,
                     onPlay = ::playList,
+                    catalogSongs=songs,
+                    discoveryTracks=discoveryTracks,
+                    loadArtistTracks={artist ->artistCatalog.tracks(artist,titlesForArtist(artist))},
+                    ownedIndex=chartIndex,
+                    onPlayOnline={track ->
+                        val videoId=track.id.removePrefix("youtube:")
+                        if(track.id.startsWith("youtube:") && Regex("[A-Za-z0-9_-]{11}").matches(videoId)) {
+                            val streaming=OdifyStreamingLibrary(context)
+                            streaming.remember(YoutubeVideo(videoId,track.title,track.artist,""))
+                            streaming.find(track.id)?.let {onPlayYoutubeMatched(listOf(it),0)}
+                        } else onExternalTrack(track.artist,track.title,track.id)
+                    },
+                    onArtistSearch={artist ->searchQuery=artist;navigateTo(OdifyTab.Search)},
+                    loadMoodTracks=artistCatalog::moodTracks,
+                    loadArtistPortrait={artist ->artistCatalog.portrait(artist,titlesForArtist(artist))},
                     playlists = playlists,
                     onPlaylistPlay = { list ->
                         val tracks = playlistStore.resolved(list, songs)
@@ -480,6 +577,8 @@ fun OdifyRoot(
                 )
                 OdifyTab.Explore -> OdifyExplore(
                     index=chartIndex,repository=exploreRepository,onPlay=::playList,onSync=onDriveSync,
+                    onArtist={artist ->searchQuery=artist;navigateTo(OdifyTab.Search)},
+                    loadArtistPortrait={artist ->artistCatalog.portrait(artist)},
                     onAddTrack={track,owned -> playlistDialogTrack=owned ?:
                         OdifySong("chart:${track.id}",track.title,track.artist,"","")},
                     onProfile = { navigateTo(OdifyTab.Profile) },
@@ -506,6 +605,8 @@ fun OdifyRoot(
                     onProfile = { navigateTo(OdifyTab.Profile) },
                     onOpenYoutube = { youtubeOpen = true },
                     playlists = playlists, playlistFocus = openLibraryPlaylists,currentSongId=playback.mediaId,
+                    onOpenPlaylist={selectedPlaylistId=it.id},
+                    onRenamePlaylist=::renamePlaylist,
                     onCreatePlaylist = ::createPlaylist,
                     onDeletePlaylist = { id ->
                         playlistStore.delete(id); playlistVersion++
@@ -526,6 +627,25 @@ fun OdifyRoot(
                 ) }
                 }
             }
+            }
+            }
+            }
+            AnimatedVisibility(visibleState=playlistVisible,
+                modifier=Modifier.odifyDestinationLayer(),
+                enter=fadeIn(tween(460))+slideInVertically(tween(520,easing=FastOutSlowInEasing)) {it/14}+scaleIn(tween(520,easing=FastOutSlowInEasing),initialScale=.96f),
+                exit=fadeOut(tween(340))+slideOutVertically(tween(420,easing=FastOutSlowInEasing)) {it/18}+scaleOut(tween(420),targetScale=.97f),
+                label="playlist-destination") {
+                val playlist=openedPlaylist ?: retainedPlaylist ?: return@AnimatedVisibility
+                val tracks=remember(playlist,songs) {playlistStore.resolved(playlist,songs)}
+                OdifyPlaylistDetail(playlist,tracks,playback.mediaId,onDismiss={selectedPlaylistId=null},onPlay=::playList,
+                    onRename={renamePlaylist(playlist.id,it)},
+                    onCoverChange={uri ->
+                        val result=withContext(Dispatchers.IO) {runCatching {playlistStore.changeCover(playlist.id,uri);""}.getOrElse {it.message ?: "커버를 저장하지 못했습니다."}}
+                        if(result.isBlank())playlistVersion++
+                        result
+                    },
+                    onDelete={playlistStore.delete(playlist.id);playlistVersion++;selectedPlaylistId=null},
+                    onRemoveSong={playlistStore.removeSong(playlist.id,it);playlistVersion++})
             }
         }
 
@@ -575,10 +695,12 @@ fun OdifyRoot(
             },
             label = "player-expand-progress"
         ) { open -> if (open) 1f else 0f }
-        if ((expanded || fullProgress > 0.001f) && active != null) {
+        val playerTargetExpanded by rememberUpdatedState(expanded)
+        val renderFullPlayer by remember {derivedStateOf {playerTargetExpanded || fullProgress>.001f}}
+        if (renderFullPlayer && active != null) {
             Box(
                 Modifier.fillMaxSize()
-                    .background(Color.Black.copy(alpha = fullProgress * 0.16f))
+                    .drawBehind {drawRect(Color.Black.copy(alpha=fullProgress.coerceIn(0f,1f)*.16f))}
                     .clickable(onClick = { onExpandedChange(false) })
             )
             Box(
@@ -638,11 +760,12 @@ fun OdifyRoot(
                     onShuffle = onShuffle,
                     onRepeat = onRepeat,
                     onShowQueue = { queueOpen = true },
+                    onQueueAnchor={queueAnchor=it},
                     onAddToPlaylist = { playlistDialogTrack = active },
                     onSaveDevice = { onSaveDevice(active) },
                     onAudioRequest = { kind, link, reason -> onAudioRequest(active, kind, link, reason) },
                     onReplaceAudio = {replacementTrack=active},
-                    externalPlayback=active.id.startsWith("youtube:"),
+                    externalPlayback=active.isYoutubeStream,
                     onOpenExternal=onOpenExternalVideo,
                     onDragProgress = { playerDragFraction = it }
                 )
@@ -659,7 +782,7 @@ fun OdifyRoot(
         replacementTrack?.let {target -> CompositionLocalProvider(LocalOdifyModalTint provides sharedGlow) {OdifyAudioReplaceDialog(target,onSelect={video ->
             replacementTrack=null;onReplaceAudio(target,video)
         },onClose={replacementTrack=null})}}
-        if (queueOpen) {
+        run {
             OdifyQueueDialog(
                 items=remember(playback.queueIds, songIndex) { playback.queueIds.map { id ->
                     songIndex[id]
@@ -669,7 +792,7 @@ fun OdifyRoot(
                 currentIndex=playback.currentQueueIndex,
                 onMove=onMoveQueue,
                 onSelect={ index -> onSelectQueue(index); queueOpen=false },
-                onClose={ queueOpen=false },glow=sharedGlow
+                onClose={ queueOpen=false },glow=sharedGlow,visible=queueOpen,anchor=queueAnchor
             )
         }
         playlistDialogTrack?.let { target ->
@@ -1033,7 +1156,8 @@ private fun OdifyLibraryScreen(
     playlistFocus: Int,
     onCreatePlaylist: (String) -> String,
     onDeletePlaylist: (String) -> Unit,
-    onRemoveFromPlaylist: (String, String) -> Unit,currentSongId:String?=null
+    onRemoveFromPlaylist: (String, String) -> Unit,currentSongId:String?=null,
+    onOpenPlaylist:(OdifyPlaylist)->Unit,onRenamePlaylist:(String,String)->String
 ) {
     var editingSong by remember { mutableStateOf<OdifySong?>(null) }
     var selection by rememberSaveable { mutableStateOf("Playlists") }
@@ -1082,9 +1206,9 @@ private fun OdifyLibraryScreen(
         }
         if (selection == "Playlists") {
             OdifyPlaylistLibrary(
-                playlists = playlists, songs = songs, onPlay = onPlay,currentSongId=currentSongId,
+                playlists = playlists, songs = songs,
                 onCreate = onCreatePlaylist, onDelete = onDeletePlaylist,
-                onRemoveSong = onRemoveFromPlaylist
+                onOpenPlaylist=onOpenPlaylist,onRename=onRenamePlaylist
             )
         } else {
         Text(
@@ -1304,6 +1428,8 @@ private fun OdifyProfile(
         OdifyStreamingRequestsCard()
         Spacer(Modifier.height(16.dp))
         OdifyChartSettingsCard()
+        Spacer(Modifier.height(16.dp))
+        OdifyLastFmSettingsCard()
         Spacer(Modifier.height(28.dp))
         Text("음악 소스 및 연결", color = ink, fontSize = 14.sp,
             fontWeight = FontWeight.SemiBold)

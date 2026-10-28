@@ -1,5 +1,6 @@
 import java.security.KeyStore
 import java.security.MessageDigest
+import org.gradle.api.tasks.testing.Test
 
 plugins {
     id("com.android.application")
@@ -17,8 +18,8 @@ android {
         applicationId = "com.odify.music.nativepreview.v11"
         minSdk = 26
         targetSdk = 35
-        versionCode = 48
-        versionName = "1.0.0-preview12.36"
+        versionCode = 81
+        versionName = "1.0.0-preview12.69"
         ndk {abiFilters += listOf("arm64-v8a","x86_64")}
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -76,6 +77,14 @@ dependencies {
     androidTestImplementation("androidx.test:runner:1.6.2")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     debugImplementation("androidx.compose.ui:ui-tooling")
+}
+
+tasks.withType<Test>().configureEach {
+    if(name=="testDebugUnitTest") {
+        val scripts=layout.buildDirectory.dir("reports/youtube-player")
+        outputs.dir(scripts)
+        systemProperty("odify.playbackFixtureDir",scripts.get().asFile.absolutePath)
+    }
 }
 
 // Enforce identity for local builds too. Never issue an incompatible APK just

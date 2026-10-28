@@ -6,12 +6,14 @@ import org.json.JSONObject
 import java.util.UUID
 
 /** User-owned playlists of Odify song IDs. Source files are never moved or deleted. */
-data class OdifyPlaylist(val id: String, val name: String, val songIds: List<String>)
+data class OdifyPlaylist(val id: String, val name: String, val songIds: List<String>, val coverPath:String?=null)
 
 /** Single-user local playlist catalog; never confuses Drive/phone-folder origins. */
 class OdifyPlaylists(context: Context,name:String="odify_playlists_v1",streamingName:String="odify_streaming_v1") {
+    private val app=context.applicationContext
     private val streaming=OdifyStreamingLibrary(context.applicationContext,streamingName)
     private val prefs = context.getSharedPreferences(name, Context.MODE_PRIVATE)
+    internal val preferences get()=prefs
     private val key = "playlists"
 
     @Synchronized fun all(): List<OdifyPlaylist> = runCatching {
@@ -24,6 +26,7 @@ class OdifyPlaylists(context: Context,name:String="odify_playlists_v1",streaming
             OdifyPlaylist(
                 id = id,
                 name = obj.optString("name").ifBlank { "이름 없는 플레이리스트" },
+                coverPath=obj.optString("cover").takeIf {it.isNotBlank()},
                 songIds = (0 until entries.length()).mapNotNull { j ->
                     entries.optString(j).takeIf(String::isNotBlank)
                 }
@@ -35,6 +38,7 @@ class OdifyPlaylists(context: Context,name:String="odify_playlists_v1",streaming
         val json = JSONArray()
         items.forEach { list ->
             json.put(JSONObject().put("id", list.id).put("name", list.name)
+                .put("cover",list.coverPath.orEmpty())
                 .put("songs", JSONArray().apply { list.songIds.forEach { songId -> put(songId) } }))
         }
         check(prefs.edit().putString(key, json.toString()).commit()) {
@@ -88,7 +92,29 @@ class OdifyPlaylists(context: Context,name:String="odify_playlists_v1",streaming
     }
 
     @Synchronized fun delete(playlistId: String) {
+        val old=all().firstOrNull {it.id==playlistId}
         save(all().filterNot { it.id == playlistId })
+        OdifyPlaylistCovers.removeOwned(app,old?.coverPath)
+    }
+
+    @Synchronized fun rename(playlistId:String,name:String) {
+        val clean=name.trim().take(80)
+        require(clean.isNotEmpty()) {"플레이리스트 이름을 입력해 주세요."}
+        val items=all()
+        require(items.any {it.id==playlistId}) {"플레이리스트를 찾을 수 없습니다."}
+        require(items.none {it.id!=playlistId && it.name.equals(clean,true)}) {"같은 이름의 플레이리스트가 있습니다."}
+        save(items.map {if(it.id==playlistId)it.copy(name=clean) else it})
+    }
+
+    /** Import first, then atomically replace the catalog reference. No persistent URI grant needed. */
+    fun changeCover(playlistId:String,uri:android.net.Uri?) {
+        val imported=uri?.let {OdifyPlaylistCovers.import(app,it)}
+        try {synchronized(this) {
+            val items=all()
+            val old=items.firstOrNull {it.id==playlistId} ?: error("플레이리스트를 찾을 수 없습니다.")
+            save(items.map {if(it.id==playlistId)it.copy(coverPath=imported) else it})
+            OdifyPlaylistCovers.removeOwned(app,old.coverPath)
+        }} catch(error:Exception) {OdifyPlaylistCovers.removeOwned(app,imported);throw error}
     }
 
     fun resolved(playlist: OdifyPlaylist, songs: List<OdifySong>): List<OdifySong> {

@@ -1,0 +1,5 @@
+<resources>
+    <string name="widget_description">지금 듣는 곡과 앨범 표지, 이전·재생·다음 조작</string>
+    <string name="widget_compact_description">한 줄로 놓는 유리 미니플레이어 · 앨범 표지와 재생 조작</string>
+    <string name="widget_compact_name">Odify 미니플레이어</string>
+</resources>

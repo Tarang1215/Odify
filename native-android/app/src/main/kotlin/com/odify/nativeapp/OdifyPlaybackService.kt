@@ -31,6 +31,10 @@ class OdifyPlaybackService : MediaSessionService() {
     private var cacheDb: StandaloneDatabaseProvider? = null
     private val listeningScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var listeningJob: Job? = null
+    private var autoplayJob:Job?=null
+    private var plannedEntry=""
+    private var resumeSongs=emptyList<OdifySong>()
+    private val resumeWrites=kotlinx.coroutines.channels.Channel<OdifyNativeResume>(kotlinx.coroutines.channels.Channel.CONFLATED)
 
     override fun onCreate() {
         super.onCreate()
@@ -81,16 +85,76 @@ class OdifyPlaybackService : MediaSessionService() {
             setHandleAudioBecomingNoisy(true)
             setWakeMode(C.WAKE_MODE_LOCAL)
         }
-        session = MediaSession.Builder(this, player).build()
+        val open=android.app.PendingIntent.getActivity(this,8001,
+            Intent(this,MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
+            android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE)
+        session = MediaSession.Builder(this, player).setSessionActivity(open).build()
+        OdifyWidgetPlayback.bind(this,"native",available={player.currentMediaItem!=null}) {action ->
+            when(action) {
+                "toggle" -> OdifyPlaybackCommands.toggle(player)
+                "previous" -> player.seekToPreviousMediaItem()
+                "next" -> player.seekToNextMediaItem()
+            }
+        }
         val listeningStore = OdifyListeningStore(applicationContext)
+        val checkpoint=OdifyNativeCheckpoint(applicationContext)
+        listeningScope.launch(Dispatchers.IO) {for(value in resumeWrites)checkpoint.write(value)}
+        fun saveResume() {
+            if(player.currentMediaItem?.mediaMetadata?.extras?.getBoolean("odify.youtubeStream")==true ||
+                OdifyYoutubeRuntime.session.value.video!=null || player.currentMediaItemIndex !in resumeSongs.indices)return
+            resumeWrites.trySend(OdifyNativeResume(resumeSongs,player.currentMediaItemIndex,
+                if(player.playbackState==Player.STATE_ENDED)0L else player.currentPosition,
+                player.shuffleModeEnabled,player.repeatMode))
+        }
+        listeningScope.launch {while(isActive){delay(5000);saveResume()}}
         player.addListener(object : Player.Listener {
+            override fun onEvents(player:Player,events:Player.Events) {
+                if(events.contains(Player.EVENT_TIMELINE_CHANGED))
+                    resumeSongs=(0 until player.mediaItemCount).map {queueSong(player.getMediaItemAt(it))}
+                saveResume()
+                if(OdifyYoutubeRuntime.session.value.video!=null)return
+                val item=player.currentMediaItem ?: run {OdifyWidgetPlayback.refresh(applicationContext);return}
+                if(item.mediaMetadata.extras?.getBoolean("odify.youtubeStream")==true)return
+                if(player.playerError==null && OdifyAutoplayPolicy.shouldExtend(player.playWhenReady,
+                    player.repeatMode!=Player.REPEAT_MODE_OFF,player.hasNextMediaItem()) && autoplayJob?.isActive!=true) {
+                    val key=item.mediaMetadata.extras?.getString("odify.queueEntry") ?: item.mediaId
+                    if(key!=plannedEntry) {
+                        plannedEntry=key
+                        val count=player.mediaItemCount
+                        val queue=(0 until count).map {queueSong(player.getMediaItemAt(it))}
+                        autoplayJob=listeningScope.launch {
+                            try {
+                                val next=OdifyAutoplay.following(applicationContext,queueSong(item),queue)
+                                val latest=player.currentMediaItem
+                                val latestKey=latest?.mediaMetadata?.extras?.getString("odify.queueEntry") ?: latest?.mediaId
+                                if(latestKey==key && player.mediaItemCount==count && !player.hasNextMediaItem() &&
+                                    player.repeatMode==Player.REPEAT_MODE_OFF && next.isNotEmpty()) {
+                                    player.addMediaItems(next.queuedMediaItems(applicationContext))
+                                    if(player.playbackState==Player.STATE_ENDED && player.playWhenReady) {
+                                        player.seekToNextMediaItem();player.prepare();player.play()
+                                    }
+                                }
+                            } catch(cancel:CancellationException){throw cancel}
+                            catch(error:Exception){plannedEntry="";android.util.Log.w("OdifyAutoplay","Following queue unavailable",error)}
+                        }
+                    }
+                }
+                val metadata=item.mediaMetadata
+                OdifyWidgetPlayback.publish(applicationContext,OdifyWidgetTrack("native",item.mediaId,
+                    metadata.title?.toString() ?: "Odify",metadata.artist?.toString().orEmpty(),
+                    metadata.artworkUri?.path.orEmpty(),OdifyPlaybackCommands.hasPlayIntent(player),player.hasPreviousMediaItem(),player.hasNextMediaItem()))
+            }
             override fun onMediaItemTransition(item: MediaItem?, reason: Int) {
                 listeningJob?.cancel()
                 if (item == null) return
-                if(item.mediaId.startsWith("youtube:") && item.mediaMetadata.extras?.getBoolean("odify.youtubeStream")==true) {
+                if(item.mediaMetadata.extras?.getBoolean("odify.youtubeStream")==true) {
+                    val autoStart=player.playWhenReady
                     player.pause()
                     val following=(player.currentMediaItemIndex+1 until player.mediaItemCount).map {queueSong(player.getMediaItemAt(it))}
-                    OdifyYoutubeRuntime.play(applicationContext,OdifyStreamingLibrary(applicationContext).video(queueSong(item)),following)
+                    val previous=(0 until player.currentMediaItemIndex).map {queueSong(player.getMediaItemAt(it))}
+                    OdifyYoutubeRuntime.play(applicationContext,OdifyStreamingLibrary(applicationContext).video(queueSong(item)),following,
+                        presentation=queueSong(item),shuffle=player.shuffleModeEnabled,repeat=player.repeatMode==Player.REPEAT_MODE_ONE,previous=previous,autoStart=autoStart)
+                    player.clearMediaItems()
                     return
                 }
                 val entry = java.util.UUID.randomUUID().toString()
@@ -119,6 +183,7 @@ class OdifyPlaybackService : MediaSessionService() {
     }
 
     override fun onDestroy() {
+        OdifyWidgetPlayback.unbind(this,"native")
         listeningScope.cancel()
         session?.run {
             player.release()

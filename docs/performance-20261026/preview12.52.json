@@ -1,0 +1,52 @@
+{
+  "home-reversals": {
+    "frames": 359.0,
+    "jankPercent": 3.9,
+    "p50Ms": 14.0,
+    "p95Ms": 24.0,
+    "p99Ms": 29.0,
+    "gpuP95Ms": 9.0,
+    "maxFrameMs": 29.4,
+    "over100ms": 0
+  },
+  "artist-horizontal": {
+    "frames": 302.0,
+    "jankPercent": 0.99,
+    "p50Ms": 9.0,
+    "p95Ms": 10.0,
+    "p99Ms": 12.0,
+    "gpuP95Ms": 7.0,
+    "maxFrameMs": 373.3,
+    "over100ms": 1
+  },
+  "artist-reversals": {
+    "frames": 314.0,
+    "jankPercent": 6.05,
+    "p50Ms": 8.0,
+    "p95Ms": 14.0,
+    "p99Ms": 17.0,
+    "gpuP95Ms": 5.0,
+    "maxFrameMs": 17.7,
+    "over100ms": 0
+  },
+  "home-navigation": {
+    "frames": 299.0,
+    "jankPercent": 3.34,
+    "p50Ms": 11.0,
+    "p95Ms": 24.0,
+    "p99Ms": 200.0,
+    "gpuP95Ms": 15.0,
+    "maxFrameMs": 1377.6,
+    "over100ms": 4
+  },
+  "country-swipe": {
+    "frames": 371.0,
+    "jankPercent": 0.54,
+    "p50Ms": 12.0,
+    "p95Ms": 16.0,
+    "p99Ms": 18.0,
+    "gpuP95Ms": 8.0,
+    "maxFrameMs": 20.4,
+    "over100ms": 0
+  }
+}
