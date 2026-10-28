@@ -19,7 +19,7 @@ internal data class OdifyWidgetTrack(val owner:String="",val id:String="",val ti
     val previous:Boolean=false,val next:Boolean=false)
 
 /** One event-driven presentation for both engines. Position ticks never redraw
- * launcher widgets. A dead service must never be revived by a stale control. */
+ * launcher widgets. Only an explicit play may restore a matching saved track. */
 internal object OdifyWidgetPlayback {
     private val scope=CoroutineScope(SupervisorJob()+Dispatchers.Main.immediate)
     private data class Endpoint(val available:()->Boolean,val command:(String)->Unit)
@@ -93,9 +93,10 @@ internal object OdifyWidgetPlayback {
         val open=PendingIntent.getActivity(context,9000,Intent(context,MainActivity::class.java)
             .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        fun control(command:String,code:Int):PendingIntent=if(!controllable)open else PendingIntent.getBroadcast(context,code,
+        val resumable=state.owner in setOf("youtube","native") && state.id.isNotBlank()
+        fun control(command:String,code:Int):PendingIntent=if(!controllable && (command!="toggle" || !resumable))open else PendingIntent.getBroadcast(context,code,
             Intent(context,OdifyMusicWidget::class.java).setAction(ACTION_CONTROL)
-                .putExtra("owner",state.owner).putExtra("command",command),
+                .putExtra("owner",state.owner).putExtra("id",state.id).putExtra("command",command),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         return RemoteViews(context.packageName,if(compact)R.layout.odify_music_widget_compact else R.layout.odify_music_widget).apply {
             setTextViewText(R.id.widget_title,state.title)
@@ -105,7 +106,7 @@ internal object OdifyWidgetPlayback {
             setOnClickPendingIntent(R.id.widget_root,open)
             if(art!=null)setImageViewBitmap(R.id.widget_art,art) else setImageViewResource(R.id.widget_art,R.drawable.widget_music)
             setImageViewResource(R.id.widget_toggle,if(controllable && state.playing)R.drawable.widget_pause else R.drawable.widget_play)
-            setContentDescription(R.id.widget_toggle,if(!controllable)"Odify 열기" else if(state.playing)"일시정지" else "재생")
+            setContentDescription(R.id.widget_toggle,if(!controllable && !resumable)"Odify 열기" else if(controllable && state.playing)"일시정지" else "재생")
             setOnClickPendingIntent(R.id.widget_toggle,control("toggle",9001))
             setOnClickPendingIntent(R.id.widget_previous,control("previous",9002))
             setOnClickPendingIntent(R.id.widget_next,control("next",9003))
@@ -124,22 +125,33 @@ internal object OdifyWidgetPlayback {
 }
 
 open class OdifyMusicWidget:AppWidgetProvider() {
+    private val controlScope=CoroutineScope(SupervisorJob()+Dispatchers.Main.immediate)
     override fun onUpdate(context:Context,manager:AppWidgetManager,ids:IntArray) {OdifyWidgetPlayback.refresh(context)}
     override fun onAppWidgetOptionsChanged(context:Context,manager:AppWidgetManager,id:Int,options:android.os.Bundle) {
         OdifyWidgetPlayback.refresh(context)
     }
     override fun onReceive(context:Context,intent:Intent) {
         super.onReceive(context,intent)
-        if(intent.action==OdifyWidgetPlayback.ACTION_CONTROL) {
-            // Explicit immutable PendingIntents; only this application's receiver
-            // can address its registered engine. Never start an empty service.
-            OdifyWidgetPlayback.dispatch(intent.getStringExtra("owner").orEmpty(),intent.getStringExtra("command").orEmpty())
-        }
         // Keep the process alive until the cover decode and launcher update
         // finish, including a launcher update after the app process was killed.
         val pending=goAsync()
-        val job=OdifyWidgetPlayback.refresh(context)
-        if(job==null)pending.finish() else job.invokeOnCompletion {pending.finish()}
+        controlScope.launch {
+            try {
+                if(intent.action==OdifyWidgetPlayback.ACTION_CONTROL) {
+                    val owner=intent.getStringExtra("owner").orEmpty();val command=intent.getStringExtra("command").orEmpty()
+                    val id=intent.getStringExtra("id").orEmpty();val current=OdifyWidgetPlayback.read(context)
+                    if(id.isNotBlank() && current.owner==owner && current.id==id &&
+                        !OdifyWidgetPlayback.dispatch(owner,command) && command=="toggle") {
+                        val restored=withTimeoutOrNull(8500){OdifyWidgetResume.play(context.applicationContext,owner,id)}==true
+                        if(!restored)android.widget.Toast.makeText(context,"앱에서 재생할 곡을 다시 선택해 주세요.",android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                }
+                OdifyWidgetPlayback.refresh(context)?.join()
+            } catch(error:Exception) {
+                android.util.Log.w("OdifyWidget","Playback resume unavailable",error)
+                android.widget.Toast.makeText(context,"재생 연결을 확인하고 다시 눌러 주세요.",android.widget.Toast.LENGTH_SHORT).show()
+            } finally {pending.finish()}
+        }
     }
 }
 

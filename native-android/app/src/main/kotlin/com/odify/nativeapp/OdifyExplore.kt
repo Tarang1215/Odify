@@ -195,7 +195,8 @@ private object ExploreArtworkMemory {
 @Composable
 fun OdifyExplore(index:OdifyChartMatching.Index,repository:OdifyExploreRepository,onProfile:()->Unit,onPlay:(List<OdifySong>,Int)->Unit,
     onMissingTrack:(ExploreTrack)->Unit,onSaveChart:(String,List<String>)->Unit,onSync:()->Unit,onAddTrack:(ExploreTrack,OdifySong?)->Unit,
-    pagerState:androidx.compose.foundation.pager.PagerState?=null) {
+    pagerState:androidx.compose.foundation.pager.PagerState?=null,onArtist:(String)->Unit={},
+    loadArtistPortrait:suspend(String)->String?={null}) {
     val countries=remember {listOf("kr","jp","us")}
     val pager=pagerState ?: rememberPagerState {countries.size}
     val selectedCountry=countries[pager.currentPage]
@@ -243,6 +244,7 @@ fun OdifyExplore(index:OdifyChartMatching.Index,repository:OdifyExploreRepositor
             val ready=remember(visible,matched) {visible.mapNotNull {matched[it.id]}.distinctBy {it.contentMd5.ifBlank {it.id}}}
             val countryName=when(country) {"kr"->"한국";"jp"->"일본";else->"미국"}
             LazyColumn(Modifier.fillMaxSize(),state=listState,contentPadding=PaddingValues(22.dp,8.dp,22.dp,160.dp)) {
+                item(key="popular-artists") {OdifyPopularArtistsRow(country,refresh,onProfile,onArtist,loadArtistPortrait)}
                 item {
                     Row(verticalAlignment=Alignment.CenterVertically) {
                         Text("$countryName Top 100",fontSize=26.sp,fontWeight=FontWeight.Bold,color=OdifyPalette.text,modifier=Modifier.weight(1f))

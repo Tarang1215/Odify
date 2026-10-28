@@ -282,7 +282,7 @@ fun OdifyPersonalHome(
     }
 }
 
-@Composable private fun HomeArtistPortrait(name:String,loader:suspend (String)->String?,modifier:Modifier) {
+@Composable internal fun HomeArtistPortrait(name:String,loader:suspend (String)->String?,modifier:Modifier) {
     val latestLoader by rememberUpdatedState(loader)
     val portrait by produceState<String?>(null,name) {
         try {value=latestLoader(name)} catch(cancel:CancellationException){throw cancel} catch(_:Exception) {value=null}

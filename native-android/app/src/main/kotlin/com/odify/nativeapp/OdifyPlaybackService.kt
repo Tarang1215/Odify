@@ -33,6 +33,8 @@ class OdifyPlaybackService : MediaSessionService() {
     private var listeningJob: Job? = null
     private var autoplayJob:Job?=null
     private var plannedEntry=""
+    private var resumeSongs=emptyList<OdifySong>()
+    private val resumeWrites=kotlinx.coroutines.channels.Channel<OdifyNativeResume>(kotlinx.coroutines.channels.Channel.CONFLATED)
 
     override fun onCreate() {
         super.onCreate()
@@ -95,8 +97,21 @@ class OdifyPlaybackService : MediaSessionService() {
             }
         }
         val listeningStore = OdifyListeningStore(applicationContext)
+        val checkpoint=OdifyNativeCheckpoint(applicationContext)
+        listeningScope.launch(Dispatchers.IO) {for(value in resumeWrites)checkpoint.write(value)}
+        fun saveResume() {
+            if(player.currentMediaItem?.mediaMetadata?.extras?.getBoolean("odify.youtubeStream")==true ||
+                OdifyYoutubeRuntime.session.value.video!=null || player.currentMediaItemIndex !in resumeSongs.indices)return
+            resumeWrites.trySend(OdifyNativeResume(resumeSongs,player.currentMediaItemIndex,
+                if(player.playbackState==Player.STATE_ENDED)0L else player.currentPosition,
+                player.shuffleModeEnabled,player.repeatMode))
+        }
+        listeningScope.launch {while(isActive){delay(5000);saveResume()}}
         player.addListener(object : Player.Listener {
             override fun onEvents(player:Player,events:Player.Events) {
+                if(events.contains(Player.EVENT_TIMELINE_CHANGED))
+                    resumeSongs=(0 until player.mediaItemCount).map {queueSong(player.getMediaItemAt(it))}
+                saveResume()
                 if(OdifyYoutubeRuntime.session.value.video!=null)return
                 val item=player.currentMediaItem ?: run {OdifyWidgetPlayback.refresh(applicationContext);return}
                 if(item.mediaMetadata.extras?.getBoolean("odify.youtubeStream")==true)return

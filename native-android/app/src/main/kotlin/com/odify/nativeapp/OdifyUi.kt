@@ -577,6 +577,8 @@ fun OdifyRoot(
                 )
                 OdifyTab.Explore -> OdifyExplore(
                     index=chartIndex,repository=exploreRepository,onPlay=::playList,onSync=onDriveSync,
+                    onArtist={artist ->searchQuery=artist;navigateTo(OdifyTab.Search)},
+                    loadArtistPortrait={artist ->artistCatalog.portrait(artist)},
                     onAddTrack={track,owned -> playlistDialogTrack=owned ?:
                         OdifySong("chart:${track.id}",track.title,track.artist,"","")},
                     onProfile = { navigateTo(OdifyTab.Profile) },
@@ -1426,6 +1428,8 @@ private fun OdifyProfile(
         OdifyStreamingRequestsCard()
         Spacer(Modifier.height(16.dp))
         OdifyChartSettingsCard()
+        Spacer(Modifier.height(16.dp))
+        OdifyLastFmSettingsCard()
         Spacer(Modifier.height(28.dp))
         Text("음악 소스 및 연결", color = ink, fontSize = 14.sp,
             fontWeight = FontWeight.SemiBold)

@@ -36,6 +36,36 @@ class OdifyCompanyUiTest {
     private val context get()=test.targetContext
     private fun main(block:()->Unit)=test.runOnMainSync(block)
 
+    @Test fun nativeResumePreservesMixedQueueOccurrencesAndRejectsMismatchedOrExpiredState() {
+        val name="company-native-resume";context.deleteSharedPreferences(name)
+        try {
+            val store=OdifyNativeCheckpoint(context,name)
+            val native=OdifySong("gdrive:resume","Song","Artist","Album","",sourceUri="https://www.googleapis.com/drive/v3/files/example?alt=media",contentMd5="new-audio")
+            val streamed=OdifySong("youtube:abcdefghijk","Online","Artist","Album","").forYoutubePlayback("abcdefghijk")
+            val queue=listOf(native,streamed,native)
+            store.write(OdifyNativeResume(queue,2,42000,true,Player.REPEAT_MODE_ONE),100000)
+            val restored=requireNotNull(store.restore(native.id,100001))
+            assertEquals(queue,restored.songs);assertEquals(2,restored.index);assertEquals(42000L,restored.position)
+            assertTrue(restored.shuffle);assertEquals(Player.REPEAT_MODE_ONE,restored.repeat)
+            assertNull(store.restore("gdrive:other",100001));assertNull(store.restore(native.id,99))
+            assertNull(store.restore(native.id,100000+8*24*60*60_000L))
+            context.getSharedPreferences(name,0).edit().putString("queue","invalid").commit()
+            assertNull(store.restore(native.id,100001))
+        } finally {context.deleteSharedPreferences(name)}
+    }
+
+    @Test fun coldWidgetOffersResumeForASavedOwnerAndKeepsEmptyWidgetAsOpenApp() {
+        main {
+            for(owner in listOf("native","youtube")) {
+                val view=OdifyWidgetPlayback.views(context,OdifyWidgetTrack(owner,"saved:song"),false)
+                    .apply(context,android.widget.FrameLayout(context))
+                assertEquals("재생",view.findViewById<android.view.View>(R.id.widget_toggle).contentDescription.toString())
+            }
+            val empty=OdifyWidgetPlayback.views(context,OdifyWidgetTrack(),false).apply(context,android.widget.FrameLayout(context))
+            assertEquals("Odify 열기",empty.findViewById<android.view.View>(R.id.widget_toggle).contentDescription.toString())
+        }
+    }
+
     @Test fun retainedPagesKeepCompositionAndHideInactiveTouchAndAccessibilityTargets() {
         val selected=mutableStateOf(true);var homeMounts=0;var exploreMounts=0;var inactiveClicks=0
         ActivityScenario.launch(MainActivity::class.java).use {scenario ->
