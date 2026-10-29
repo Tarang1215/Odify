@@ -69,10 +69,11 @@ jobs:
         timeout-minutes: 8
         run: |
           set -o pipefail
-          xcodebuild -project native-ios/Odify.xcodeproj -scheme Odify -configuration Debug -destination "platform=iOS Simulator,id=$IPAD_SIM" -derivedDataPath build/native-ios-sim -resultBundlePath dist/ios-checks/Odify.xcresult test CODE_SIGNING_ALLOWED=NO | tee build/native-ios-tests.log
+          xcodebuild -project native-ios/Odify.xcodeproj -scheme Odify -configuration Debug -destination "platform=iOS Simulator,id=$IPAD_SIM" -parallel-testing-enabled NO -derivedDataPath build/native-ios-sim -resultBundlePath dist/ios-checks/Odify.xcresult test CODE_SIGNING_ALLOWED=NO | tee build/native-ios-tests.log
       - name: Capture native iPad presentation fixture
         if: ${{ !cancelled() && env.IPAD_SIM != '' }}
         run: |
+          xcrun simctl install "$IPAD_SIM" build/native-ios-sim/Build/Products/Debug-iphonesimulator/Odify.app
           xcrun simctl terminate "$IPAD_SIM" com.odify.music.ios || true
           xcrun simctl status_bar "$IPAD_SIM" override --time '9:41' --batteryState charged --batteryLevel 100
           xcrun simctl launch "$IPAD_SIM" com.odify.music.ios --odify-preview
