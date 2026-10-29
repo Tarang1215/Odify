@@ -71,6 +71,8 @@ struct RootView: View {
                     .navigationDestination(for: MusicPlaylist.self) { PlaylistView(playlistID: $0.id) }
                     .navigationDestination(for: Track.self) { ArtistView(artist: $0) }
                 }
+                .id(page)
+                .transition(.opacity)
                 .tint(.white)
                 if inspector {
                     NowPlayingPane(openFullPlayer: { fullPlayer = true })
@@ -86,6 +88,7 @@ struct RootView: View {
                 }.padding(.bottom, 8)
             }
             .animation(reduceMotion ? nil : .smooth(duration: 0.3), value: sidebar)
+            .animation(reduceMotion ? nil : .smooth(duration: 0.22), value: page)
             .fullScreenCover(isPresented: $fullPlayer) { FullPlayerView() }
             .sheet(isPresented: $showAbout) { AboutView() }
             .sheet(isPresented: $showDrive) { DriveBrowser() }

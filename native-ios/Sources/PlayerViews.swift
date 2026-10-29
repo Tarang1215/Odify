@@ -113,8 +113,9 @@ struct FullPlayerView: View {
     @Namespace private var glass
     var body: some View {
         GeometryReader { geometry in
-            let wide = geometry.size.width >= 850
+            let wide = geometry.size.width >= 850 && geometry.size.width > geometry.size.height
             let coverSize = min(wide ? geometry.size.width * 0.42 : geometry.size.width - 64, geometry.size.height * (wide ? 0.63 : 0.38))
+            let panelHeight: CGFloat = panel != nil && !expanded ? min(290, geometry.size.height * 0.34) : 0
             ZStack {
                 MusicBackdrop(tint: Color(uiColor: engine.tint))
                 VStack(spacing: 18) {
@@ -146,7 +147,9 @@ struct FullPlayerView: View {
                             Button("다시 시도") { engine.resume() }.font(.system(size: 11, weight: .semibold))
                         }.foregroundStyle(.secondary).padding(.horizontal, 8)
                        }
-                      }.frame(maxWidth: .infinity).padding(.vertical, 12)
+                      }.frame(maxWidth: .infinity)
+                        .frame(minHeight: max(0, geometry.size.height - 150 - panelHeight), alignment: .center)
+                        .padding(.vertical, 12)
                     }.scrollIndicators(.hidden)
                     bottomGlass(availableHeight: geometry.size.height)
                 }.padding(.horizontal, wide ? 42 : 26).padding(.bottom, 16)
