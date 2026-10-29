@@ -127,4 +127,49 @@ simulator queue test does not establish these hardware outcomes.
 - LiveContainer limitations: https://livecontainer.github.io/docs/faq
 - Embedded-video advertisements: https://support.google.com/youtube/answer/132596
 
-Build/artifact/checksum results will be appended after the actual run completes.
+## Verified delivery — 2026-10-29
+
+- App source: `37338059b8dc9856425fc20ebf10bc9ce7e4907e`.
+- Version: **1.1.0 (3)**. Native arm64 iPhone/iPad device app, minimum OS 26.0.
+- CI: https://github.com/Tarang1215/Odify/actions/runs/40835881312 — **success**.
+- Six Python packaging tests and **18 XCTest cases passed**. Drive's fake-account
+  authenticated range loader successfully parsed a native audio asset and
+  sought within it; real muted AVQueue tests verified reorder/advance and
+  corrupt-successor recovery. No private Google account/media was used by CI.
+- IPA: 1,683,497 bytes, main native Mach-O 6,463,824 bytes. Original SDK licenses,
+  Google callback scheme, bundle ID, background-audio declaration, device CPU/
+  platform, execution permission and zero guest extensions independently checked.
+- SHA256: `21902d3c4be90b0984a2d2816e8eb2185b09b44ccea66135c9cb5a7171a514fc`.
+- Release: https://github.com/Tarang1215/Odify/releases/tag/ios-native-1.1.0-b3-3733805
+- Direct IPA: https://github.com/Tarang1215/Odify/releases/download/ios-native-1.1.0-b3-3733805/Odify-iOS-1.1.0.ipa
+- The public direct link was fetched without authentication and matched the
+  independently verified artifact and GitHub release asset digest.
+- Exact resolved dependencies: `IOS_NATIVE_DEPENDENCIES_3733805.json` beside this
+  document. Downloaded verification JSON and IPA are in ignored
+  `dist/ios/native-1.1.0/` in the active worktree.
+
+The final shared-client cloud YouTube probe **failed** with
+`Sign in to confirm you’re not a bot`. A separate company-network soundless
+request for the same public video returned HTTP 206/audio-mp4 for itag 139 and
+140 (1024 bytes each). This establishes a working path on that network, not
+iPad playback or universal stream availability. The release explicitly includes
+the failed cloud-probe JSON and result notice. Do not report this probe passed.
+
+The captured simulator screenshots remained **portrait** (2048×2732), despite
+the landscape preference. Portrait presentation was visually inspected. Wide-
+window three-pane code is present, but the landscape capture and actual device
+layout/rotation remain unverified. Preview captures use fictional fixture music,
+not the user's collection.
+
+## iPad installation
+
+1. Open the direct IPA link in iPad Safari and download to Files.
+2. Open the existing LiveContainer, tap +, and select the IPA in Files/Downloads.
+3. Launch Odify → Library → Google Drive → connect the Google account registered
+   as an OAuth test user → open a folder and choose a song.
+4. Odify does not need an additional standalone SideStore installation when used
+   as a LiveContainer guest. Keep the existing container/signing setup intact.
+
+Still pending: actual LiveContainer Google login/return/refresh, the user's Drive
+audio, actual YouTube playback, system controls, landscape/resize behavior, frame
+pacing, and 60+ minute screen-off continuity. Android is untouched. PR 22 stays draft.
