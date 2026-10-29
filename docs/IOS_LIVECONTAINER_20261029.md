@@ -16,7 +16,17 @@
 
 검증기는 Runner, Flutter 엔진 및 AOT App.framework가 실제로 존재하는지, Mach-O가 iOS 기기용 arm64인지, Payload 구조와 실행 권한·해시가 정상인지 확인한다. 시뮬레이터 앱을 이름만 IPA로 바꿔 전달하지 않는다.
 
-현재 로컬 Dart 정적 검사는 컴파일 오류 없이 완료됐고 기존 코드의 스타일 정보 26개가 남아 있다. 실제 IPA 빌드와 결과는 아직 진행 중이며, 성공 후 여기에 기록한다. LiveContainer/iPhone·iPad 실기기에서 직접 실행·재생한 것으로 보고하지 않는다.
+로컬 Dart 정적 검사는 컴파일 오류 없이 완료됐고 기존 코드의 스타일 정보 26개가 남아 있다. 로컬 Flutter 검사 26개와 패키징/식별자 회귀 검사 5개를 통과했다. 클라우드에서도 해당 검사를 거쳐 iOS 네이티브 엔진, Xcode 기기용 Release 앱, Mach-O/AOT/IPA 검증 및 artifact 업로드가 모두 완료됐다. LiveContainer/iPhone·iPad 실기기에서 직접 실행·재생한 것으로 보고하지 않는다.
+
+## 완성된 IPA
+
+- 앱 소스: `6746d09318e2ec37b2f52676b4edf31e95fe5a1c`.
+- [클라우드 Mac 빌드](https://github.com/Tarang1215/Odify/actions/runs/40817895796), Xcode 26.6 (17F113), macOS 26.
+- [IPA 다운로드 — artifact ZIP](https://github.com/Tarang1215/Odify/actions/runs/40817895796/artifacts/12874421366). GitHub 로그인 후 ZIP을 받아 압축을 풀면 `Odify-iOS-1.0.0.ipa`가 있다. 보관 기한은 2026-11-12다.
+- IPA 크기: **32,530,421 bytes**, SHA256 `b3a5ad3fa059366aaae7fc6e0566bf0e59e3bebc5a6196f8b2b37521d3950eb2`.
+- artifact ZIP SHA256: `d613b7aeef6c9f6d607db3cf51c82b8d59b5606bd0a84667ca52ed6e5bcae02e`.
+- 실제 다운로드한 파일도 독립 검증했다. Runner, App.framework, Flutter.framework의 thin/fat Mach-O를 읽어 iOS 기기 플랫폼과 arm64를 확인했다. IPA의 CRC/체크섬, iPhone/iPad device family `[1,2]`, 최소 OS 16.0, 실행 권한, 원본 MIT 라이선스 포함, 확장 0개, embedded.mobileprovision 미포함을 확인했다.
+- 완성 IPA는 서명 전 릴리스 파일이며, 사용자의 기존 LiveContainer 인증서 설정으로 가져와 서명/실행한다. 코드 또는 개인정보를 새로 제공할 필요는 없다.
 
 ## 설치
 
