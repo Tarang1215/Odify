@@ -30,6 +30,14 @@ def prepare(root: Path):
     if 'com.zarz.mornye' not in source:
         raise RuntimeError('Unrecognized iOS bundle identity')
     project.write_text(source.replace('com.zarz.mornye', BUNDLE), encoding='utf-8')
+    # The widget's target overrides the project identity in its own xcconfig.
+    # Xcode validates it before we remove guest-inapplicable extensions from
+    # the final IPA, so both target identities must share the same prefix.
+    widget_config = root / 'ios/PlayerWidget/PlayerWidget.xcconfig'
+    source = widget_config.read_text(encoding='utf-8')
+    if 'PRODUCT_BUNDLE_IDENTIFIER = com.zarz.mornye.PlayerWidget' not in source:
+        raise RuntimeError('Unrecognized embedded widget identity')
+    widget_config.write_text(source.replace('com.zarz.mornye', BUNDLE), encoding='utf-8')
     identity = root / 'lib/constants/app_info.dart'
     source = identity.read_text(encoding='utf-8')
     for old, new in [("static const String version = '0.9.0';", "static const String version = '1.0.0';"),
