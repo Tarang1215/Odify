@@ -282,10 +282,14 @@ import UIKit
         guard let id = itemIDs[ObjectIdentifier(item)] else { return }
         if let current = player.currentItem, current !== item { return }
         guard wantsPlayback else { return }
-        // The end notification can arrive just before AVQueuePlayer advances.
-        // Leave a prepared successor alone; replacing the queue here would
-        // discard its buffer and prevent a native screen-off handoff.
-        if player.items().count > 1 { return }
+        // Some queue edits leave AVQueuePlayer stopped at its ended current
+        // item even with actionAtItemEnd=.advance. Advance the existing queue
+        // without resolving/replacing its already buffered successor.
+        if player.items().count > 1 {
+            player.advanceToNextItem()
+            if wantsPlayback { player.play() }
+            return
+        }
         guard let next = queue.successor(after: id, automatic: true) else {
             wantsPlayback = false; isPlaying = false; isBuffering = false; onCheckpoint?(); publishNowPlaying(); return
         }
