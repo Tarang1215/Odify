@@ -194,7 +194,16 @@ struct ArtistView: View {
         defer { loading = false }
         let local = store.tracks.filter { Track.normalized($0.artist) == Track.normalized(artist.artist) }
         songs = local
-        do { songs = Track.unique(local + (try await MusicCatalog.shared.artist(artist))) }
+        do {
+            let catalog = try await MusicCatalog.shared.artist(artist)
+            songs = Track.unique(local + catalog)
+            if catalog.isEmpty {
+                let videos = try await YouTubeCatalog.shared.search(artist.artist + " music")
+                var known = Set(songs.map { Track.normalized($0.title) })
+                let additional = videos.map { $0.track() }.filter { known.insert(Track.normalized($0.title)).inserted }
+                songs += additional
+            }
+        }
         catch is CancellationError { }
         catch { self.error = error.localizedDescription }
     }

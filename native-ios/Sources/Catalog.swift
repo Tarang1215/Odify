@@ -1,5 +1,5 @@
 import Foundation
-import YouTubeKit
+@preconcurrency import YouTubeKit
 
 enum MusicCountry: String, CaseIterable, Identifiable {
     case korea = "kr", japan = "jp", unitedStates = "us"
@@ -39,7 +39,19 @@ actor MusicCatalog {
             let result = try await songs(MusicHTTP.url("https://itunes.apple.com/lookup", ["id": id, "entity": "song", "limit": "200", "country": "us"]))
             if !result.isEmpty { return result }
         }
-        return try await search(track.artist).filter { Track.normalized($0.artist) == Track.normalized(track.artist) }
+        for country in MusicCountry.allCases {
+            let url = MusicHTTP.url("https://itunes.apple.com/search", ["term": track.artist, "attribute": "artistTerm", "entity": "song", "limit": "200", "country": country.rawValue])
+            let found = try await songs(url)
+            let exact = found.filter { Track.normalized($0.artist) == Track.normalized(track.artist) }
+            if !exact.isEmpty { return exact }
+            // A localized tag may use a different catalog spelling. Accept an
+            // alias only when the artist query and known recording title agree
+            // on a single catalog artist ID; never choose a fuzzy first result.
+            let evidence = found.filter { Track.normalized($0.title) == Track.normalized(track.title) }
+            let ids = Set(evidence.compactMap(\.artistID))
+            if ids.count == 1, let id = ids.first { return found.filter { $0.artistID == id } }
+        }
+        return []
     }
     func chart(_ country: MusicCountry) async throws -> [Track] {
         let key = "chart:" + country.rawValue

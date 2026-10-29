@@ -197,7 +197,7 @@ struct FullPlayerView: View {
             }.glassEffect(.regular.interactive(), in: .circle).accessibilityLabel(engine.isPlaying ? "일시 정지" : "재생")
             Button(action: engine.next) { Image(systemName: "forward.end.fill").font(.system(size: 27)).frame(width: 46, height: 52) }.accessibilityLabel("다음 곡")
             Button(action: engine.cycleRepeat) { Image(systemName: engine.queue.repeatMode == .one ? "repeat.1" : "repeat").font(.system(size: 19)).frame(width: 40, height: 44) }
-                .foregroundStyle(engine.queue.repeatMode == .off ? .secondary : .mint).accessibilityLabel("반복: \(engine.queue.repeatMode.rawValue)")
+                .foregroundStyle(engine.queue.repeatMode == .off ? Color.secondary : Color.mint).accessibilityLabel("반복: \(engine.queue.repeatMode.rawValue)")
         }.buttonStyle(.plain).frame(maxWidth: .infinity).minimumScaleFactor(0.7)
     }
     private func bottomGlass(availableHeight: CGFloat) -> some View {

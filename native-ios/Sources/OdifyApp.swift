@@ -25,7 +25,7 @@ struct RootView: View {
     @EnvironmentObject private var engine: PlaybackEngine
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var page: MainPage = .home
-    @State private var fullPlayer = false
+    @State private var fullPlayer = ProcessInfo.processInfo.arguments.contains("--odify-player")
     @State private var importer = false
     @State private var importSource: MusicSource = .local
     @State private var showAbout = false
@@ -87,7 +87,15 @@ struct RootView: View {
             .alert("Odify", isPresented: Binding(get: { store.notice != nil }, set: { if !$0 { store.notice = nil } })) {
                 Button("확인") { store.notice = nil }
             } message: { Text(store.notice ?? "") }
-            .task { await store.loadHome() }
+            .task {
+                if ProcessInfo.processInfo.arguments.contains("--odify-landscape") {
+                    try? await Task.sleep(for: .milliseconds(200))
+                    if let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene {
+                        scene.requestGeometryUpdate(.iOS(interfaceOrientations: .landscapeLeft))
+                    }
+                }
+                await store.loadHome()
+            }
         }
     }
     private func importMusic(_ source: MusicSource) { importSource = source; importer = true }

@@ -76,6 +76,14 @@ jobs:
           xcrun simctl launch "$IPAD_SIM" com.odify.music.ios --odify-preview
           sleep 4
           xcrun simctl io "$IPAD_SIM" screenshot dist/ios-checks/ipad-portrait.png
+          xcrun simctl terminate "$IPAD_SIM" com.odify.music.ios
+          xcrun simctl launch "$IPAD_SIM" com.odify.music.ios --odify-preview --odify-landscape
+          sleep 3
+          xcrun simctl io "$IPAD_SIM" screenshot dist/ios-checks/ipad-landscape.png
+          xcrun simctl terminate "$IPAD_SIM" com.odify.music.ios
+          xcrun simctl launch "$IPAD_SIM" com.odify.music.ios --odify-preview --odify-landscape --odify-player
+          sleep 3
+          xcrun simctl io "$IPAD_SIM" screenshot dist/ios-checks/ipad-player.png
       - name: Upload verified IPA approved by repository owner
         uses: actions/upload-artifact@v4
         with:
