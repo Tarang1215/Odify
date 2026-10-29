@@ -8,3 +8,5 @@ native-android/licenses/
 **/__pycache__/
 *.keystore
 *.jks
+build/ios-source/
+dist/ios/
