@@ -10,7 +10,7 @@ repository/cloud Mac build/artifact upload were expressly authorized in chat.
 `native-ios/` is a new SwiftUI + AVFoundation target, not a reskin of the common
 Flutter app. Android is untouched. The previous common assembly and its legacy
 workflow remain reproducible, but the active iOS branch runs
-`odify-native-ios.yml` and produces **1.1.0 (2)**, minimum **iOS/iPadOS 26**.
+`odify-native-ios.yml` and produces **1.1.0 (3)**, minimum **iOS/iPadOS 26**.
 
 - Window width < 760 pt: compact navigation and full player.
 - 760–1099 pt: navigation sidebar + browsing pane + horizontal mini player.
@@ -37,7 +37,12 @@ ReVanced/Morphe are only external-open targets.
 YouTubeKit is pinned to `89854c93207ad0d2b3d78d6f1aea24595ca66552` (MIT; original
 license bundled). Only its **local** extraction mode is enabled. No third-party
 remote-extraction proxy, user cookies or credentials are used. Audio-only native
-M4A sources go to AVQueuePlayer, not a hidden WKWebView. There is no claim of
+M4A sources go to AVQueuePlayer, not a hidden WKWebView. The primary resolver is
+now a shared public-video iOS client (`native-ios/Streaming`), after the original
+extractor failed the cloud probe. A Windows-side soundless request received
+HTTP 206 and 1024 bytes for both AAC itag 139 and 140 on 2026-10-29. The exact same
+Swift resolver is compiled into the app and Mac probe. Service login/age/private
+restrictions are surfaced, not retried through a different client. There is no claim of
 permanent YouTube compatibility, guaranteed ad-free operation, or reliable
 restricted/paid/account-required playback.
 
@@ -98,7 +103,10 @@ simulator queue test does not establish these hardware outcomes.
 
 ## Work in progress validation, 2026-10-29
 
-- `f4bfd57`: device Release build and soundless live YouTube connection passed.
+- `f4bfd57`: device Release build passed. The soundless YouTube probe failed
+  (`YouTubeKitError.extractError`); the continued-on-error step's apparent success
+  was initially misread. The downloaded JSON established failure, and the user
+  was explicitly corrected. Never infer probe success from step conclusion.
   Twelve XCTest cases ran: eleven passed; the corrupt prepared-file case failed
   (two assertions). Edited-queue automatic transition now passes and reuses the
   buffered AVPlayerItem. Simulator portrait/landscape/player captures produced.

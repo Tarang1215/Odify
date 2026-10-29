@@ -1,5 +1,6 @@
 import Foundation
 @preconcurrency import YouTubeKit
+import OdifyStreaming
 
 enum MusicCountry: String, CaseIterable, Identifiable {
     case korea = "kr", japan = "jp", unitedStates = "us"
@@ -207,13 +208,19 @@ actor StreamResolver {
         if let videoID = track.videoID { id = videoID } else { id = try await YouTubeCatalog.shared.match(track).id }
         if !refresh, let (url, date) = streams[id], Date().timeIntervalSince(date) < 1800 { return url }
         // Local extraction only: never send proxy requests or cookies to a third-party fallback server.
-        let all = try await YouTube(videoID: id, methods: [.local]).streams
-        guard let stream = all.filterAudioOnly().filter({ $0.fileExtension == .m4a && $0.isNativelyPlayable }).highestAudioBitrateStream() else {
-            throw OdifyError.message("이 영상의 오디오 스트림을 연결하지 못했습니다. 다른 영상을 선택해 주세요.")
+        let result: URL
+        do { result = try await YouTubeAudio.url(videoID: id) }
+        catch YouTubeAudioFailure.restricted(let reason) { throw YouTubeAudioFailure.restricted(reason) }
+        catch {
+            let all = try await YouTube(videoID: id, methods: [.local]).streams
+            guard let stream = all.filterAudioOnly().filter({ $0.fileExtension == .m4a && $0.isNativelyPlayable }).highestAudioBitrateStream() else {
+                throw OdifyError.message("이 영상의 오디오 스트림을 연결하지 못했습니다. 다른 영상을 선택해 주세요.")
+            }
+            result = stream.url
         }
-        guard stream.url.scheme == "https" else { throw OdifyError.message("안전한 음원 주소를 확인하지 못했습니다.") }
+        guard result.scheme == "https" else { throw OdifyError.message("안전한 음원 주소를 확인하지 못했습니다.") }
         if streams.count > 40 { streams.removeAll() }
-        streams[id] = (stream.url, Date())
-        return stream.url
+        streams[id] = (result, Date())
+        return result
     }
 }

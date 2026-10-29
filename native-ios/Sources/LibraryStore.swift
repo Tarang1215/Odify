@@ -228,11 +228,11 @@ import UniformTypeIdentifiers
 /// Opt-in simulator presentation fixture. Never loaded during ordinary launch.
 enum PreviewLibrary {
     static let tracks = [
-        Track(id: "preview:1", title: "Moonlit Drive", artist: "Odify Sessions", album: "After Hours", source: .local),
-        Track(id: "preview:2", title: "Soft Focus", artist: "Studio Glass", album: "Still / Moving", source: .drive),
-        Track(id: "preview:3", title: "Blue Hour", artist: "Evening Collective", album: "Between Days"),
-        Track(id: "preview:4", title: "Slow Motion", artist: "Odify Sessions", album: "After Hours"),
-        Track(id: "preview:5", title: "A Little Closer", artist: "Studio Glass", album: "Still / Moving")
+        Track(id: "preview:1", title: "Moonlit Drive", artist: "Odify Sessions", album: "After Hours", source: .local, duration: 244),
+        Track(id: "preview:2", title: "Soft Focus", artist: "Studio Glass", album: "Still / Moving", source: .drive, duration: 198),
+        Track(id: "preview:3", title: "Blue Hour", artist: "Evening Collective", album: "Between Days", duration: 213),
+        Track(id: "preview:4", title: "Slow Motion", artist: "Odify Sessions", album: "After Hours", duration: 227),
+        Track(id: "preview:5", title: "A Little Closer", artist: "Studio Glass", album: "Still / Moving", duration: 206)
     ]
     static var snapshot: LibrarySnapshot {
         var value = LibrarySnapshot(tracks: tracks,

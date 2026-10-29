@@ -2,7 +2,15 @@ import SwiftUI
 import UniformTypeIdentifiers
 import GoogleSignIn
 
+final class OdifyOrientationDelegate: NSObject, UIApplicationDelegate {
+    func application(_ application: UIApplication, supportedInterfaceOrientationsFor window: UIWindow?) -> UIInterfaceOrientationMask {
+        if ProcessInfo.processInfo.arguments.contains("--odify-landscape") { return .landscape }
+        return UIDevice.current.userInterfaceIdiom == .pad ? .all : .allButUpsideDown
+    }
+}
+
 @main struct OdifyApp: App {
+    @UIApplicationDelegateAdaptor(OdifyOrientationDelegate.self) private var appDelegate
     @StateObject private var store = LibraryStore(preview: ProcessInfo.processInfo.arguments.contains("--odify-preview"))
     var body: some Scene {
         WindowGroup {

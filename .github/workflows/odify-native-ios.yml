@@ -105,8 +105,18 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          ODIFY_RELEASE_TAG="ios-native-1.1.0-b2-${GITHUB_SHA::7}"
-          gh release create "$ODIFY_RELEASE_TAG" dist/ios/Odify-iOS-1.1.0.ipa dist/ios/Odify-iOS-1.1.0.ipa.sha256 dist/ios/Odify-iOS-1.1.0.build.json --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease --title 'Odify iPad 1.1.0 (2) — LiveContainer preview' --notes-file docs/IOS_NATIVE_RELEASE_NOTES.md
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          try: probe = json.loads(Path('dist/ios-checks/stream-probe.json').read_text())
+          except Exception: probe = {'success': False, 'error': 'Cloud connection probe did not return a result', 'devicePlaybackTested': False}
+          Path('dist/ios/Odify-stream-connection-check.json').write_text(json.dumps(probe, indent=2))
+          result = '성공' if probe.get('success') is True else '실패 — 실제 iPad 네트워크에서 별도 확인 필요'
+          notes = Path('docs/IOS_NATIVE_RELEASE_NOTES.md').read_text() + '\n\n이번 빌드의 무음 YouTube 연결 검사: **' + result + '**. 실제 기기 재생 검사는 아닙니다. 결과 JSON을 함께 첨부합니다.\n'
+          Path('build/ios-release-notes.md').write_text(notes)
+          PY
+          ODIFY_RELEASE_TAG="ios-native-1.1.0-b3-${GITHUB_SHA::7}"
+          gh release create "$ODIFY_RELEASE_TAG" dist/ios/Odify-iOS-1.1.0.ipa dist/ios/Odify-iOS-1.1.0.ipa.sha256 dist/ios/Odify-iOS-1.1.0.build.json dist/ios/Odify-stream-connection-check.json --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease --title 'Odify iPad 1.1.0 (3) — LiveContainer preview' --notes-file build/ios-release-notes.md
       - name: Preserve validation and simulator evidence
         if: always()
         uses: actions/upload-artifact@v4

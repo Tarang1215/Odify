@@ -1,4 +1,4 @@
-Odify iPad / iPhone 1.1.0 (2), iOS/iPadOS 26 이상, LiveContainer용 미리보기입니다.
+Odify iPad / iPhone 1.1.0 (3), iOS/iPadOS 26 이상, LiveContainer용 미리보기입니다.
 
 - iPad 너비에 맞는 탐색 사이드바, 음악 목록, 현재 곡·대기열 패널
 - iOS 네이티브 Liquid Glass 미니플레이어와 재생 컨트롤

@@ -4,6 +4,8 @@ options:
   deploymentTarget:
     iOS: '26.0'
 packages:
+  OdifyStreaming:
+    path: Streaming
   YouTubeKit:
     url: https://github.com/alexeichhorn/YouTubeKit.git
     revision: 89854c93207ad0d2b3d78d6f1aea24595ca66552
@@ -17,13 +19,14 @@ settings:
     TARGETED_DEVICE_FAMILY: '1,2'
     CODE_SIGNING_ALLOWED: NO
     MARKETING_VERSION: '1.1.0'
-    CURRENT_PROJECT_VERSION: '2'
+    CURRENT_PROJECT_VERSION: '3'
 targets:
   Odify:
     type: application
     platform: iOS
     sources: [Sources, Resources]
     dependencies:
+      - package: OdifyStreaming
       - package: YouTubeKit
       - package: GoogleSignIn
         product: GoogleSignIn
@@ -44,3 +47,4 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
     dependencies:
       - target: Odify
+      - package: OdifyStreaming

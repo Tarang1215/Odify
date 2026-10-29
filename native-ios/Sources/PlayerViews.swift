@@ -38,7 +38,7 @@ struct MiniProgress: View {
     var body: some View {
         GeometryReader { geometry in
             Capsule().fill(.white.opacity(0.10)).overlay(alignment: .leading) {
-                Capsule().fill(.white.opacity(0.6)).frame(width: geometry.size.width * min(1, max(0, clock.position / max(1, clock.duration))))
+                Capsule().fill(.white.opacity(0.6)).frame(width: geometry.size.width * (clock.duration > 0 ? min(1, max(0, clock.position / clock.duration)) : 0))
             }
         }.frame(height: 2).accessibilityHidden(true)
     }
@@ -295,7 +295,7 @@ struct SeekBar: View {
             Slider(value: Binding(get: { dragging ? target : min(clock.position, max(1, clock.duration)) }, set: { target = $0 }), in: 0...max(1, clock.duration)) { editing in
                 dragging = editing
                 if !editing { seek(target) }
-            }.tint(.white.opacity(0.85)).accessibilityLabel("재생 위치")
+            }.tint(.white.opacity(0.85)).disabled(clock.duration <= 0).accessibilityLabel("재생 위치")
             HStack { Text(timeText(dragging ? target : clock.position)); Spacer(); Text("−" + timeText(max(0, clock.duration - (dragging ? target : clock.position)))) }
                 .font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary)
         }
