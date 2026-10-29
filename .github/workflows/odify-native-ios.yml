@@ -19,6 +19,8 @@ concurrency:
 
 jobs:
   ios:
+    permissions:
+      contents: write
     runs-on: macos-26
     timeout-minutes: 55
     steps:
@@ -38,6 +40,11 @@ jobs:
           brew list xcodegen || brew install xcodegen
           cd native-ios
           xcodegen generate
+      - name: Resolve native SDKs and include original dependency notices
+        run: |
+          xcodebuild -resolvePackageDependencies -project native-ios/Odify.xcodeproj -scheme Odify -derivedDataPath build/native-ios-device
+          python3 scripts/prepare_native_ios.py --dependency-notices build/native-ios-device/SourcePackages/checkouts
+          cp native-ios/Odify.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved native-ios/Package.resolved
       - name: Probe live YouTube audio connection without sound
         continue-on-error: true
         run: |
@@ -94,6 +101,12 @@ jobs:
           if-no-files-found: error
           retention-days: 14
           path: dist/ios/*
+      - name: Publish directly downloadable LiveContainer prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ODIFY_RELEASE_TAG="ios-native-1.1.0-b2-${GITHUB_SHA::7}"
+          gh release create "$ODIFY_RELEASE_TAG" dist/ios/Odify-iOS-1.1.0.ipa dist/ios/Odify-iOS-1.1.0.ipa.sha256 dist/ios/Odify-iOS-1.1.0.build.json --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease --title 'Odify iPad 1.1.0 (2) — LiveContainer preview' --notes-file docs/IOS_NATIVE_RELEASE_NOTES.md
       - name: Preserve validation and simulator evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -103,3 +116,4 @@ jobs:
           path: |
             dist/ios-checks/
             build/native-ios-*.log
+            native-ios/Package.resolved

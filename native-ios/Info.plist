@@ -16,5 +16,6 @@
 <key>UIFileSharingEnabled</key><true/>
 <key>LSSupportsOpeningDocumentsInPlace</key><true/>
 <key>LSApplicationQueriesSchemes</key><array><string>youtube</string><string>ytkace</string></array>
-<key>CFBundleURLTypes</key><array><dict><key>CFBundleURLName</key><string>com.odify.music.ios</string><key>CFBundleURLSchemes</key><array><string>odify</string></array></dict></array>
+<key>GIDClientID</key><string>816869113913-ndlnd0ankpg2kj6ldn9igmsjfc2kdobm.apps.googleusercontent.com</string>
+<key>CFBundleURLTypes</key><array><dict><key>CFBundleURLName</key><string>com.odify.music.ios</string><key>CFBundleURLSchemes</key><array><string>odify</string><string>com.googleusercontent.apps.816869113913-ndlnd0ankpg2kj6ldn9igmsjfc2kdobm</string></array></dict></array>
 </dict></plist>

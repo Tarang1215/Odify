@@ -7,6 +7,9 @@ packages:
   YouTubeKit:
     url: https://github.com/alexeichhorn/YouTubeKit.git
     revision: 89854c93207ad0d2b3d78d6f1aea24595ca66552
+  GoogleSignIn:
+    url: https://github.com/google/GoogleSignIn-iOS.git
+    revision: 913b4005ea26aebe1c97d54e35ad82a515924c71
 settings:
   base:
     SWIFT_VERSION: '5.0'
@@ -22,6 +25,8 @@ targets:
     sources: [Sources, Resources]
     dependencies:
       - package: YouTubeKit
+      - package: GoogleSignIn
+        product: GoogleSignIn
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.odify.music.ios

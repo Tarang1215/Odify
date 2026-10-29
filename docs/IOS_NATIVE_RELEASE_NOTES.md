@@ -1,0 +1,26 @@
+Odify iPad / iPhone 1.1.0 (2), iOS/iPadOS 26 이상, LiveContainer용 미리보기입니다.
+
+- iPad 너비에 맞는 탐색 사이드바, 음악 목록, 현재 곡·대기열 패널
+- iOS 네이티브 Liquid Glass 미니플레이어와 재생 컨트롤
+- 앱 내부 YouTube 오디오, 로컬 파일 및 Google Drive 구간 스트리밍
+- Google 계정 연결, Drive 폴더·공유 항목 탐색, 읽기 전용 접근
+- 다음 곡 사전 준비, 대기열 재정렬, 자동 추천 재생, 시스템 미디어 조작
+- 플레이리스트 이름·커버 편집, 가사 편집, 국가별 인기곡·아티스트 곡 탐색
+
+아래 IPA를 iPad의 Safari에서 다운로드한 뒤 파일 앱에 저장하고,
+LiveContainer → ＋ → 파일에서 IPA 선택으로 추가해 주세요.
+이미 LiveContainer가 SideStore로 설치되어 있다면 이 IPA를 다시 SideStore에
+직접 설치할 필요는 없습니다.
+
+이 릴리스는 기기용 Release 컴파일, 자동 검사 및 시뮬레이터 검증을 통과한 뒤
+게시됩니다. 실제 iPad/LiveContainer의 Google 로그인, 백그라운드 장시간 재생,
+기기별 프레임 속도 검증까지 완료됐다는 의미는 아닙니다.
+Google Cloud OAuth 테스트 사용자로 등록된 계정이 필요하며 테스트 모드에서는
+권한이 7일 뒤 만료돼 재로그인이 필요할 수 있습니다.
+
+LiveContainer 게스트의 독립적인 WidgetKit 위젯 등록과 기존 Android 보관함·
+플레이리스트 자동 이전은 포함하지 않습니다. 설치 시 기존 앱 데이터를 보존해 주세요.
+YouTube 연결은 서비스 변경·지역·네트워크 환경에 따라 실패할 수 있습니다.
+
+Google OAuth 클라이언트 ID는 공개 앱 식별자입니다. 사용자 비밀번호,
+인증 토큰, 개인 서명 인증서나 사용자 Drive 파일은 이 릴리스에 포함하지 않습니다.

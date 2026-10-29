@@ -6,6 +6,7 @@ struct LibraryView: View {
     var importAction: (MusicSource) -> Void
     @State private var newPlaylist = false
     @State private var name = ""
+    @State private var driveBrowser = false
     @Namespace private var covers
     var body: some View {
         ScrollView {
@@ -21,9 +22,9 @@ struct LibraryView: View {
                 }.padding(.top, 16)
                 HStack(spacing: 12) {
                     Button("파일 가져오기", systemImage: "folder") { importAction(.local) }.buttonStyle(.glass)
-                    Button("Drive", systemImage: "externaldrive") { importAction(.drive) }.buttonStyle(.glass)
+                    Button("Google Drive", systemImage: "externaldrive") { driveBrowser = true }.buttonStyle(.glass)
                 }
-                Text("Drive 음악은 파일 앱에서 선택해 Odify로 가져옵니다.").font(.system(size: 11)).foregroundStyle(.secondary)
+                Text("Google 계정으로 폴더를 열고, 다운로드 없이 바로 재생하세요.").font(.system(size: 11)).foregroundStyle(.secondary)
                 NavigationLink { TrackCollectionView(title: "좋아요", subtitle: "마음에 담아둔 곡", tracks: store.liked) } label: {
                     HStack(spacing: 16) {
                         Image(systemName: "heart.fill").font(.system(size: 22)).foregroundStyle(.pink).frame(width: 54, height: 54).background(.pink.opacity(0.12), in: RoundedRectangle(cornerRadius: 15))
@@ -54,6 +55,7 @@ struct LibraryView: View {
                 ForEach(Array(store.tracks.enumerated()), id: \.element.id) { index, track in TrackRow(track: track) { store.play(store.tracks, at: index) } }
             }.padding(24)
         }.navigationTitle("Library").toolbarTitleDisplayMode(.inline)
+            .sheet(isPresented: $driveBrowser) { DriveBrowser() }
             .alert("새 플레이리스트", isPresented: $newPlaylist) {
                 TextField("이름", text: $name)
                 Button("만들기") { store.createPlaylist(name) }; Button("취소", role: .cancel) { }

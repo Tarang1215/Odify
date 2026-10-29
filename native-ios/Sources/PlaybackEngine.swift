@@ -22,11 +22,13 @@ import UIKit
     var current: Track? { queue.current?.track }
     var onCheckpoint: (() -> Void)?
     var onNeedMore: ((Track) -> Void)?
+    var onTrackMetadata: ((Track) -> Void)?
     var diagnostics: [String] = []
     private let documents: URL
     private var itemIDs: [ObjectIdentifier: String] = [:]
     private var observations: [NSKeyValueObservation] = []
     private var itemObservations: [ObjectIdentifier: NSKeyValueObservation] = [:]
+    private var driveLoaders: [ObjectIdentifier: DriveResourceLoader] = [:]
     private var notifications: [NSObjectProtocol] = []
     private var timeObserver: Any?
     private var startTask: Task<Void, Never>?
@@ -41,6 +43,8 @@ import UIKit
     private var failedIDs = Set<String>()
     private var retries = Set<String>()
     private var remoteTargets: [(MPRemoteCommand, Any)] = []
+    private var metadataTask: Task<Void, Never>?
+    private var metadataRead = Set<String>()
 
     init(documents: URL, queue: PlaybackQueue = PlaybackQueue(), position: Double = 0, autoplay: Bool = true) {
         self.documents = documents; self.queue = queue; savedPosition = position
@@ -65,7 +69,9 @@ import UIKit
                 guard let self else { return }
                 let position = time.seconds, duration = self.player.currentItem?.duration.seconds ?? 0
                 if position.isFinite { self.clock.position = max(0, position) }
-                if duration.isFinite && duration > 0 { self.clock.duration = duration }
+                if duration.isFinite && duration > 0 && abs(self.clock.duration - duration) > 0.1 {
+                    self.clock.duration = duration; self.publishNowPlaying()
+                }
                 if Date().timeIntervalSince(self.lastCheckpoint) > 10 {
                     self.lastCheckpoint = Date(); self.onCheckpoint?(); self.publishNowPlaying()
                 }
@@ -162,7 +168,7 @@ import UIKit
     }
     func update(_ track: Track) {
         for index in queue.entries.indices where queue.entries[index].track.id == track.id { queue.entries[index].track = track }
-        publishNowPlaying(); onCheckpoint?()
+        publishNowPlaying(resetArtwork: current?.id == track.id); onCheckpoint?()
     }
     func clearError() { error = nil }
     func toggleAutoplay() {
@@ -176,8 +182,10 @@ import UIKit
     var preparedEntryIDs: [String] { player.items().compactMap { itemIDs[ObjectIdentifier($0)] } }
     func shutdown() {
         pause(); startTask?.cancel(); prefetchTask?.cancel(); artworkTask?.cancel()
+        metadataTask?.cancel()
         observations.forEach { $0.invalidate() }; observations.removeAll()
         itemObservations.values.forEach { $0.invalidate() }; itemObservations.removeAll()
+        driveLoaders.values.forEach { $0.cancel() }; driveLoaders.removeAll()
         notifications.forEach { NotificationCenter.default.removeObserver($0) }; notifications.removeAll()
         if let timeObserver { player.removeTimeObserver(timeObserver); self.timeObserver = nil }
         remoteTargets.forEach { $0.0.removeTarget($0.1) }; remoteTargets.removeAll()
@@ -189,6 +197,7 @@ import UIKit
         generation = UUID(); let request = generation
         player.pause(); player.removeAllItems(); itemIDs.removeAll()
         itemObservations.values.forEach { $0.invalidate() }; itemObservations.removeAll()
+        driveLoaders.values.forEach { $0.cancel() }; driveLoaders.removeAll()
         guard let entry = queue.current else { wantsPlayback = false; isPlaying = false; return }
         wantsPlayback = true; isBuffering = true; error = nil
         clock.position = resume; clock.duration = entry.track.duration
@@ -201,7 +210,8 @@ import UIKit
                 let url = try await StreamResolver.shared.url(for: entry.track, documents: self.documents, refresh: refresh)
                 try Task.checkCancellation()
                 guard self.generation == request else { return }
-                let item = self.makeItem(url, entry: entry)
+                let item = try await self.makeItem(url, entry: entry)
+                try Task.checkCancellation()
                 self.player.insert(item, after: nil)
                 if resume > 0 { await self.player.seek(to: CMTime(seconds: resume, preferredTimescale: 600)) }
                 guard self.generation == request else { return }
@@ -215,13 +225,27 @@ import UIKit
             }
         }
     }
-    private func makeItem(_ url: URL, entry: QueueEntry) -> AVPlayerItem {
-        let item = AVPlayerItem(url: url)
+    private func makeItem(_ url: URL, entry: QueueEntry) async throws -> AVPlayerItem {
+        let asset = AVURLAsset(url: url)
+        let loader: DriveResourceLoader?
+        if entry.track.driveFileID != nil {
+            let delegate = DriveResourceLoader(track: entry.track)
+            asset.resourceLoader.setDelegate(delegate, queue: delegate.queue)
+            loader = delegate
+        } else { loader = nil }
+        // Reject a corrupt successor before it poisons AVQueuePlayer's state.
+        guard try await asset.load(.isPlayable) else { throw OdifyError.message("재생할 수 없는 음원입니다: \(entry.track.title)") }
+        try Task.checkCancellation()
+        let item = AVPlayerItem(asset: asset)
         item.preferredForwardBufferDuration = 30
         item.canUseNetworkResourcesForLiveStreamingWhilePaused = true
         itemIDs[ObjectIdentifier(item)] = entry.id
+        if let loader { driveLoaders[ObjectIdentifier(item)] = loader }
         itemObservations[ObjectIdentifier(item)] = item.observe(\.status, options: [.new]) { [weak self, weak item] _, _ in
-            Task { @MainActor in if let item, item.status == .failed { self?.failed(item) } }
+            Task { @MainActor in
+                if let item, item.status == .failed { self?.failed(item) }
+                else if let item, item.status == .readyToPlay { self?.readDriveMetadata(item) }
+            }
         }
         return item
     }
@@ -245,6 +269,7 @@ import UIKit
         for item in existing.dropFirst(retained) {
             player.remove(item); itemIDs.removeValue(forKey: ObjectIdentifier(item))
             itemObservations.removeValue(forKey: ObjectIdentifier(item))?.invalidate()
+            driveLoaders.removeValue(forKey: ObjectIdentifier(item))?.cancel()
         }
         let missing = Array(prepared.dropFirst(retained))
         guard !missing.isEmpty else { return }
@@ -256,7 +281,9 @@ import UIKit
                     let url = try await StreamResolver.shared.url(for: entry.track, documents: self.documents)
                     try Task.checkCancellation()
                     guard self.prefetchGeneration == request, self.player.items().contains(where: { $0 === lastItem }) else { return }
-                    let item = self.makeItem(url, entry: entry)
+                    let item = try await self.makeItem(url, entry: entry)
+                    try Task.checkCancellation()
+                    guard self.prefetchGeneration == request, self.player.items().contains(where: { $0 === lastItem }) else { return }
                     if self.player.canInsert(item, after: lastItem) { self.player.insert(item, after: lastItem); lastItem = item }
                 } catch is CancellationError { return }
                 catch { self.failedIDs.insert(entry.id); self.error = "다음 곡 준비 실패: \(entry.track.title). \(error.localizedDescription)" }
@@ -273,9 +300,11 @@ import UIKit
         let currentItems = Set(player.items().map(ObjectIdentifier.init))
         itemIDs = itemIDs.filter { currentItems.contains($0.key) }
         for key in itemObservations.keys.filter({ !currentItems.contains($0) }) { itemObservations.removeValue(forKey: key)?.invalidate() }
+        for key in driveLoaders.keys.filter({ !currentItems.contains($0) }) { driveLoaders.removeValue(forKey: key)?.cancel() }
         clock.position = 0; clock.duration = current?.duration ?? 0; savedPosition = 0
         if changed { diagnostics.append("advanced:\(id)"); if diagnostics.count > 40 { diagnostics.removeFirst() } }
         publishNowPlaying(resetArtwork: true); rebuildUpcoming(); onCheckpoint?()
+        if item.status == .readyToPlay { readDriveMetadata(item) }
         if autoplayEnabled, queue.repeatMode == .off, queue.upcoming.count < 3, let track = current { onNeedMore?(track) }
     }
     private func ended(_ item: AVPlayerItem) {
@@ -312,6 +341,38 @@ import UIKit
         let session = AVAudioSession.sharedInstance()
         try session.setCategory(.playback, mode: .default, options: [.allowAirPlay])
         try session.setActive(true)
+    }
+    private func readDriveMetadata(_ item: AVPlayerItem) {
+        guard let id = itemIDs[ObjectIdentifier(item)], id == queue.currentID, let original = current,
+              original.driveFileID != nil, metadataRead.insert(original.id).inserted else { return }
+        metadataTask?.cancel()
+        metadataTask = Task { [weak self] in
+            guard let self else { return }
+            var completed = false
+            defer { if !completed { self.metadataRead.remove(original.id) } }
+            do {
+                var track = original
+                let metadata = try await item.asset.load(.commonMetadata)
+                for field in metadata {
+                    if field.commonKey == .commonKeyTitle, let text = try? await field.load(.stringValue), !text.isEmpty { track.title = text }
+                    if field.commonKey == .commonKeyArtist, let text = try? await field.load(.stringValue), !text.isEmpty { track.artist = text }
+                    if field.commonKey == .commonKeyAlbumName, let text = try? await field.load(.stringValue) { track.album = text }
+                    if field.commonKey == .commonKeyArtwork, let data = try? await field.load(.dataValue),
+                       let jpeg = await ArtworkLoader.shared.coverJPEG(data) {
+                        let folder = self.documents.appendingPathComponent("Artwork", isDirectory: true)
+                        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+                        let relative = "Artwork/drive-\(UUID().uuidString).jpg"
+                        try jpeg.write(to: self.documents.appendingPathComponent(relative), options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+                        track.artwork = relative
+                    }
+                }
+                if let duration = try? await item.asset.load(.duration), duration.seconds.isFinite { track.duration = duration.seconds }
+                try Task.checkCancellation()
+                guard self.current?.id == track.id else { return }
+                self.update(track); self.onTrackMetadata?(track)
+                completed = true
+            } catch { /* Tag lookup is optional; a playable Drive stream keeps playing. */ }
+        }
     }
     private func showError(_ failure: Error) {
         error = failure.localizedDescription; isBuffering = false

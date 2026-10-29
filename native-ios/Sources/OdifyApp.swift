@@ -1,5 +1,6 @@
 import SwiftUI
 import UniformTypeIdentifiers
+import GoogleSignIn
 
 @main struct OdifyApp: App {
     @StateObject private var store = LibraryStore(preview: ProcessInfo.processInfo.arguments.contains("--odify-preview"))
@@ -8,8 +9,10 @@ import UniformTypeIdentifiers
             RootView().environmentObject(store).environmentObject(store.engine)
                 .preferredColorScheme(.dark)
                 .onOpenURL { url in
+                    if GIDSignIn.sharedInstance.handle(url) { return }
                     if url.isFileURL { Task { await store.importFiles([url], source: .local) } }
                 }
+                .task { await DriveAccount.shared.restore() }
         }
     }
 }
@@ -29,6 +32,7 @@ struct RootView: View {
     @State private var importer = false
     @State private var importSource: MusicSource = .local
     @State private var showAbout = false
+    @State private var showDrive = false
 
     var body: some View {
         GeometryReader { geometry in
@@ -49,7 +53,8 @@ struct RootView: View {
                         ToolbarItem(placement: .topBarTrailing) {
                             Menu {
                                 Button("파일 가져오기", systemImage: "folder") { importMusic(.local) }
-                                Button("Drive에서 가져오기", systemImage: "externaldrive") { importMusic(.drive) }
+                                Button("Google Drive 연결·탐색", systemImage: "externaldrive") { showDrive = true }
+                                Button("파일 앱의 Drive에서 가져오기", systemImage: "folder") { importMusic(.drive) }
                                 Button("앱 정보", systemImage: "info.circle") { showAbout = true }
                             } label: { Image(systemName: "plus").frame(width: 28, height: 28) }
                             .accessibilityLabel("음악 가져오기 및 앱 정보")
@@ -75,6 +80,7 @@ struct RootView: View {
             .animation(reduceMotion ? nil : .smooth(duration: 0.3), value: sidebar)
             .fullScreenCover(isPresented: $fullPlayer) { FullPlayerView() }
             .sheet(isPresented: $showAbout) { AboutView() }
+            .sheet(isPresented: $showDrive) { DriveBrowser() }
             .fileImporter(isPresented: $importer, allowedContentTypes: [.audio, .mpeg4Movie], allowsMultipleSelection: true) { result in
                 switch result {
                 case .success(let urls): Task { await store.importFiles(urls, source: importSource) }
@@ -145,7 +151,7 @@ struct AboutView: View {
                 Section("Odify 1.1 · Native iOS") { Text("iPad와 iPhone을 위한 SwiftUI 화면 · iOS 26 이상") }
                 Section("재생") {
                     Text("앱 내부 AVQueuePlayer가 Local·Drive 가져온 파일과 연결 가능한 YouTube 오디오를 재생합니다. YouTube 연결은 서비스 변경이나 네트워크 환경에 따라 실패할 수 있습니다.")
-                    Text("Drive는 파일 앱에서 Google Drive를 활성화한 뒤 선택해 가져옵니다. Android의 Google 계정 직접 동기화와 기존 보관함 자동 이전은 아직 포함되지 않았습니다.")
+                    Text("Google 계정에 연결하면 Drive 폴더를 탐색하고 음원을 바로 스트리밍할 수 있습니다. 선택한 음원 구간만 읽으며 파일을 수정하지 않습니다. Android의 기존 보관함·플레이리스트 자동 이전은 아직 포함되지 않았습니다.")
                 }
                 Section("LiveContainer") {
                     Text("홈 화면 WidgetKit 위젯은 LiveContainer 게스트 앱에서 등록할 수 없습니다. 앱 안의 미니플레이어와 시스템 재생 정보는 별개이며, 실제 기기의 LiveContainer 설정에 따라 확인이 필요합니다.")
@@ -154,6 +160,7 @@ struct AboutView: View {
                 Section("오픈소스") {
                     Text("YouTubeKit · MIT · Alexander Eichhorn 외 기여자\n고정 소스: 89854c93207ad0d2b3d78d6f1aea24595ca66552")
                     if let url = Bundle.main.url(forResource: "YouTubeKit-LICENSE", withExtension: "txt"), let text = try? String(contentsOf: url, encoding: .utf8) { Text(text).font(.caption) }
+                    if let url = Bundle.main.url(forResource: "ThirdPartyNotices", withExtension: "txt"), let text = try? String(contentsOf: url, encoding: .utf8) { Text(text).font(.caption) }
                 }
             }.navigationTitle("Odify 정보")
         }

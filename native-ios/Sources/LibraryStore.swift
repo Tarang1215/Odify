@@ -37,6 +37,7 @@ import UniformTypeIdentifiers
         engine = PlaybackEngine(documents: root, queue: loaded.queue, position: loaded.position, autoplay: loaded.autoplay)
         notice = loadError
         engine.onCheckpoint = { [weak self] in self?.save() }
+        engine.onTrackMetadata = { [weak self] track in self?.remember(track) }
         engine.onNeedMore = { [weak self] track in self?.prepareRecommendations(after: track) }
         engine.$queue.dropFirst().sink { [weak self] _ in self?.scheduleSave() }.store(in: &subscriptions)
         if preview { chart = loaded.tracks }
@@ -56,6 +57,13 @@ import UniformTypeIdentifiers
         if let index = snapshot.tracks.firstIndex(where: { $0.id == track.id }) { snapshot.tracks[index] = track }
         else { snapshot.tracks.append(track) }
         scheduleSave()
+    }
+    func driveTrack(_ fresh: Track) -> Track {
+        guard let stored = tracks.first(where: { $0.id == fresh.id }), stored.driveModifiedTime == fresh.driveModifiedTime else { return fresh }
+        var value = fresh
+        value.title = stored.title; value.artist = stored.artist; value.album = stored.album
+        value.artwork = stored.artwork; value.lyrics = stored.lyrics; value.duration = stored.duration
+        return value
     }
     func play(_ tracks: [Track], at index: Int = 0) {
         recommendationTask?.cancel(); recommendationTask = nil
@@ -181,10 +189,18 @@ import UniformTypeIdentifiers
             defer { if self.recommendationGeneration == request { self.recommendationTask = nil } }
             do {
                 let candidates: [Track]
-                let official = try await MusicCatalog.shared.artist(seed)
-                if official.isEmpty {
-                    candidates = try await YouTubeCatalog.shared.search(seed.artist + " audio").filter { !$0.isVariant }.map { $0.track() }
-                } else { candidates = official }
+                if seed.source != .youtube {
+                    // Private Drive/local tags never become automatic external
+                    // discovery queries. Continue from the on-device library.
+                    let available = self.tracks.filter { $0.driveFileID == nil || $0.driveAccountHash == DriveAccount.shared.accountHash }
+                    candidates = available.filter { Track.normalized($0.artist) == Track.normalized(seed.artist) }
+                        + available.filter { Track.normalized($0.artist) != Track.normalized(seed.artist) }
+                } else {
+                    let official = try await MusicCatalog.shared.artist(seed)
+                    if official.isEmpty {
+                        candidates = try await YouTubeCatalog.shared.search(seed.artist + " audio").filter { !$0.isVariant }.map { $0.track() }
+                    } else { candidates = official }
+                }
                 try Task.checkCancellation()
                 guard self.engine.autoplayEnabled, self.engine.queue.entries.first?.id == queueIdentity else { return }
                 let existing = Set(self.engine.queue.entries.map { $0.track.recordingKey })

@@ -14,4 +14,5 @@ dist/ios-checks/
 native-ios/Odify.xcodeproj/
 native-ios/Resources/Assets.xcassets/
 native-ios/Resources/*LICENSE.txt
+native-ios/Resources/ThirdPartyNotices.txt
 tools/ios-stream-probe/.build/

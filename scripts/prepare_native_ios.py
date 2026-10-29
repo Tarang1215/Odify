@@ -1,5 +1,7 @@
 """Generate the existing Odify icon for the native iOS target, with attribution."""
 import json
+import argparse
+import plistlib
 from pathlib import Path
 import re
 import urllib.request
@@ -11,8 +13,34 @@ PIN = '89854c93207ad0d2b3d78d6f1aea24595ca66552'
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--dependency-notices', type=Path)
+    args = parser.parse_args()
     resources = ROOT / 'native-ios/Resources'
     resources.mkdir(parents=True, exist_ok=True)
+    if args.dependency_notices:
+        sections = []
+        for dependency in sorted(args.dependency_notices.iterdir()):
+            if not dependency.is_dir():
+                continue
+            for file in sorted(dependency.iterdir()):
+                if file.is_file() and file.name.upper().split('.')[0] in {'LICENSE', 'LICENCE', 'COPYING', 'NOTICE'}:
+                    text = file.read_text(encoding='utf-8', errors='replace')
+                    sections.append(dependency.name + ' / ' + file.name + '\n' + '=' * 64 + '\n' + text)
+        if not any('googlesignin' in section.lower() for section in sections):
+            raise RuntimeError('Missing resolved Google SDK original license')
+        (resources / 'ThirdPartyNotices.txt').write_text('\n\n'.join(sections), encoding='utf-8')
+        print('Bundled original notices from', len(sections), 'resolved dependency files')
+        return
+    client = json.loads((ROOT / 'native-ios/GoogleOAuth.json').read_text())
+    info = plistlib.loads((ROOT / 'native-ios/Info.plist').read_bytes())
+    if info.get('GIDClientID') != client['clientID'] or client['bundleID'] != 'com.odify.music.ios':
+        raise RuntimeError('iOS OAuth configuration does not match the app')
+    reverse = '.'.join(reversed(client['clientID'].split('.')))
+    schemes = [scheme for entry in info['CFBundleURLTypes'] for scheme in entry['CFBundleURLSchemes']]
+    if reverse not in schemes:
+        raise RuntimeError('Google iOS callback scheme is missing')
+    (resources / 'ThirdPartyNotices.txt').write_text('Original dependency notices will be collected after package resolution.\n', encoding='utf-8')
     vector = ROOT / 'native-android/app/src/main/res/drawable/odify_launcher_foreground.xml'
     element = ET.fromstring(vector.read_text(encoding='utf-8'))
     path = next(iter(element)).get('{http://schemas.android.com/apk/res/android}pathData')

@@ -57,11 +57,21 @@ not promise to survive the user force-closing LiveContainer.
 
 ## Import / limits
 
-- Files/Google Drive import uses Apple's document picker and copies selected
-  audio into Odify storage, preserving embedded tags/artwork where present.
-- **Android Google OAuth direct Drive sync, existing Android/common-app library
-  migration, independently sourced national artist charts, and home WidgetKit
-  extensions are not included in this native milestone.**
+- Files import uses Apple's document picker and copies selected audio into
+  Odify storage, preserving embedded tags/artwork where present.
+- Direct Google Drive uses the user's newly created iOS OAuth public client ID,
+  GoogleSignIn 9.1.0 pinned to `913b4005ea26aebe1c97d54e35ad82a515924c71`, and
+  `drive.readonly` only. The SDK owns Keychain credentials. Root folders, nested
+  folders, shared-with-me items, pagination, account-bound identities and token
+  refresh are connected. AVAssetResourceLoader reads authenticated byte ranges
+  and supports seeking; tokens are never embedded in playback URLs. Redirects
+  strip authorization on a host change. No private Drive media is in CI.
+- Embedded Drive tags/artwork are read locally. Private Drive/local tags are
+  **not automatically sent to Apple/iTunes/YouTube for cover/discovery lookup**.
+  Auto-review rejected automatic private-metadata enrichment; that code was not
+  applied, and recommendations for private sources use the on-device library.
+- **Existing Android/common-app library migration, independent national artist
+  rankings, and home WidgetKit extensions are not included in this milestone.**
 - A LiveContainer guest cannot independently register a WidgetKit extension;
   the native in-app glass mini player is included instead. Standalone signing
   and WidgetKit sharing require a separate delivery design.
@@ -82,8 +92,23 @@ not promise to survive the user force-closing LiveContainer.
 
 Pending real hardware checks: LiveContainer launch, native glass rendering and
 frame pacing, file-provider access, YouTube region/network compatibility,
+Google account consent/refresh in LiveContainer, private Drive playback,
 lock-screen controls, and 60+ minute screen-off transitions. Build success or a
 simulator queue test does not establish these hardware outcomes.
+
+## Work in progress validation, 2026-10-29
+
+- `f4bfd57`: device Release build and soundless live YouTube connection passed.
+  Twelve XCTest cases ran: eleven passed; the corrupt prepared-file case failed
+  (two assertions). Edited-queue automatic transition now passes and reuses the
+  buffered AVPlayerItem. Simulator portrait/landscape/player captures produced.
+- The corrupt-file case is being fixed by validating asset playability before
+  insertion into AVQueuePlayer, so a bad successor cannot poison the player.
+- Direct Drive code adds fake-account authenticated range/seek tests plus
+  parsing, pagination safety, redirect token stripping and account partition tests.
+- A directly downloadable GitHub prerelease is produced only after the checks
+  pass. User expressly requested a direct IPA link for LiveContainer. This does
+  not publish the user's personal credentials, Drive library or media files.
 
 ## Primary sources consulted
 

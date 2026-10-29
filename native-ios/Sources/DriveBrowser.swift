@@ -1,0 +1,122 @@
+import SwiftUI
+
+struct DriveBrowser: View {
+    @StateObject private var account = DriveAccount.shared
+    @EnvironmentObject private var store: LibraryStore
+    @Environment(\.dismiss) private var dismiss
+    var body: some View {
+        NavigationStack {
+            Group {
+                if let hash = account.accountHash {
+                    DriveFolderView(folderID: "root", title: "Google Drive", accountHash: hash)
+                        .id(hash)
+                } else {
+                    VStack(spacing: 22) {
+                        Image(systemName: "externaldrive.badge.icloud").font(.system(size: 56, weight: .ultraLight)).foregroundStyle(.mint)
+                        Text("Drive의 음악을 바로.").font(.system(size: 27, weight: .semibold, design: .rounded))
+                        Text("Google 계정에 연결해 폴더를 탐색하고,\n음악을 가져오지 않고 바로 재생하세요.")
+                            .font(.system(size: 14)).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                        Button { Task { await account.connect() } } label: {
+                            HStack { if account.connecting { ProgressView() }; Text(account.connecting ? "연결하는 중…" : "Google 계정 연결") }.padding(.horizontal, 12).padding(.vertical, 6)
+                        }.buttonStyle(.glassProminent).disabled(account.connecting)
+                        Text("폴더와 음원을 읽는 권한만 요청합니다.\nDrive의 파일을 수정하거나 삭제하지 않습니다.")
+                            .font(.system(size: 11)).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                    }.padding(30).frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+            }.background(MusicBackdrop())
+                .navigationDestination(for: DriveFolderRoute.self) { route in
+                    DriveFolderView(folderID: route.id, title: route.name, accountHash: route.account)
+                }
+                .toolbar {
+                    ToolbarItem(placement: .topBarLeading) { Button("닫기") { dismiss() } }
+                    ToolbarItem(placement: .topBarTrailing) {
+                        if account.connected {
+                            Menu {
+                                Text(account.email ?? "Google 계정")
+                                Button("계정 연결 해제", systemImage: "rectangle.portrait.and.arrow.right", role: .destructive) {
+                                    if store.engine.current?.driveFileID != nil { store.engine.pause() }
+                                    account.signOut()
+                                }
+                            } label: { Image(systemName: "person.crop.circle").frame(width: 32, height: 32) }
+                        }
+                    }
+                }
+                .alert("Google Drive", isPresented: Binding(get: { account.error != nil }, set: { if !$0 { account.error = nil } })) {
+                    Button("확인") { account.error = nil }
+                } message: { Text(account.error ?? "") }
+                .task { await account.restore() }
+        }.preferredColorScheme(.dark).id(account.accountHash ?? "signed-out")
+    }
+}
+
+struct DriveFolderRoute: Hashable { let id: String; let name: String; let account: String }
+
+struct DriveFolderView: View {
+    let folderID: String
+    let title: String
+    let accountHash: String
+    @EnvironmentObject private var store: LibraryStore
+    @State private var files: [DriveFile] = []
+    @State private var pageToken: String?
+    @State private var loading = false
+    @State private var error: String?
+    @State private var shared = false
+    @State private var generation = UUID()
+    private var audio: [Track] { files.filter(\.playable).map { $0.track(account: accountHash) } }
+    var body: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 12) {
+                if folderID == "root" {
+                    Picker("Drive 위치", selection: $shared) { Text("내 Drive").tag(false); Text("공유받은 항목").tag(true) }.pickerStyle(.segmented).padding(.bottom, 10)
+                }
+                HStack {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(title).font(.system(size: 28, weight: .bold, design: .rounded)).lineLimit(2)
+                        Text("폴더를 열고, 곡을 누르면 바로 스트리밍합니다.").font(.system(size: 11)).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    if !audio.isEmpty {
+                        Button { store.play(audio) } label: { Image(systemName: "play.fill").padding(12) }.buttonStyle(.glassProminent).accessibilityLabel("이 폴더의 음악 재생")
+                    }
+                }.padding(.bottom, 16)
+                ForEach(files.filter(\.isFolder)) { folder in
+                    NavigationLink(value: DriveFolderRoute(id: folder.id, name: folder.name, account: accountHash)) {
+                        HStack(spacing: 14) {
+                            Image(systemName: "folder.fill").font(.system(size: 25, weight: .light)).foregroundStyle(.mint.opacity(0.8)).frame(width: 46, height: 46)
+                            Text(folder.name).font(.system(size: 15, weight: .medium)).lineLimit(2)
+                            Spacer(); Image(systemName: "chevron.right").font(.system(size: 11)).foregroundStyle(.secondary)
+                        }.padding(.vertical, 6).contentShape(Rectangle())
+                    }.buttonStyle(.plain)
+                }
+                ForEach(Array(audio.enumerated()), id: \.element.id) { index, track in
+                    TrackRow(track: store.driveTrack(track)) {
+                        let retained = audio.map(store.driveTrack)
+                        store.play(retained, at: index)
+                    }
+                }
+                if loading { ProgressView().frame(maxWidth: .infinity).padding(20) }
+                if let error { RetryMessage(message: error) { Task { await load(reset: files.isEmpty) } } }
+                if pageToken != nil && !loading { Button("더 불러오기") { Task { await load(reset: false) } }.buttonStyle(.glass).frame(maxWidth: .infinity).padding(16) }
+                if files.isEmpty && !loading && error == nil { ContentUnavailableView("이 위치에 음악이나 폴더가 없습니다", systemImage: "folder") }
+            }.padding(24)
+        }.navigationTitle(title).toolbarTitleDisplayMode(.inline)
+            .refreshable { await load(reset: true) }
+            .task(id: shared) { await load(reset: true) }
+    }
+    private func load(reset: Bool) async {
+        guard reset || !loading else { return }
+        let request = UUID(); generation = request
+        loading = true; error = nil
+        defer { if generation == request { loading = false } }
+        if reset { files = []; pageToken = nil }
+        do {
+            let result = try await DriveClient.shared.list(parent: folderID, page: pageToken, account: accountHash, shared: folderID == "root" && shared)
+            try Task.checkCancellation()
+            guard generation == request else { return }
+            let oldIDs = Set(files.map(\.id))
+            files += result.files.filter { !oldIDs.contains($0.id) && ($0.isFolder || $0.playable) }
+            pageToken = result.nextPageToken
+        } catch is CancellationError { }
+        catch { self.error = error.localizedDescription }
+    }
+}

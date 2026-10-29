@@ -17,6 +17,12 @@ struct Track: Identifiable, Codable, Hashable {
     var artistURL: String? = nil
     var duration: Double = 0
     var lyrics: String? = nil
+    var driveFileID: String? = nil
+    var driveAccountHash: String? = nil
+    var fileSize: Int64? = nil
+    var mimeType: String? = nil
+    var fileExtension: String? = nil
+    var driveModifiedTime: String? = nil
 
     var recordingKey: String { Self.normalized(artist) + "|" + Self.normalized(title) }
     static func normalized(_ value: String) -> String {

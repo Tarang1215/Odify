@@ -194,6 +194,15 @@ actor StreamResolver {
             }
             return url
         }
+        if let file = track.driveFileID {
+            guard DriveClient.validID(file), track.driveAccountHash != nil, (track.fileSize ?? 0) > 0 else {
+                throw OdifyError.message("Drive에서 곡을 다시 선택해 주세요.")
+            }
+            var components = URLComponents(); components.scheme = "odify-drive"; components.host = "media"
+            components.path = "/" + file + "." + (track.fileExtension ?? "mp3")
+            guard let url = components.url else { throw OdifyError.message("Drive 음원 주소를 만들지 못했습니다.") }
+            return url
+        }
         let id: String
         if let videoID = track.videoID { id = videoID } else { id = try await YouTubeCatalog.shared.match(track).id }
         if !refresh, let (url, date) = streams[id], Date().timeIntervalSince(date) < 1800 { return url }
