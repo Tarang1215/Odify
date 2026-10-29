@@ -74,6 +74,25 @@ class IosPackagingTests(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, 'Missing compiled release binary'):
                     ipa.validate(app)
 
+    def test_native_release_requires_ipad_and_real_device_binary_without_flutter(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            app, info = self.fixture(root)
+            info['UIDeviceFamily'] = [1, 2]
+            (app / 'Info.plist').write_bytes(plistlib.dumps(info))
+            (app / 'Frameworks/App.framework/App').unlink()
+            (app / 'Frameworks/Flutter.framework/Flutter').unlink()
+            with patch.object(ipa.subprocess, 'check_output', side_effect=self.tool):
+                output = root / 'dist/Odify-native.ipa'
+                ipa.package(app, output, runtime='native')
+                report = json.loads(output.with_suffix('.build.json').read_text())
+                self.assertTrue(report['nativeRelease'])
+                self.assertFalse(report['releaseAOT'])
+                info['UIDeviceFamily'] = [1]
+                (app / 'Info.plist').write_bytes(plistlib.dumps(info))
+                with self.assertRaisesRegex(RuntimeError, 'support iPad'):
+                    ipa.validate(app, runtime='native')
+
     def test_simulator_identity_is_rejected_before_invoking_apple_tools(self):
         with tempfile.TemporaryDirectory() as temp:
             app, info = self.fixture(Path(temp))

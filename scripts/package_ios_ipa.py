@@ -13,7 +13,7 @@ import tempfile
 import zipfile
 
 
-def validate(app: Path):
+def validate(app: Path, runtime='flutter'):
     info = plistlib.loads((app / 'Info.plist').read_bytes())
     if info.get('CFBundleIdentifier') != 'com.odify.music.ios':
         raise RuntimeError('Unexpected iOS app identity')
@@ -21,7 +21,15 @@ def validate(app: Path):
         raise RuntimeError('Expected iPhone device build, not simulator')
     if 'audio' not in info.get('UIBackgroundModes', []):
         raise RuntimeError('Missing native background audio capability')
-    for relative in [info['CFBundleExecutable'], 'Frameworks/App.framework/App', 'Frameworks/Flutter.framework/Flutter']:
+    binaries = [info['CFBundleExecutable']]
+    if runtime == 'flutter':
+        binaries += ['Frameworks/App.framework/App', 'Frameworks/Flutter.framework/Flutter']
+    else:
+        if 2 not in info.get('UIDeviceFamily', []):
+            raise RuntimeError('Native iPad release must support iPad')
+        binaries += [str(path.relative_to(app)).replace('\\', '/') for path in (app / 'Frameworks').glob('*.framework/*')
+                     if path.name == path.parent.stem and path.is_file()]
+    for relative in binaries:
         executable = app / relative
         if not executable.is_file() or executable.stat().st_size < 100_000:
             raise RuntimeError('Missing compiled release binary: ' + relative)
@@ -34,8 +42,8 @@ def validate(app: Path):
     return info
 
 
-def package(app: Path, output: Path):
-    info = validate(app)
+def package(app: Path, output: Path, runtime='flutter'):
+    info = validate(app, runtime)
     output.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='odify-ipa-') as temp:
         stage = Path(temp)
@@ -74,7 +82,8 @@ def package(app: Path, output: Path):
     output.with_suffix('.build.json').write_text(json.dumps({
         'bundleId': info['CFBundleIdentifier'], 'version': info['CFBundleShortVersionString'],
         'build': info['CFBundleVersion'], 'minimumOS': info.get('MinimumOSVersion'),
-        'platform': 'iPhoneOS', 'architecture': 'arm64', 'releaseAOT': True,
+        'platform': 'iPhoneOS', 'architecture': 'arm64', 'runtime': runtime,
+        'releaseAOT': runtime == 'flutter', 'nativeRelease': runtime == 'native',
         'signing': 'unsigned; user signs with SideStore/LiveContainer',
         'sha256': digest, 'bytes': output.stat().st_size,
     }, indent=2) + '\n')
@@ -85,5 +94,6 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('app', type=Path)
     parser.add_argument('output', type=Path)
+    parser.add_argument('--runtime', choices=['flutter', 'native'], default='flutter')
     args = parser.parse_args()
-    package(args.app.resolve(), args.output.resolve())
+    package(args.app.resolve(), args.output.resolve(), args.runtime)

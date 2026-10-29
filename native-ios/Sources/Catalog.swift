@@ -1,0 +1,198 @@
+import Foundation
+import YouTubeKit
+
+enum MusicCountry: String, CaseIterable, Identifiable {
+    case korea = "kr", japan = "jp", unitedStates = "us"
+    var id: String { rawValue }
+    var title: String { switch self { case .korea: return "한국"; case .japan: return "일본"; case .unitedStates: return "미국" } }
+}
+
+enum MusicHTTP {
+    static func data(_ url: URL) async throws -> Data {
+        var request = URLRequest(url: url, cachePolicy: .returnCacheDataElseLoad, timeoutInterval: 25)
+        request.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let response = response as? HTTPURLResponse, (200..<300).contains(response.statusCode), data.count < 12_000_000 else {
+            throw OdifyError.message("음악 정보를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.")
+        }
+        return data
+    }
+    static func url(_ address: String, _ parameters: [String: String] = [:]) -> URL {
+        var components = URLComponents(string: address)!
+        if !parameters.isEmpty { components.queryItems = parameters.sorted { $0.key < $1.key }.map { URLQueryItem(name: $0.key, value: $0.value) } }
+        return components.url!
+    }
+}
+
+actor MusicCatalog {
+    static let shared = MusicCatalog()
+    private var cache: [String: (Date, [Track])] = [:]
+    private var portraits: [String: String] = [:]
+
+    func search(_ query: String, country: MusicCountry = .korea) async throws -> [Track] {
+        try await songs(MusicHTTP.url("https://itunes.apple.com/search", [
+            "term": String(query.prefix(160)), "country": country.rawValue, "entity": "song", "limit": "60"
+        ]))
+    }
+    func artist(_ track: Track) async throws -> [Track] {
+        if let id = track.artistID {
+            let result = try await songs(MusicHTTP.url("https://itunes.apple.com/lookup", ["id": id, "entity": "song", "limit": "200", "country": "us"]))
+            if !result.isEmpty { return result }
+        }
+        return try await search(track.artist).filter { Track.normalized($0.artist) == Track.normalized(track.artist) }
+    }
+    func chart(_ country: MusicCountry) async throws -> [Track] {
+        let key = "chart:" + country.rawValue
+        if let (date, value) = cache[key], Date().timeIntervalSince(date) < 3600 { return value }
+        let data = try await MusicHTTP.data(MusicHTTP.url("https://rss.marketingtools.apple.com/api/v2/\(country.rawValue)/music/most-played/50/songs.json"))
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        let feed = json?["feed"] as? [String: Any]
+        let rows = feed?["results"] as? [[String: Any]] ?? []
+        let value = Track.unique(rows.compactMap { row -> Track? in
+            guard let id = row["id"] as? String, let title = row["name"] as? String, let artist = row["artistName"] as? String else { return nil }
+            return Track(id: "catalog:" + id, title: title, artist: artist,
+                         artwork: Self.largeArtwork(row["artworkUrl100"] as? String), artistID: row["artistId"] as? String, artistURL: row["artistUrl"] as? String)
+        })
+        guard !value.isEmpty else { throw OdifyError.message("차트를 불러오지 못했습니다.") }
+        cache[key] = (Date(), value)
+        return value
+    }
+    private func songs(_ url: URL) async throws -> [Track] {
+        let key = url.absoluteString
+        if let (date, value) = cache[key], Date().timeIntervalSince(date) < 3600 { return value }
+        let data = try await MusicHTTP.data(url)
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        let rows = json?["results"] as? [[String: Any]] ?? []
+        let value = Track.unique(rows.compactMap(Self.parseSong))
+        if cache.count > 60 { cache.removeAll() }
+        cache[key] = (Date(), value)
+        return value
+    }
+    static func parseSong(_ row: [String: Any]) -> Track? {
+        guard let id = row["trackId"] as? NSNumber, let title = row["trackName"] as? String,
+              let artist = row["artistName"] as? String else { return nil }
+        return Track(id: "catalog:" + id.stringValue, title: title, artist: artist, album: row["collectionName"] as? String ?? "",
+                     artwork: largeArtwork(row["artworkUrl100"] as? String), artistID: (row["artistId"] as? NSNumber)?.stringValue,
+                     artistURL: row["artistViewUrl"] as? String, duration: (row["trackTimeMillis"] as? Double ?? 0) / 1000)
+    }
+    static func largeArtwork(_ value: String?) -> String? { value?.replacingOccurrences(of: "100x100bb", with: "600x600bb") }
+
+    func portrait(_ track: Track) async -> String? {
+        guard let address = track.artistURL, let url = URL(string: address), url.host == "music.apple.com" else { return nil }
+        if let cached = portraits[address] { return cached }
+        do {
+            let html = String(decoding: try await MusicHTTP.data(url), as: UTF8.self)
+            let pattern = #"<meta[^>]+property="og:image"[^>]+content="([^"]+)"#
+            let regex = try NSRegularExpression(pattern: pattern, options: .caseInsensitive)
+            guard let match = regex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
+                  let range = Range(match.range(at: 1), in: html) else { return nil }
+            let value = String(html[range]).replacingOccurrences(of: "&amp;", with: "&")
+            guard let image = URL(string: value), image.scheme == "https", image.host?.hasSuffix(".mzstatic.com") == true else { return nil }
+            portraits[address] = value
+            return value
+        } catch { return nil }
+    }
+}
+
+actor YouTubeCatalog {
+    static let shared = YouTubeCatalog()
+    private var cache: [String: [VideoResult]] = [:]
+    func search(_ query: String) async throws -> [VideoResult] {
+        let query = String(query.trimmingCharacters(in: .whitespacesAndNewlines).prefix(160))
+        guard query.count >= 2 else { return [] }
+        if let cached = cache[query] { return cached }
+        let data = try await MusicHTTP.data(MusicHTTP.url("https://www.youtube.com/results", ["search_query": query, "hl": "en"]))
+        let html = String(decoding: data, as: UTF8.self)
+        guard let json = Self.initialData(html) else {
+            throw OdifyError.message("YouTube 검색 응답을 읽지 못했습니다. 연결을 확인한 뒤 다시 시도해 주세요.")
+        }
+        let value = Self.videoResults(json)
+        guard !value.isEmpty else { throw OdifyError.message("재생 가능한 YouTube 검색 결과가 없습니다.") }
+        if cache.count > 50 { cache.removeAll() }
+        cache[query] = value
+        return value
+    }
+    func match(_ track: Track) async throws -> VideoResult {
+        let videos = try await search("\(track.artist) \(track.title) official audio")
+        let title = Track.normalized(track.title), artist = Track.normalized(track.artist)
+        let candidates = videos.filter { video in
+            !video.isVariant && Track.normalized(video.title).contains(title) &&
+            (Track.normalized(video.channel).contains(artist) || Track.normalized(video.title).contains(artist))
+        }
+        guard let result = candidates.sorted(by: { Self.score($0) > Self.score($1) }).first else {
+            throw OdifyError.message("정확한 재생 영상을 확인하지 못했습니다. 검색의 YouTube 결과에서 직접 선택해 주세요.")
+        }
+        return result
+    }
+    private static func score(_ video: VideoResult) -> Int {
+        let channel = video.channel.lowercased(), title = video.title.lowercased()
+        return (channel.contains("topic") ? 5 : 0) + (channel.contains("official") ? 3 : 0) + (title.contains("audio") ? 2 : 0)
+    }
+    static func initialData(_ html: String) -> Any? {
+        for marker in ["var ytInitialData =", "window[\"ytInitialData\"] =", "ytInitialData ="] {
+            guard let markerRange = html.range(of: marker), let begin = html[markerRange.upperBound...].firstIndex(of: "{") else { continue }
+            var depth = 0, quoted = false, escaped = false
+            for index in html[begin...].indices {
+                let char = html[index]
+                if quoted {
+                    if escaped { escaped = false } else if char == "\\" { escaped = true } else if char == "\"" { quoted = false }
+                } else if char == "\"" { quoted = true }
+                else if char == "{" { depth += 1 }
+                else if char == "}" {
+                    depth -= 1
+                    if depth == 0 { return try? JSONSerialization.jsonObject(with: Data(html[begin...index].utf8)) }
+                }
+            }
+        }
+        return nil
+    }
+    static func videoResults(_ json: Any) -> [VideoResult] {
+        var results: [VideoResult] = [], seen = Set<String>()
+        func text(_ node: Any?) -> String {
+            let dict = node as? [String: Any]
+            return dict?["simpleText"] as? String ?? (dict?["runs"] as? [[String: Any]])?.compactMap { $0["text"] as? String }.joined() ?? ""
+        }
+        func visit(_ node: Any) {
+            guard results.count < 30 else { return }
+            if let rows = node as? [Any] { rows.forEach(visit) }
+            else if let dict = node as? [String: Any] {
+                if let row = dict["videoRenderer"] as? [String: Any], let id = row["videoId"] as? String,
+                   id.range(of: #"^[A-Za-z0-9_-]{11}$"#, options: .regularExpression) != nil, seen.insert(id).inserted {
+                    let title = text(row["title"]), channel = text(row["ownerText"] ?? row["longBylineText"])
+                    if !title.isEmpty { results.append(VideoResult(id: id, title: title, channel: channel)) }
+                }
+                // Traversal order in dictionaries is intentionally not used as a ranking signal.
+                for key in dict.keys.sorted() { if key != "videoRenderer", let child = dict[key] { visit(child) } }
+            }
+        }
+        visit(json)
+        return results
+    }
+}
+
+actor StreamResolver {
+    static let shared = StreamResolver()
+    private var streams: [String: (URL, Date)] = [:]
+    func url(for track: Track, documents: URL, refresh: Bool = false) async throws -> URL {
+        if let file = track.localFile {
+            let root = documents.standardizedFileURL
+            let url = root.appendingPathComponent(file).standardizedFileURL
+            guard url.path.hasPrefix(root.path + "/"), FileManager.default.fileExists(atPath: url.path) else {
+                throw OdifyError.message("원본 파일을 찾을 수 없습니다. 파일을 다시 가져와 주세요.")
+            }
+            return url
+        }
+        let id: String
+        if let videoID = track.videoID { id = videoID } else { id = try await YouTubeCatalog.shared.match(track).id }
+        if !refresh, let (url, date) = streams[id], Date().timeIntervalSince(date) < 1800 { return url }
+        // Local extraction only: never send proxy requests or cookies to a third-party fallback server.
+        let all = try await YouTube(videoID: id, methods: [.local]).streams
+        guard let stream = all.filterAudioOnly().filter({ $0.fileExtension == .m4a && $0.isNativelyPlayable }).highestAudioBitrateStream() else {
+            throw OdifyError.message("이 영상의 오디오 스트림을 연결하지 못했습니다. 다른 영상을 선택해 주세요.")
+        }
+        guard stream.url.scheme == "https" else { throw OdifyError.message("안전한 음원 주소를 확인하지 못했습니다.") }
+        if streams.count > 40 { streams.removeAll() }
+        streams[id] = (stream.url, Date())
+        return stream.url
+    }
+}

@@ -1,0 +1,153 @@
+import SwiftUI
+import UniformTypeIdentifiers
+
+@main struct OdifyApp: App {
+    @StateObject private var store = LibraryStore(preview: ProcessInfo.processInfo.arguments.contains("--odify-preview"))
+    var body: some Scene {
+        WindowGroup {
+            RootView().environmentObject(store).environmentObject(store.engine)
+                .preferredColorScheme(.dark)
+                .onOpenURL { url in
+                    if url.isFileURL { Task { await store.importFiles([url], source: .local) } }
+                }
+        }
+    }
+}
+
+enum MainPage: String, CaseIterable, Identifiable {
+    case home = "Home", explore = "Explore", search = "Search", library = "Library"
+    var id: String { rawValue }
+    var symbol: String { switch self { case .home: return "house"; case .explore: return "safari"; case .search: return "magnifyingglass"; case .library: return "square.stack" } }
+}
+
+struct RootView: View {
+    @EnvironmentObject private var store: LibraryStore
+    @EnvironmentObject private var engine: PlaybackEngine
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var page: MainPage = .home
+    @State private var fullPlayer = false
+    @State private var importer = false
+    @State private var importSource: MusicSource = .local
+    @State private var showAbout = false
+
+    var body: some View {
+        GeometryReader { geometry in
+            let sidebar = geometry.size.width >= 760
+            let inspector = geometry.size.width >= 1100
+            HStack(spacing: 0) {
+                if sidebar { navigationSidebar.frame(width: geometry.size.width >= 1100 ? 202 : 184) }
+                NavigationStack {
+                    Group {
+                        switch page {
+                        case .home: HomeView()
+                        case .explore: ExploreView()
+                        case .search: SearchView()
+                        case .library: LibraryView(importAction: importMusic)
+                        }
+                    }
+                    .toolbar {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Menu {
+                                Button("파일 가져오기", systemImage: "folder") { importMusic(.local) }
+                                Button("Drive에서 가져오기", systemImage: "externaldrive") { importMusic(.drive) }
+                                Button("앱 정보", systemImage: "info.circle") { showAbout = true }
+                            } label: { Image(systemName: "plus").frame(width: 28, height: 28) }
+                            .accessibilityLabel("음악 가져오기 및 앱 정보")
+                        }
+                    }
+                    .navigationDestination(for: MusicPlaylist.self) { PlaylistView(playlistID: $0.id) }
+                    .navigationDestination(for: Track.self) { ArtistView(artist: $0) }
+                }
+                .tint(.white)
+                if inspector {
+                    NowPlayingPane(openFullPlayer: { fullPlayer = true })
+                        .frame(width: min(342, geometry.size.width * 0.28))
+                        .padding(.trailing, 16).padding(.top, 14)
+                }
+            }
+            .background(MusicBackdrop(tint: Color(uiColor: engine.tint)))
+            .safeAreaInset(edge: .bottom, spacing: 10) {
+                VStack(spacing: 10) {
+                    if engine.current != nil { MiniPlayer(wide: sidebar, open: { fullPlayer = true }).padding(.horizontal, sidebar ? 20 : 12) }
+                    if !sidebar { compactTabs.padding(.horizontal, 32) }
+                }.padding(.bottom, 8)
+            }
+            .animation(reduceMotion ? nil : .smooth(duration: 0.3), value: sidebar)
+            .fullScreenCover(isPresented: $fullPlayer) { FullPlayerView() }
+            .sheet(isPresented: $showAbout) { AboutView() }
+            .fileImporter(isPresented: $importer, allowedContentTypes: [.audio, .mpeg4Movie], allowsMultipleSelection: true) { result in
+                switch result {
+                case .success(let urls): Task { await store.importFiles(urls, source: importSource) }
+                case .failure(let error): store.notice = error.localizedDescription
+                }
+            }
+            .overlay(alignment: .top) {
+                if store.importing { Label("음악을 가져오는 중…", systemImage: "arrow.down.circle").padding().glassEffect().padding(.top, 10) }
+            }
+            .alert("Odify", isPresented: Binding(get: { store.notice != nil }, set: { if !$0 { store.notice = nil } })) {
+                Button("확인") { store.notice = nil }
+            } message: { Text(store.notice ?? "") }
+            .task { await store.loadHome() }
+        }
+    }
+    private func importMusic(_ source: MusicSource) { importSource = source; importer = true }
+    private var navigationSidebar: some View {
+        VStack(alignment: .leading, spacing: 28) {
+            HStack(spacing: 10) { Image(systemName: "waveform").foregroundStyle(.mint); Text("odify").font(.system(size: 29, weight: .bold, design: .rounded)) }
+                .padding(.horizontal, 18).padding(.top, 28)
+            VStack(spacing: 8) {
+                ForEach(MainPage.allCases) { item in
+                    Button { page = item } label: {
+                        Label(item.rawValue, systemImage: item.symbol + (page == item && item != .search ? ".fill" : ""))
+                            .font(.system(size: 15, weight: .semibold)).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 16).padding(.vertical, 13)
+                            .background { if page == item { RoundedRectangle(cornerRadius: 16).fill(.white.opacity(0.09)) } }
+                    }.buttonStyle(.plain).foregroundStyle(page == item ? .white : .white.opacity(0.55))
+                }
+            }.padding(.horizontal, 12)
+            VStack(alignment: .leading, spacing: 16) {
+                Text("YOUR SPACE").font(.system(size: 10, weight: .bold)).tracking(2).foregroundStyle(.secondary)
+                Label("좋아요 \(store.liked.count)", systemImage: "heart")
+                Label("플레이리스트 \(store.playlists.count)", systemImage: "music.note.list")
+                Label("가져온 음악 \(store.tracks.filter { $0.localFile != nil }.count)", systemImage: "folder")
+            }.font(.system(size: 12)).foregroundStyle(.secondary).padding(.horizontal, 26)
+            Spacer()
+            Button { showAbout = true } label: { Label("Made for your music", systemImage: "sparkles").font(.system(size: 11)) }
+                .buttonStyle(.plain).foregroundStyle(.secondary).padding(22)
+        }
+        .frame(maxHeight: .infinity)
+        .background(.white.opacity(0.025))
+    }
+    private var compactTabs: some View {
+        HStack(spacing: 4) {
+            ForEach(MainPage.allCases) { item in
+                Button { page = item } label: {
+                    VStack(spacing: 4) { Image(systemName: item.symbol).font(.system(size: 18)); Text(item.rawValue).font(.system(size: 9, weight: .medium)) }
+                        .foregroundStyle(page == item ? .white : .secondary).frame(maxWidth: .infinity).padding(.vertical, 10)
+                        .background { if page == item { Capsule().fill(.white.opacity(0.10)) } }
+                }.buttonStyle(.plain).accessibilityLabel(item.rawValue).accessibilityAddTraits(page == item ? .isSelected : [])
+            }
+        }.padding(5).glassEffect(.regular, in: .capsule)
+    }
+}
+
+struct AboutView: View {
+    var body: some View {
+        NavigationStack {
+            List {
+                Section("Odify 1.1 · Native iOS") { Text("iPad와 iPhone을 위한 SwiftUI 화면 · iOS 26 이상") }
+                Section("재생") {
+                    Text("앱 내부 AVQueuePlayer가 Local·Drive 가져온 파일과 연결 가능한 YouTube 오디오를 재생합니다. YouTube 연결은 서비스 변경이나 네트워크 환경에 따라 실패할 수 있습니다.")
+                    Text("Drive는 파일 앱에서 Google Drive를 활성화한 뒤 선택해 가져옵니다. Android의 Google 계정 직접 동기화와 기존 보관함 자동 이전은 아직 포함되지 않았습니다.")
+                }
+                Section("LiveContainer") {
+                    Text("홈 화면 WidgetKit 위젯은 LiveContainer 게스트 앱에서 등록할 수 없습니다. 앱 안의 미니플레이어와 시스템 재생 정보는 별개이며, 실제 기기의 LiveContainer 설정에 따라 확인이 필요합니다.")
+                    Text("YTKACE는 별도 앱입니다. Odify는 YTKACE의 대기열이나 재생 상태를 제어하지 않습니다.")
+                }
+                Section("오픈소스") {
+                    Text("YouTubeKit · MIT · Alexander Eichhorn 외 기여자\n고정 소스: 89854c93207ad0d2b3d78d6f1aea24595ca66552")
+                    if let url = Bundle.main.url(forResource: "YouTubeKit-LICENSE", withExtension: "txt"), let text = try? String(contentsOf: url, encoding: .utf8) { Text(text).font(.caption) }
+                }
+            }.navigationTitle("Odify 정보")
+        }
+    }
+}

@@ -1,0 +1,41 @@
+name: Odify
+options:
+  bundleIdPrefix: com.odify.music
+  deploymentTarget:
+    iOS: '26.0'
+packages:
+  YouTubeKit:
+    url: https://github.com/alexeichhorn/YouTubeKit.git
+    revision: 89854c93207ad0d2b3d78d6f1aea24595ca66552
+settings:
+  base:
+    SWIFT_VERSION: '5.0'
+    SWIFT_STRICT_CONCURRENCY: targeted
+    TARGETED_DEVICE_FAMILY: '1,2'
+    CODE_SIGNING_ALLOWED: NO
+    MARKETING_VERSION: '1.1.0'
+    CURRENT_PROJECT_VERSION: '2'
+targets:
+  Odify:
+    type: application
+    platform: iOS
+    sources: [Sources, Resources]
+    dependencies:
+      - package: YouTubeKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.odify.music.ios
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        INFOPLIST_FILE: Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+    scheme:
+      testTargets: [OdifyTests]
+  OdifyTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [Tests]
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+    dependencies:
+      - target: Odify

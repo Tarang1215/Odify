@@ -10,3 +10,8 @@ native-android/licenses/
 *.jks
 build/ios-source/
 dist/ios/
+dist/ios-checks/
+native-ios/Odify.xcodeproj/
+native-ios/Resources/Assets.xcassets/
+native-ios/Resources/*LICENSE.txt
+tools/ios-stream-probe/.build/

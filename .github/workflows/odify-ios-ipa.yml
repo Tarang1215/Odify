@@ -1,8 +1,8 @@
-name: Odify iPhone release IPA
+name: Odify common iOS baseline (legacy)
 
 on:
   push:
-    branches: ['codex/ios-*']
+    branches: ['codex/ios-common-*']
     paths:
       - '.github/workflows/odify-ios-ipa.yml'
       - 'scripts/*ios*.py'
