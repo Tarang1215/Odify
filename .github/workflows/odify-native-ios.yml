@@ -38,6 +38,11 @@ jobs:
           brew list xcodegen || brew install xcodegen
           cd native-ios
           xcodegen generate
+      - name: Probe live YouTube audio connection without sound
+        continue-on-error: true
+        run: |
+          mkdir -p dist/ios-checks
+          swift run --package-path tools/ios-stream-probe OdifyStreamProbe > dist/ios-checks/stream-probe.json
       - name: Build native iPad and iPhone release without Apple credentials
         run: |
           set -o pipefail
@@ -71,11 +76,6 @@ jobs:
           xcrun simctl launch "$IPAD_SIM" com.odify.music.ios --odify-preview
           sleep 4
           xcrun simctl io "$IPAD_SIM" screenshot dist/ios-checks/ipad-portrait.png
-      - name: Probe live YouTube audio connection without sound
-        continue-on-error: true
-        run: |
-          set -o pipefail
-          swift run --package-path tools/ios-stream-probe OdifyStreamProbe > dist/ios-checks/stream-probe.json
       - name: Upload verified IPA approved by repository owner
         uses: actions/upload-artifact@v4
         with:

@@ -216,21 +216,30 @@ import UIKit
     private func rebuildUpcoming() {
         prefetchTask?.cancel(); prefetchGeneration = UUID(); let request = prefetchGeneration
         guard let currentItem = player.currentItem, let currentID = itemIDs[ObjectIdentifier(currentItem)] else { return }
-        for item in player.items() where item !== currentItem {
-            player.remove(item); itemIDs.removeValue(forKey: ObjectIdentifier(item))
-            itemObservations.removeValue(forKey: ObjectIdentifier(item))?.invalidate()
-        }
         var prepared: [QueueEntry] = [], cursor = currentID
         for _ in 0..<2 {
             guard let entry = queue.successor(after: cursor, automatic: true) else { break }
             if !failedIDs.contains(entry.id) { prepared.append(entry) }
             cursor = entry.id
         }
-        guard !prepared.isEmpty else { return }
+        var retained = 0
+        var lastPrepared = currentItem
+        let existing = Array(player.items().dropFirst())
+        for item in existing {
+            if retained < prepared.count, itemIDs[ObjectIdentifier(item)] == prepared[retained].id {
+                lastPrepared = item; retained += 1
+            } else { break }
+        }
+        for item in existing.dropFirst(retained) {
+            player.remove(item); itemIDs.removeValue(forKey: ObjectIdentifier(item))
+            itemObservations.removeValue(forKey: ObjectIdentifier(item))?.invalidate()
+        }
+        let missing = Array(prepared.dropFirst(retained))
+        guard !missing.isEmpty else { return }
         prefetchTask = Task { [weak self] in
             guard let self else { return }
-            var lastItem = currentItem
-            for entry in prepared {
+            var lastItem = lastPrepared
+            for entry in missing {
                 do {
                     let url = try await StreamResolver.shared.url(for: entry.track, documents: self.documents)
                     try Task.checkCancellation()

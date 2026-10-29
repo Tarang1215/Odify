@@ -39,7 +39,8 @@ def main():
     if 'MIT License' not in license_text or 'Alexander Eichhorn' not in license_text:
         raise RuntimeError('Missing original dependency license')
     (resources / 'YouTubeKit-LICENSE.txt').write_text(license_text, encoding='utf-8')
-    (resources / 'Odify-LICENSE.txt').write_bytes((ROOT / 'LICENSE').read_bytes())
+    # This independent Swift target does not bundle the old Flutter/Mornye core.
+    # Do not invent a repository-wide license when the repository has no LICENSE.
     print('Prepared native iPad/iPhone icon and original license notices')
 
 
