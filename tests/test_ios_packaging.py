@@ -9,9 +9,36 @@ from unittest.mock import patch
 import zipfile
 
 from scripts import package_ios_ipa as ipa
+from scripts import prepare_ios_sideload as preparation
 
 
 class IosPackagingTests(unittest.TestCase):
+    def test_prepare_rebrands_widget_override_and_bundles_the_original_license(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            files = {
+                'ODIFY_VENDOR_BASE.txt': '8e4504e72ddcda6bdf6df5e1275396f46e9dfb9f',
+                'LICENSE': 'MIT License fixture',
+                'pubspec.yaml': 'flutter:\n  assets:\n    - assets/existing.txt\n',
+                'ios/Runner.xcodeproj/project.pbxproj': 'PRODUCT_BUNDLE_IDENTIFIER = com.zarz.mornye;',
+                'ios/PlayerWidget/PlayerWidget.xcconfig': 'PRODUCT_BUNDLE_IDENTIFIER = com.zarz.mornye.PlayerWidget\nPLAYER_WIDGET_APP_GROUP = group.com.zarz.mornye\n',
+                'lib/constants/app_info.dart': "static const String version = '0.9.0';\nstatic const String buildNumber = '170';\n",
+                'lib/widgets/odify_quick_access.dart': '  Widget build(BuildContext context) { return something; }\n',
+                'lib/screens/settings/profile_settings_page.dart': 'builder: (_) => const OdifySyncSettingsScreen(),\n',
+            }
+            for name, value in files.items():
+                path = root / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(value, encoding='utf-8')
+            info = root / 'ios/Runner/Info.plist'
+            info.parent.mkdir(parents=True)
+            info.write_bytes(plistlib.dumps({'CFBundleDisplayName': 'Mornye'}))
+            preparation.prepare(root)
+            self.assertIn('com.odify.music.ios.PlayerWidget', (root / 'ios/PlayerWidget/PlayerWidget.xcconfig').read_text())
+            self.assertNotIn('com.zarz.mornye', (root / 'ios/PlayerWidget/PlayerWidget.xcconfig').read_text())
+            self.assertIn('    - LICENSE\n', (root / 'pubspec.yaml').read_text())
+            self.assertEqual(['audio'], plistlib.loads(info.read_bytes())['UIBackgroundModes'])
+
     def fixture(self, root):
         app = root / 'Runner.app'
         app.mkdir()

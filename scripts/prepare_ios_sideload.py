@@ -46,6 +46,13 @@ def prepare(root: Path):
             raise RuntimeError('Unrecognized Odify version anchor')
         source = source.replace(old, new)
     identity.write_text(source, encoding='utf-8')
+    pubspec = root / 'pubspec.yaml'
+    source = pubspec.read_text(encoding='utf-8')
+    if source.count('  assets:\n') != 1 or not (root / 'LICENSE').is_file():
+        raise RuntimeError('Missing original license or Flutter assets anchor')
+    if '    - LICENSE\n' not in source:
+        source = source.replace('  assets:\n', '  assets:\n    - LICENSE\n', 1)
+    pubspec.write_text(source, encoding='utf-8')
     # These overlay cards depend on Android MediaStore/yt-dlp channels.
     # Keep the real iOS library and search rather than dead Android buttons.
     quick = root / 'lib/widgets/odify_quick_access.dart'

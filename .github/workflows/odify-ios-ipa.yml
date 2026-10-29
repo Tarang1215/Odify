@@ -59,14 +59,17 @@ jobs:
         run: |
           flutter analyze --no-fatal-infos --no-fatal-warnings
           flutter test test/ios_container_paths_test.dart test/ios_history_restore_test.dart test/ios_download_folder_test.dart test/odify_metadata_test.dart test/odify_discovery_test.dart
-      - uses: actions/cache@v4
+      - uses: actions/cache/restore@v4
         id: cargo-cache
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
             build/ios-source/rust_backend/target
-          key: odify-ios-rust-${{ runner.arch }}-${{ hashFiles('build/ios-source/rust_backend/Cargo.lock', 'build/ios-source/rust_backend/rust-toolchain.toml') }}-v1
+          key: odify-ios-rust-${{ runner.arch }}-${{ hashFiles('build/ios-source/rust_backend/Cargo.lock', 'build/ios-source/rust_backend/rust-toolchain.toml') }}-v2-${{ github.run_id }}
+          restore-keys: |
+            odify-ios-rust-${{ runner.arch }}-${{ hashFiles('build/ios-source/rust_backend/Cargo.lock', 'build/ios-source/rust_backend/rust-toolchain.toml') }}-v2-
+            odify-ios-rust-${{ runner.arch }}-${{ hashFiles('build/ios-source/rust_backend/Cargo.lock', 'build/ios-source/rust_backend/rust-toolchain.toml') }}-v1
       - name: Build native Rust iOS audio backend and Swift bindings
         working-directory: build/ios-source
         run: bash scripts/build_rust_backend.sh ios
@@ -90,4 +93,4 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             build/ios-source/rust_backend/target
-          key: odify-ios-rust-${{ runner.arch }}-${{ hashFiles('build/ios-source/rust_backend/Cargo.lock', 'build/ios-source/rust_backend/rust-toolchain.toml') }}-v1
+          key: odify-ios-rust-${{ runner.arch }}-${{ hashFiles('build/ios-source/rust_backend/Cargo.lock', 'build/ios-source/rust_backend/rust-toolchain.toml') }}-v2-${{ github.run_id }}
