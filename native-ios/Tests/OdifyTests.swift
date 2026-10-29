@@ -122,6 +122,27 @@ final class QueueTests: XCTestCase {
         do { _ = try await StreamResolver.shared.url(for: track, documents: FileManager.default.temporaryDirectory); XCTFail("escaped library") }
         catch { XCTAssertTrue(error.localizedDescription.contains("파일")) }
     }
+    func testBrokenPreparedFileDoesNotStopTheRemainingQueue() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try Self.silence(seconds: 2).write(to: directory.appendingPathComponent("ok.wav"))
+        try Data("not an audio recording".utf8).write(to: directory.appendingPathComponent("bad.wav"))
+        let engine = PlaybackEngine(documents: directory)
+        defer { engine.shutdown() }
+        engine.player.volume = 0
+        engine.play([
+            Track(id: "ok1", title: "First", artist: "Test", source: .local, localFile: "ok.wav", duration: 2),
+            Track(id: "bad", title: "Broken", artist: "Test", source: .local, localFile: "bad.wav"),
+            Track(id: "ok2", title: "Last", artist: "Test", source: .local, localFile: "ok.wav", duration: 2)
+        ])
+        for _ in 0..<240 {
+            if engine.current?.id == "ok2", engine.player.currentItem?.status == .readyToPlay { break }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        XCTAssertEqual(engine.current?.id, "ok2", engine.error ?? "stopped at corrupt file")
+        XCTAssertEqual(engine.player.currentItem?.status, .readyToPlay)
+    }
     private static func silence(seconds: UInt32) -> Data {
         let sampleRate: UInt32 = 8000, count = sampleRate * seconds * 2
         var data = Data()

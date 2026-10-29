@@ -267,6 +267,9 @@ import UIKit
         guard let item = player.currentItem, let id = itemIDs[ObjectIdentifier(item)] else { return }
         let changed = queue.currentID != id
         queue.currentID = id
+        // A buffered successor can fail before it becomes current, in which
+        // case its status KVO has already fired. Handle that state on arrival.
+        if item.status == .failed { failed(item); return }
         let currentItems = Set(player.items().map(ObjectIdentifier.init))
         itemIDs = itemIDs.filter { currentItems.contains($0.key) }
         for key in itemObservations.keys.filter({ !currentItems.contains($0) }) { itemObservations.removeValue(forKey: key)?.invalidate() }

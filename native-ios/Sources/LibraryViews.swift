@@ -23,6 +23,7 @@ struct LibraryView: View {
                     Button("파일 가져오기", systemImage: "folder") { importAction(.local) }.buttonStyle(.glass)
                     Button("Drive", systemImage: "externaldrive") { importAction(.drive) }.buttonStyle(.glass)
                 }
+                Text("Drive 음악은 파일 앱에서 선택해 Odify로 가져옵니다.").font(.system(size: 11)).foregroundStyle(.secondary)
                 NavigationLink { TrackCollectionView(title: "좋아요", subtitle: "마음에 담아둔 곡", tracks: store.liked) } label: {
                     HStack(spacing: 16) {
                         Image(systemName: "heart.fill").font(.system(size: 22)).foregroundStyle(.pink).frame(width: 54, height: 54).background(.pink.opacity(0.12), in: RoundedRectangle(cornerRadius: 15))

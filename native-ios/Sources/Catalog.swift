@@ -9,7 +9,7 @@ enum MusicCountry: String, CaseIterable, Identifiable {
 
 enum MusicHTTP {
     static func data(_ url: URL) async throws -> Data {
-        var request = URLRequest(url: url, cachePolicy: .returnCacheDataElseLoad, timeoutInterval: 25)
+        var request = URLRequest(url: url, cachePolicy: .useProtocolCachePolicy, timeoutInterval: 25)
         request.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let response = response as? HTTPURLResponse, (200..<300).contains(response.statusCode), data.count < 12_000_000 else {
