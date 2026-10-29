@@ -9,6 +9,16 @@ actor ArtworkLoader {
     func evict(_ address: String) {
         for key in keys.filter({ $0.hasPrefix(address + "|") }) { cache.removeObject(forKey: key as NSString); keys.remove(key) }
     }
+    func coverJPEG(_ data: Data) -> Data? {
+        guard data.count < 40_000_000, let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceCreateThumbnailWithTransform: true,
+                kCGImageSourceThumbnailMaxPixelSize: 1200,
+                kCGImageSourceShouldCacheImmediately: true
+              ] as CFDictionary) else { return nil }
+        return UIImage(cgImage: image).jpegData(compressionQuality: 0.85)
+    }
     func image(_ address: String, documents: URL, size: Int) async -> UIImage? {
         let pixels = min(1000, max(120, size)), key = address + "|\(pixels)"
         if let image = cache.object(forKey: key as NSString) { return image }

@@ -12,6 +12,8 @@ import UniformTypeIdentifiers
     @Published var chart: [Track] = []
     @Published var homeLoading = false
     private var persistTask: Task<Void, Never>?
+    private var recommendationTask: Task<Void, Never>?
+    private var recommendationGeneration = UUID()
     private var subscriptions = Set<AnyCancellable>()
     private let preview: Bool
 
@@ -32,9 +34,10 @@ import UniformTypeIdentifiers
         }
         if preview { loaded = PreviewLibrary.snapshot }
         snapshot = loaded
-        engine = PlaybackEngine(documents: root, queue: loaded.queue, position: loaded.position)
+        engine = PlaybackEngine(documents: root, queue: loaded.queue, position: loaded.position, autoplay: loaded.autoplay)
         notice = loadError
         engine.onCheckpoint = { [weak self] in self?.save() }
+        engine.onNeedMore = { [weak self] track in self?.prepareRecommendations(after: track) }
         engine.$queue.dropFirst().sink { [weak self] _ in self?.scheduleSave() }.store(in: &subscriptions)
         if preview { chart = loaded.tracks }
     }
@@ -55,6 +58,8 @@ import UniformTypeIdentifiers
         scheduleSave()
     }
     func play(_ tracks: [Track], at index: Int = 0) {
+        recommendationTask?.cancel(); recommendationTask = nil
+        recommendationGeneration = UUID()
         tracks.forEach(remember); engine.play(tracks, at: index)
     }
     func toggleLike(_ track: Track) {
@@ -87,9 +92,9 @@ import UniformTypeIdentifiers
         var updated = track; updated.lyrics = text.trimmingCharacters(in: .whitespacesAndNewlines)
         remember(updated); engine.update(updated); save()
     }
-    func setCover(_ data: Data, for playlist: MusicPlaylist) throws {
-        guard let image = UIImage(data: data), let jpeg = image.jpegData(compressionQuality: 0.85),
-              let index = snapshot.playlists.firstIndex(where: { $0.id == playlist.id }) else { return }
+    func setCover(_ data: Data, for playlist: MusicPlaylist) async throws {
+        guard let jpeg = await ArtworkLoader.shared.coverJPEG(data) else { throw OdifyError.message("지원하는 크기의 이미지를 선택해 주세요.") }
+        guard let index = snapshot.playlists.firstIndex(where: { $0.id == playlist.id }) else { return }
         let folder = documents.appendingPathComponent("Artwork", isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let relative = "Artwork/\(playlist.id)-\(UUID().uuidString).jpg"
@@ -167,9 +172,36 @@ import UniformTypeIdentifiers
             if !Task.isCancelled { self?.save() }
         }
     }
+    private func prepareRecommendations(after seed: Track) {
+        guard !preview, recommendationTask == nil, engine.autoplayEnabled else { return }
+        let queueIdentity = engine.queue.entries.first?.id
+        let request = UUID(); recommendationGeneration = request
+        recommendationTask = Task { [weak self] in
+            guard let self else { return }
+            defer { if self.recommendationGeneration == request { self.recommendationTask = nil } }
+            do {
+                let candidates: [Track]
+                let official = try await MusicCatalog.shared.artist(seed)
+                if official.isEmpty {
+                    candidates = try await YouTubeCatalog.shared.search(seed.artist + " audio").filter { !$0.isVariant }.map { $0.track() }
+                } else { candidates = official }
+                try Task.checkCancellation()
+                guard self.engine.autoplayEnabled, self.engine.queue.entries.first?.id == queueIdentity else { return }
+                let existing = Set(self.engine.queue.entries.map { $0.track.recordingKey })
+                let additions = Array(Track.unique(candidates).filter { !existing.contains($0.recordingKey) }.prefix(5))
+                self.engine.appendRecommendations(additions)
+                additions.forEach(self.remember)
+            } catch is CancellationError { }
+            catch {
+                // Keep the already prepared queue playing. Discovery failure
+                // must never stop the current song or replace a user's order.
+            }
+        }
+    }
     func save() {
         guard !preview else { return }
         snapshot.queue = engine.queue; snapshot.position = engine.clock.position
+        snapshot.autoplay = engine.autoplayEnabled
         do {
             let data = try JSONEncoder().encode(snapshot)
             try data.write(to: documents.appendingPathComponent("odify-library-v1.json"), options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])

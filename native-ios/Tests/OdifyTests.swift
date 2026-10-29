@@ -48,6 +48,16 @@ final class QueueTests: XCTestCase {
         let songs = [Track(id: "one", title: "Messy", artist: "ROSÉ"), Track(id: "two", title: "MESSY", artist: "Rosé"), b]
         XCTAssertEqual(Track.unique(songs).map(\.id), ["one", "b"])
     }
+    func testEarlierSnapshotWithoutAutoplayKeepsLibrary() throws {
+        let snapshot = LibrarySnapshot(tracks: [a, b], likedIDs: ["a"], position: 17)
+        var json = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(snapshot)) as? [String: Any])
+        json.removeValue(forKey: "autoplay")
+        let restored = try JSONDecoder().decode(LibrarySnapshot.self, from: JSONSerialization.data(withJSONObject: json))
+        XCTAssertEqual(restored.tracks.map(\.id), ["a", "b"])
+        XCTAssertEqual(restored.position, 17)
+        XCTAssertEqual(restored.likedIDs, ["a"])
+        XCTAssertTrue(restored.autoplay)
+    }
     func testOfficialMetadataIsKeptButLiveAndCoverUseVideoArtwork() {
         let official = Track(id: "catalog:1", title: "Messy", artist: "ROSÉ", artwork: "https://example.org/album.jpg")
         let video = VideoResult(id: "abcdefghijk", title: "ROSÉ - Messy (Official Audio)", channel: "ROSÉ")
@@ -98,11 +108,13 @@ final class QueueTests: XCTestCase {
         }
         XCTAssertTrue(engine.player.currentItem === original)
         XCTAssertEqual(engine.preparedEntryIDs, engine.queue.entries.map(\.id))
+        let preparedNext = try XCTUnwrap(engine.player.items().dropFirst().first)
         for _ in 0..<160 {
             if engine.current?.id == "C" { break }
             try await Task.sleep(for: .milliseconds(50))
         }
         XCTAssertEqual(engine.current?.id, "C", engine.error ?? "did not advance")
+        XCTAssertTrue(engine.player.currentItem === preparedNext, "must reuse the buffered next AVPlayerItem")
         XCTAssertFalse(engine.diagnostics.isEmpty)
     }
     func testResolverRejectsRelativePathEscape() async throws {

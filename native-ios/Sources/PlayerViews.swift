@@ -256,6 +256,7 @@ struct FullPlayerView: View {
                     Button("새 플레이리스트") { let playlist = store.createPlaylist("새 플레이리스트"); store.add(track, to: playlist); options = false }
                 }.padding(.vertical, 10)
                 Button { beginLyricsEdit(); options = false } label: { Label("가사 수정", systemImage: "square.and.pencil").frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 10) }
+                Button { engine.toggleAutoplay() } label: { Label(engine.autoplayEnabled ? "자동 추천 재생 켜짐" : "자동 추천 재생 꺼짐", systemImage: "infinity").frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 10) }
             }
             AirPlayButton().frame(height: 40)
         }.font(.system(size: 14)).buttonStyle(.plain).padding(20).frame(width: 270)

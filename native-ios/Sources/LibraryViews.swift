@@ -125,7 +125,7 @@ struct PlaylistView: View {
                 .photosPicker(isPresented: $photoPicker, selection: $photo, matching: .images)
                 .task(id: photo) {
                     guard let photo else { return }
-                    do { if let data = try await photo.loadTransferable(type: Data.self) { try store.setCover(data, for: playlist) } }
+                    do { if let data = try await photo.loadTransferable(type: Data.self) { try await store.setCover(data, for: playlist) } }
                     catch { store.notice = "커버를 변경하지 못했습니다: \(error.localizedDescription)" }
                 }
                 .alert("플레이리스트 이름", isPresented: $rename) {

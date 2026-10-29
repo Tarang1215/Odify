@@ -87,6 +87,19 @@ struct LibrarySnapshot: Codable {
     var likedIDs: Set<String> = []
     var queue = PlaybackQueue()
     var position: Double = 0
+    var autoplay: Bool = true
+}
+
+extension LibrarySnapshot {
+    init(from decoder: Decoder) throws {
+        let fields = try decoder.container(keyedBy: CodingKeys.self)
+        tracks = try fields.decodeIfPresent([Track].self, forKey: .tracks) ?? []
+        playlists = try fields.decodeIfPresent([MusicPlaylist].self, forKey: .playlists) ?? []
+        likedIDs = try fields.decodeIfPresent(Set<String>.self, forKey: .likedIDs) ?? []
+        queue = try fields.decodeIfPresent(PlaybackQueue.self, forKey: .queue) ?? PlaybackQueue()
+        position = try fields.decodeIfPresent(Double.self, forKey: .position) ?? 0
+        autoplay = try fields.decodeIfPresent(Bool.self, forKey: .autoplay) ?? true
+    }
 }
 
 struct VideoResult: Identifiable, Hashable {

@@ -47,7 +47,9 @@ Raw video selection keeps video metadata; cover/live uses the video thumbnail.
 
 Queue occurrence UUIDs survive reorder/restore; moving upcoming entries rebuilds
 only prepared successors and retains the current AVPlayerItem. Two successors
-are resolved ahead of time. Repeat, seek, pause, skips, interruption/headphone
+are resolved ahead of time. Automatic recommendation playback (toggle in the
+current-track menu) adds unseen songs before a short queue ends. Discovery
+failure leaves the existing prepared queue intact. Repeat, seek, pause, skips, interruption/headphone
 handling and MPNowPlayingInfo/MPRemoteCommandCenter are wired. Queue/library and
 position persist using container-relative file paths and lock-compatible file
 protection. Force-quitting an iOS app necessarily ends its playback; the app does

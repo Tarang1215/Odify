@@ -15,11 +15,13 @@ import UIKit
     @Published private(set) var isPlaying = false
     @Published private(set) var isBuffering = false
     @Published private(set) var error: String?
+    @Published private(set) var autoplayEnabled: Bool
     @Published private(set) var tint = UIColor(red: 0.35, green: 0.56, blue: 0.48, alpha: 1)
     let clock = PlaybackClock()
     let player = AVQueuePlayer()
     var current: Track? { queue.current?.track }
     var onCheckpoint: (() -> Void)?
+    var onNeedMore: ((Track) -> Void)?
     var diagnostics: [String] = []
     private let documents: URL
     private var itemIDs: [ObjectIdentifier: String] = [:]
@@ -40,11 +42,13 @@ import UIKit
     private var retries = Set<String>()
     private var remoteTargets: [(MPRemoteCommand, Any)] = []
 
-    init(documents: URL, queue: PlaybackQueue = PlaybackQueue(), position: Double = 0) {
+    init(documents: URL, queue: PlaybackQueue = PlaybackQueue(), position: Double = 0, autoplay: Bool = true) {
         self.documents = documents; self.queue = queue; savedPosition = position
+        autoplayEnabled = autoplay
         clock.position = position
         clock.duration = queue.current?.track.duration ?? 0
         player.automaticallyWaitsToMinimizeStalling = true
+        player.actionAtItemEnd = .advance
         observations.append(player.observe(\.currentItem, options: [.new]) { [weak self] _, _ in
             Task { @MainActor in self?.currentItemChanged() }
         })
@@ -82,7 +86,7 @@ import UIKit
             Task { @MainActor in
                 guard let self else { return }
                 if type == AVAudioSession.InterruptionType.began.rawValue {
-                    self.interrupted = self.wantsPlayback; self.player.pause()
+                    self.interrupted = self.wantsPlayback; self.wantsPlayback = false; self.player.pause()
                 } else if self.interrupted {
                     self.interrupted = false
                     if AVAudioSession.InterruptionOptions(rawValue: options).contains(.shouldResume) { self.resume() }
@@ -107,7 +111,7 @@ import UIKit
     func resume() {
         guard queue.current != nil else { return }
         wantsPlayback = true
-        if player.currentItem == nil { startCurrent(resume: savedPosition); return }
+        if player.currentItem == nil || player.currentItem?.status == .failed { startCurrent(resume: savedPosition, refresh: true); return }
         do { try activateAudio(); player.play(); publishNowPlaying() }
         catch { showError(error) }
     }
@@ -161,6 +165,14 @@ import UIKit
         publishNowPlaying(); onCheckpoint?()
     }
     func clearError() { error = nil }
+    func toggleAutoplay() {
+        autoplayEnabled.toggle(); onCheckpoint?()
+        if autoplayEnabled, let track = current, queue.upcoming.count < 3 { onNeedMore?(track) }
+    }
+    func appendRecommendations(_ tracks: [Track]) {
+        queue.entries.append(contentsOf: tracks.map { QueueEntry(track: $0) })
+        rebuildUpcoming(); onCheckpoint?()
+    }
     var preparedEntryIDs: [String] { player.items().compactMap { itemIDs[ObjectIdentifier($0)] } }
     func shutdown() {
         pause(); startTask?.cancel(); prefetchTask?.cancel(); artworkTask?.cancel()
@@ -261,11 +273,16 @@ import UIKit
         clock.position = 0; clock.duration = current?.duration ?? 0; savedPosition = 0
         if changed { diagnostics.append("advanced:\(id)"); if diagnostics.count > 40 { diagnostics.removeFirst() } }
         publishNowPlaying(resetArtwork: true); rebuildUpcoming(); onCheckpoint?()
+        if autoplayEnabled, queue.repeatMode == .off, queue.upcoming.count < 3, let track = current { onNeedMore?(track) }
     }
     private func ended(_ item: AVPlayerItem) {
         guard let id = itemIDs[ObjectIdentifier(item)] else { return }
         if let current = player.currentItem, current !== item { return }
         guard wantsPlayback else { return }
+        // The end notification can arrive just before AVQueuePlayer advances.
+        // Leave a prepared successor alone; replacing the queue here would
+        // discard its buffer and prevent a native screen-off handoff.
+        if player.items().count > 1 { return }
         guard let next = queue.successor(after: id, automatic: true) else {
             wantsPlayback = false; isPlaying = false; isBuffering = false; onCheckpoint?(); publishNowPlaying(); return
         }
@@ -322,7 +339,11 @@ import UIKit
         info[MPNowPlayingInfoPropertyPlaybackRate] = isPlaying ? 1.0 : 0.0
         info[MPNowPlayingInfoPropertyDefaultPlaybackRate] = 1.0
         info[MPNowPlayingInfoPropertyMediaType] = MPNowPlayingInfoMediaType.audio.rawValue
-        if resetArtwork { info.removeValue(forKey: MPMediaItemPropertyArtwork) }
+        if resetArtwork {
+            info.removeValue(forKey: MPMediaItemPropertyArtwork)
+            let hue = Double(track.recordingKey.unicodeScalars.reduce(0) { ($0 + Int($1.value)) % 360 }) / 360
+            tint = UIColor(hue: hue, saturation: 0.35, brightness: 0.42, alpha: 1)
+        }
         MPNowPlayingInfoCenter.default().nowPlayingInfo = info
         guard resetArtwork, let address = track.artwork else { return }
         artworkTask?.cancel()
