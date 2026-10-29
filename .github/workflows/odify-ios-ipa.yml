@@ -39,7 +39,9 @@ jobs:
           xcrun --sdk iphoneos --show-sdk-version
           uname -m
       - name: Assemble immutable attributed iOS core
-        run: python3 scripts/assemble_v521.py build/ios-source
+        run: |
+          python3 -m unittest discover -s tests -p test_ios_packaging.py -v
+          python3 scripts/assemble_v521.py build/ios-source
       - name: Prepare Odify iOS identity and icon
         run: |
           python3 -m pip install pillow

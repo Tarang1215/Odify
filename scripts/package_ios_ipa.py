@@ -50,7 +50,17 @@ def package(app: Path, output: Path):
         with zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED, compresslevel=6) as archive:
             for path in sorted(destination.rglob('*')):
                 if path.is_file():
-                    archive.write(path, path.relative_to(stage).as_posix())
+                    relative = path.relative_to(destination).as_posix()
+                    member = zipfile.ZipInfo.from_file(path, path.relative_to(stage).as_posix())
+                    # IPA entries require POSIX execution bits even when a
+                    # packaging regression fixture runs on Windows.
+                    if relative == info['CFBundleExecutable'] or (
+                            path.parent.suffix == '.framework' and path.name == path.parent.stem):
+                        member.create_system = 3
+                        member.external_attr = (stat.S_IFREG | 0o755) << 16
+                    member.compress_type = zipfile.ZIP_DEFLATED
+                    with path.open('rb') as source, archive.open(member, 'w') as target:
+                        shutil.copyfileobj(source, target, 1024 * 1024)
     with zipfile.ZipFile(output) as archive:
         if archive.testzip() is not None:
             raise RuntimeError('IPA ZIP verification failed')
