@@ -9,6 +9,8 @@ final class DriveResourceLoader: NSObject, AVAssetResourceLoaderDelegate {
     private let total: Int64
     private let contentType: String
     private let read: Reader
+    private let onClose: (@Sendable () -> Void)?
+    private var closed = false
     private var pending: [ObjectIdentifier: Task<Void, Never>] = [:]
     convenience init(track: Track, client: DriveClient = .shared) {
         self.init(length: track.fileSize ?? 0,
@@ -20,11 +22,11 @@ final class DriveResourceLoader: NSObject, AVAssetResourceLoaderDelegate {
             return try await client.range(fileID: file, account: account, start: start, length: count, expectedSize: size)
         }
     }
-    init(length: Int64, contentType: String, read: @escaping Reader) {
-        total = length; self.contentType = contentType; self.read = read
+    init(length: Int64, contentType: String, onClose: (@Sendable () -> Void)? = nil, read: @escaping Reader) {
+        total = length; self.contentType = contentType; self.read = read; self.onClose = onClose
     }
     func resourceLoader(_ resourceLoader: AVAssetResourceLoader, shouldWaitForLoadingOfRequestedResource request: AVAssetResourceLoadingRequest) -> Bool {
-        guard total > 0 else {
+        guard !closed, total > 0 else {
             request.finishLoading(with: OdifyError.message("Drive에서 파일 목록을 새로고침한 뒤 다시 선택해 주세요.")); return false
         }
         let key = ObjectIdentifier(request)
@@ -83,5 +85,10 @@ final class DriveResourceLoader: NSObject, AVAssetResourceLoaderDelegate {
             }
         }
     }
-    func cancel() { queue.async { self.pending.values.forEach { $0.cancel() }; self.pending.removeAll() } }
+    func cancel() {
+        queue.async {
+            guard !self.closed else { return }; self.closed = true
+            self.pending.values.forEach { $0.cancel() }; self.pending.removeAll(); self.onClose?()
+        }
+    }
 }

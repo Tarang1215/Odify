@@ -314,13 +314,15 @@ import UIKit
             let source = try await YouTubeByteSource.open(url, session: youtubeSession)
             try Task.checkCancellation()
             asset = AVURLAsset(url: URL(string: "odify-audio://media/\(UUID().uuidString).m4a")!)
-            let delegate = DriveResourceLoader(length: source.length, contentType: "public.mpeg-4-audio") { start, count in
+            let delegate = DriveResourceLoader(length: source.length, contentType: "public.mpeg-4-audio", onClose: { Task { await source.close() } }) { start, count in
                 try await source.range(start: start, length: count)
             }
             asset.resourceLoader.setDelegate(delegate, queue: delegate.queue); loader = delegate
             Self.log.notice("[OdifyPlayback] youtube-audio-range-verified")
             trace.record("audio-range-verified", source: .youtube)
         } else { asset = AVURLAsset(url: url); loader = nil }
+        var retained = false
+        defer { if !retained { loader?.cancel() } }
         // A remote/custom-scheme asset can report isPlayable=false before its
         // actual media request has been established (including guest runtimes).
         // Only preflight local files. Streaming readiness belongs to AVPlayerItem
@@ -334,6 +336,7 @@ import UIKit
         item.canUseNetworkResourcesForLiveStreamingWhilePaused = true
         itemIDs[ObjectIdentifier(item)] = entry.id
         if let loader { driveLoaders[ObjectIdentifier(item)] = loader }
+        retained = true
         itemObservations[ObjectIdentifier(item)] = item.observe(\.status, options: [.new]) { [weak self, weak item] _, _ in
             Task { @MainActor in
                 if let item, item.status == .failed { self?.failed(item) }

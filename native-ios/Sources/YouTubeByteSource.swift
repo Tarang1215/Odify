@@ -17,9 +17,10 @@ actor YouTubeByteSource {
     private let url: URL
     private let session: URLSession
     private let prefix: Data
+    private let ownsSession: Bool
 
-    private init(url: URL, session: URLSession, length: Int64, prefix: Data) {
-        self.url = url; self.session = session; self.length = length; self.prefix = prefix
+    private init(url: URL, session: URLSession, length: Int64, prefix: Data, ownsSession: Bool) {
+        self.url = url; self.session = session; self.length = length; self.prefix = prefix; self.ownsSession = ownsSession
     }
     static func trusted(_ url: URL) -> Bool {
         url.scheme == "https" && url.host?.hasSuffix(".googlevideo.com") == true && url.user == nil && url.password == nil
@@ -30,9 +31,12 @@ actor YouTubeByteSource {
         config.httpCookieStorage = nil; config.httpShouldSetCookies = false; config.urlCache = nil
         config.timeoutIntervalForRequest = 15; config.timeoutIntervalForResource = 30
         let session = injected ?? URLSession(configuration: config, delegate: AudioRedirects(), delegateQueue: nil)
-        let (bytes, total) = try await fetch(url, session: session, start: 0, length: 1024, expectedSize: nil)
-        return YouTubeByteSource(url: url, session: session, length: total, prefix: bytes)
+        do {
+            let (bytes, total) = try await fetch(url, session: session, start: 0, length: 1024, expectedSize: nil)
+            return YouTubeByteSource(url: url, session: session, length: total, prefix: bytes, ownsSession: injected == nil)
+        } catch { if injected == nil { session.invalidateAndCancel() }; throw error }
     }
+    func close() { if ownsSession { session.invalidateAndCancel() } }
     func range(start: Int64, length: Int64) async throws -> Data {
         guard start >= 0, length > 0, length <= 262_144, start < self.length else { throw OdifyError.message("올바른 YouTube 음원 구간이 아닙니다.") }
         let count = min(length, self.length - start)
