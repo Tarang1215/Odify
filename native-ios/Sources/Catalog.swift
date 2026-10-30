@@ -179,15 +179,18 @@ actor YouTubeCatalog {
     }
     func match(_ track: Track) async throws -> VideoResult {
         let videos = try await search("\(track.artist) \(track.title) official audio")
+        guard let result = Self.matchingVideo(track, in: videos) else {
+            throw OdifyError.message("정확한 재생 영상을 확인하지 못했습니다. 검색의 YouTube 결과에서 직접 선택해 주세요.")
+        }
+        return result
+    }
+    static func matchingVideo(_ track: Track, in videos: [VideoResult]) -> VideoResult? {
         let title = Track.normalized(track.title), artist = Track.normalized(track.artist)
         let candidates = videos.filter { video in
             !video.isVariant && Track.normalized(video.title).contains(title) &&
             (Track.normalized(video.channel).contains(artist) || Track.normalized(video.title).contains(artist))
         }
-        guard let result = candidates.sorted(by: { Self.score($0) > Self.score($1) }).first else {
-            throw OdifyError.message("정확한 재생 영상을 확인하지 못했습니다. 검색의 YouTube 결과에서 직접 선택해 주세요.")
-        }
-        return result
+        return candidates.sorted(by: { Self.score($0) > Self.score($1) }).first
     }
     private static func score(_ video: VideoResult) -> Int {
         let channel = video.channel.lowercased(), title = video.title.lowercased()

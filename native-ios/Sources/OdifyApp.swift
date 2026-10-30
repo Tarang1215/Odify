@@ -126,6 +126,12 @@ struct RootView: View {
                 await store.loadHome()
             }
         }
+        .background(alignment: .topLeading) {
+            if engine.usingYouTubeWebPlayer, let renderer = engine.youtubeWebHost {
+                YouTubeWebSurface(player: renderer).frame(width: 240, height: 240)
+                    .allowsHitTesting(false).accessibilityHidden(true)
+            }
+        }
     }
     private func importMusic(_ source: MusicSource) { importSource = source; importer = true }
     private var navigationSidebar: some View {

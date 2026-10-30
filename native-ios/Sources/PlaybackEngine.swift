@@ -33,6 +33,8 @@ import UIKit
     @Published private(set) var isBuffering = false
     @Published private(set) var error: String?
     @Published private(set) var playbackRestricted = false
+    @Published private(set) var usingYouTubeWebPlayer = false
+    var youtubeWebHost: YouTubeWebPlayback? { webPlayback as? YouTubeWebPlayback }
     @Published private(set) var autoplayEnabled: Bool
     @Published private(set) var tint = UIColor(red: 0.35, green: 0.56, blue: 0.48, alpha: 1)
     let clock = PlaybackClock()
@@ -47,6 +49,9 @@ import UIKit
     typealias SourceResolver = @Sendable (Track, URL, Bool) async throws -> URL
     private let resolveSource: SourceResolver
     private let youtubeSession: URLSession?
+    typealias VideoResolver = @Sendable (Track) async throws -> String
+    private let webPlayback: YouTubeWebPlaying?
+    private let resolveWebVideo: VideoResolver
     private let driveClient: DriveClient
     private var itemIDs: [ObjectIdentifier: String] = [:]
     private var itemSourceKeys: [ObjectIdentifier: UUID] = [:]
@@ -92,16 +97,22 @@ import UIKit
     private static let log = Logger(subsystem: "com.odify.music.ios", category: "Playback")
 
     init(documents: URL, queue: PlaybackQueue = PlaybackQueue(), position: Double = 0, autoplay: Bool = true, driveClient: DriveClient = .shared,
-         youtubeSession: URLSession? = nil,
+         youtubeSession: URLSession? = nil, youtubeWebPlayer: YouTubeWebPlaying? = nil,
+         webVideoResolver: @escaping VideoResolver = { track in
+             if let id = track.videoID, YouTubeWebPlayback.validID(id) { return id }
+             throw OdifyError.message("웹 플레이어에서 영상을 연결합니다.")
+         },
          sourceResolver: @escaping SourceResolver = { try await StreamResolver.shared.url(for: $0, documents: $1, refresh: $2) }) {
         self.documents = documents; self.queue = queue; savedPosition = position
         trace = PlaybackTrace(documents: documents)
         resolveSource = sourceResolver; self.youtubeSession = youtubeSession
+        webPlayback = youtubeWebPlayer; resolveWebVideo = webVideoResolver
         self.driveClient = driveClient
         autoplayEnabled = autoplay
         clock.position = position
         clock.duration = queue.current?.track.duration ?? 0
         configurePlayer()
+        webPlayback?.onEvent = { [weak self] request, event in self?.webEvent(request, event: event) }
         let center = NotificationCenter.default
         notifications.append(center.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: nil, queue: .main) { [weak self] notification in
             guard let item = notification.object as? AVPlayerItem else { return }
@@ -126,6 +137,7 @@ import UIKit
                 if type == AVAudioSession.InterruptionType.began.rawValue {
                     self.interrupted = self.wantsPlayback; self.wantsPlayback = false; self.player.pause()
                     self.stallTask?.cancel(); self.onCheckpoint?()
+                    self.webPlayback?.pause()
                 } else if self.interrupted {
                     self.interrupted = false
                     if AVAudioSession.InterruptionOptions(rawValue: options).contains(.shouldResume) { self.resume() }
@@ -137,7 +149,13 @@ import UIKit
             if reason == AVAudioSession.RouteChangeReason.oldDeviceUnavailable.rawValue { Task { @MainActor in self?.pause() } }
         })
         notifications.append(center.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor in self?.onCheckpoint?() }
+            Task { @MainActor in self?.webPlayback?.setActive(false); self?.onCheckpoint?() }
+        })
+        notifications.append(center.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in
+                guard let self else { return }
+                self.webPlayback?.setActive(true)
+            }
         })
         configureRemoteCommands()
     }
@@ -151,6 +169,7 @@ import UIKit
         observations.append(player.observe(\.timeControlStatus, options: [.new]) { [weak self] _, _ in
             Task { @MainActor in
                 guard let self else { return }
+                guard !self.usingYouTubeWebPlayer else { return }
                 self.isPlaying = self.wantsPlayback && self.player.timeControlStatus == .playing
                 self.isBuffering = self.wantsPlayback && self.player.timeControlStatus == .waitingToPlayAtSpecifiedRate
                 if self.isPlaying { self.trace.record("playing", source: self.current?.source) }
@@ -162,6 +181,7 @@ import UIKit
         timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.5, preferredTimescale: 600), queue: .main) { [weak self] time in
             Task { @MainActor in
                 guard let self else { return }
+                guard !self.usingYouTubeWebPlayer else { return }
                 let position = time.seconds, duration = self.player.currentItem?.duration.seconds ?? 0
                 if position.isFinite { self.clock.position = max(0, position) }
                 if duration.isFinite && duration > 0 && abs(self.clock.duration - duration) > 0.1 {
@@ -196,6 +216,10 @@ import UIKit
             error = nil
         }
         wantsPlayback = true
+        if usingYouTubeWebPlayer {
+            if error != nil { startCurrent(resume: savedPosition); return }
+            webPlayback?.play(); return
+        }
         if player.status == .failed || player.currentItem == nil || player.currentItem?.status == .failed { startCurrent(resume: savedPosition, refresh: true); return }
         do { try activateAudio(); player.play(); rebuildUpcoming(); publishNowPlaying() }
         catch { showError(error) }
@@ -204,6 +228,7 @@ import UIKit
         wantsPlayback = false; interrupted = false; waitingForRecommendations = false
         stallTask?.cancel(); stallTask = nil
         player.pause(); isPlaying = false; isBuffering = false
+        if usingYouTubeWebPlayer { webPlayback?.pause() }
         savedPosition = clock.position; onCheckpoint?(); publishNowPlaying()
     }
     func toggle() { if wantsPlayback { pause() } else { resume() } }
@@ -211,6 +236,7 @@ import UIKit
         guard seconds.isFinite else { return }
         let position = max(0, min(clock.duration > 0 ? clock.duration : seconds, seconds))
         savedPosition = position; clock.position = position
+        if usingYouTubeWebPlayer { webPlayback?.seek(position); onCheckpoint?(); publishNowPlaying(); return }
         player.seek(to: CMTime(seconds: position, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
         onCheckpoint?(); publishNowPlaying()
     }
@@ -283,6 +309,7 @@ import UIKit
         if let timeObserver { player.removeTimeObserver(timeObserver); self.timeObserver = nil }
         remoteTargets.forEach { $0.0.removeTarget($0.1) }; remoteTargets.removeAll()
         player.removeAllItems()
+        webPlayback?.stop(); webPlayback?.onEvent = nil
     }
 
     private func startCurrent(resume: Double = 0, refresh: Bool = false) {
@@ -293,11 +320,44 @@ import UIKit
         player.pause(); player.removeAllItems(); itemIDs.removeAll(); itemSourceKeys.removeAll()
         itemObservations.values.forEach { $0.invalidate() }; itemObservations.removeAll()
         driveLoaders.values.forEach { $0.cancel() }; driveLoaders.removeAll()
+        if usingYouTubeWebPlayer, queue.current?.track.source == .youtube { webPlayback?.pause() }
+        else { webPlayback?.stop() }
+        usingYouTubeWebPlayer = false
         guard let entry = queue.current else { wantsPlayback = false; isPlaying = false; return }
         if let failure = deniedEntries[entry.id] { stopForTerminalFailure(entry.id, failure: failure); return }
         trace.record("prepare", source: entry.track.source)
         wantsPlayback = true; isPlaying = false; isBuffering = true; error = nil
         clock.position = resume; clock.duration = entry.track.duration
+        if entry.track.source == .youtube, webPlayback != nil {
+            usingYouTubeWebPlayer = true
+            publishNowPlaying(resetArtwork: true)
+            let background = AudioPreparationLease(name: "Odify prepare web playback") { [weak self] in
+                guard let self, self.generation == request else { return }
+                self.startTask?.cancel(); self.wantsPlayback = false
+                self.showError(YouTubeWebFailure(code: -1001))
+            }
+            startTask = Task { [weak self] in
+                defer { background.end() }
+                guard let self else { return }
+                do {
+                    let video = try await self.resolveWebVideo(entry.track)
+                    try Task.checkCancellation()
+                    guard self.generation == request else { return }
+                    guard YouTubeWebPlayback.validID(video) else { throw YouTubeWebFailure(code: 2) }
+                    try self.activateAudio()
+                    self.trace.record("web-player-load", source: .youtube)
+                    self.webPlayback?.load(videoID: video, request: request, position: resume)
+                    if !self.wantsPlayback { self.webPlayback?.pause() }
+                } catch is CancellationError { }
+                catch {
+                    guard !Task.isCancelled, self.generation == request else { return }
+                    self.trace.record("web-video-lookup", source: .youtube)
+                    do { try self.activateAudio() } catch { self.wantsPlayback = false; self.showError(error); return }
+                    self.webPlayback?.search(track: entry.track, request: request)
+                }
+            }
+            return
+        }
         // Resolve while the app still has its current background-audio lifetime.
         let background = AudioPreparationLease(name: "Odify prepare audio") { [weak self] in
             guard let self, self.generation == request else { return }
@@ -399,12 +459,14 @@ import UIKit
     private func rebuildUpcoming() {
         prefetchTask?.cancel(); prefetchGeneration = UUID(); let request = prefetchGeneration
         guard !prefetchDenied else { return }
+        guard !usingYouTubeWebPlayer else { return }
         guard let currentItem = player.currentItem, let currentID = itemIDs[ObjectIdentifier(currentItem)] else { return }
         var prepared: [QueueEntry] = [], cursor = currentID
         // Look beyond broken entries; stop after two usable successors have
         // actually been inserted, rather than examining only two queue slots.
         for _ in 0..<max(2, queue.entries.count) {
             guard let entry = queue.successor(after: cursor, automatic: true) else { break }
+            if webPlayback != nil, entry.track.source == .youtube { break }
             if !failedIDs.contains(entry.id) { prepared.append(entry) }
             cursor = entry.id
         }
@@ -470,6 +532,7 @@ import UIKit
         }
     }
     private func currentItemChanged() {
+        guard !usingYouTubeWebPlayer else { return }
         guard let item = player.currentItem, let id = itemIDs[ObjectIdentifier(item)] else { return }
         let key = ObjectIdentifier(item)
         let changed = queue.currentID != id || activeItemKey != key
@@ -499,6 +562,7 @@ import UIKit
         if !prefetchDenied, autoplayEnabled, queue.repeatMode == .off, queue.upcoming.count < 3, let track = current { onNeedMore?(track) }
     }
     private func ended(_ item: AVPlayerItem) {
+        guard !usingYouTubeWebPlayer else { return }
         guard let id = itemIDs[ObjectIdentifier(item)] else { return }
         if let current = player.currentItem, current !== item { return }
         guard wantsPlayback else { return }
@@ -598,6 +662,7 @@ import UIKit
         showError(failure); onCheckpoint?()
     }
     private func monitorStall() {
+        guard !usingYouTubeWebPlayer else { return }
         guard wantsPlayback, stallTask == nil, let item = player.currentItem else { return }
         let position = player.currentTime().seconds
         let background = AudioPreparationLease(name: "Odify recover stalled audio") { [weak self] in self?.stallTask?.cancel() }
@@ -610,6 +675,62 @@ import UIKit
             guard self.player.timeControlStatus != .playing, !now.isFinite || !position.isFinite || now - position < 0.2 else { return }
             self.failed(item)
         }
+    }
+    private func webEvent(_ request: UUID, event: YouTubeWebEvent) {
+        guard usingYouTubeWebPlayer, generation == request, let entry = queue.current else { return }
+        switch event {
+        case .selected(let id):
+            guard YouTubeWebPlayback.validID(id) else { return }
+            var track = entry.track; track.videoID = id
+            update(track); onTrackMetadata?(track)
+            trace.record("web-video-matched", source: .youtube)
+            webPlayback?.load(videoID: id, request: request, position: savedPosition)
+            if !wantsPlayback { webPlayback?.pause() }
+        case .state(let state, let position, let duration, let intent):
+            guard position.isFinite, duration.isFinite, position >= 0, duration >= 0 else { return }
+            let wasPlaying = isPlaying
+            clock.position = position; if duration > 0 { clock.duration = duration }
+            savedPosition = position
+            if state == 0 {
+                isPlaying = false; isBuffering = false
+                if wantsPlayback && intent { advanceWebQueue() }
+                return
+            }
+            wantsPlayback = intent
+            isPlaying = intent && state == 1
+            isBuffering = intent && [-1, 2, 3].contains(state)
+            if state == 1 {
+                error = nil
+                if !wasPlaying {
+                    trace.record("web-playing", source: .youtube)
+                    if autoplayEnabled, queue.upcoming.count < 3 { onNeedMore?(entry.track) }
+                }
+            }
+            if Date().timeIntervalSince(lastCheckpoint) > 10 { lastCheckpoint = Date(); onCheckpoint?() }
+            publishNowPlaying()
+        case .needsTap:
+            wantsPlayback = false; isPlaying = false; isBuffering = false
+            showError(OdifyError.message("YouTube가 자동 재생을 허용하지 않았습니다. 다시 재생하거나 YouTube에서 확인해 주세요."))
+        case .failed(let code):
+            wantsPlayback = false; isPlaying = false; isBuffering = false
+            webPlayback?.pause(); playbackRestricted = true; prefetchDenied = true
+            let failure = YouTubeWebFailure(code: code); deniedEntries[entry.id] = failure
+            showError(failure); onCheckpoint?()
+        }
+    }
+    private func advanceWebQueue() {
+        guard let id = queue.currentID else { return }
+        if let next = queue.successor(after: id, automatic: true) {
+            queue.currentID = next.id; savedPosition = 0
+            diagnostics.append("web-advanced"); if diagnostics.count > 40 { diagnostics.removeFirst() }
+            trace.record("web-queue-advanced", source: next.track.source)
+            startCurrent(); return
+        }
+        isPlaying = false
+        if autoplayEnabled, onNeedMore != nil, let track = current {
+            waitingForRecommendations = true; isBuffering = true; onNeedMore?(track)
+        } else { wantsPlayback = false; isBuffering = false }
+        onCheckpoint?(); publishNowPlaying()
     }
     private func activateAudio() throws {
         let session = AVAudioSession.sharedInstance()
@@ -663,7 +784,7 @@ import UIKit
         if value.domain == NSURLErrorDomain, value.code == URLError.timedOut.rawValue {
             return "\(source?.rawValue ?? "음원") 연결 시간이 초과되었습니다 (-1001). 다시 시도해 주세요."
         }
-        if failure is OdifyError || failure is YouTubeAudioFailure || failure is AudioHTTPFailure || failure is MusicHTTPFailure { return failure.localizedDescription }
+        if failure is OdifyError || failure is YouTubeAudioFailure || failure is AudioHTTPFailure || failure is MusicHTTPFailure || failure is YouTubeWebFailure { return failure.localizedDescription }
         return "\(source?.rawValue ?? "음원") 재생 오류 · " + errorCodes(failure)
     }
     nonisolated static func isCancelledRequest(_ failure: Error) -> Bool {

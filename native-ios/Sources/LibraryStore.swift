@@ -40,7 +40,8 @@ import UniformTypeIdentifiers
         }
         if preview { loaded = PreviewLibrary.snapshot }
         snapshot = loaded
-        engine = PlaybackEngine(documents: root, queue: loaded.queue, position: loaded.position, autoplay: loaded.autoplay)
+        engine = PlaybackEngine(documents: root, queue: loaded.queue, position: loaded.position, autoplay: loaded.autoplay,
+                                youtubeWebPlayer: preview ? nil : YouTubeWebPlayback())
         notice = loadError
         engine.onCheckpoint = { [weak self] in self?.save() }
         engine.onTrackMetadata = { [weak self] track in self?.remember(track) }
