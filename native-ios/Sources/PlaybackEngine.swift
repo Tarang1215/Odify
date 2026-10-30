@@ -292,7 +292,7 @@ import UIKit
                 self.rebuildUpcoming(); self.onCheckpoint?()
             } catch is CancellationError { }
             catch {
-                guard self.generation == request else { return }
+                guard !Task.isCancelled, self.generation == request else { return }
                 if entry.track.source == .youtube {
                     // Resolution already performs its bounded transport retry.
                     // Do not multiply that timeout by retrying the entire
@@ -312,7 +312,8 @@ import UIKit
             loader = delegate
         } else if YouTubeByteSource.trusted(url) {
             let source = try await YouTubeByteSource.open(url, session: youtubeSession)
-            try Task.checkCancellation()
+            do { try Task.checkCancellation() }
+            catch { await source.close(); throw error }
             asset = AVURLAsset(url: URL(string: "odify-audio://media/\(UUID().uuidString).m4a")!)
             let delegate = DriveResourceLoader(length: source.length, contentType: "public.mpeg-4-audio", onClose: { Task { await source.close() } }) { start, count in
                 try await source.range(start: start, length: count)
@@ -341,7 +342,7 @@ import UIKit
             Task { @MainActor in
                 if let item, item.status == .failed { self?.failed(item) }
                 else if let item, item.status == .readyToPlay {
-                    self?.trace.record("item-ready", source: self?.current?.source)
+                    self?.trace.record("item-ready", source: entry.track.source)
                     self?.readDriveMetadata(item)
                 }
             }
@@ -396,7 +397,18 @@ import UIKit
                         if count == 2 { return }
                     } else { self.discard(item) }
                 } catch is CancellationError { return }
-                catch { self.failedIDs.insert(entry.id); self.error = "다음 곡 준비 실패: \(entry.track.title). \(error.localizedDescription)" }
+                catch {
+                    // URLSession may report NSURLErrorCancelled rather than
+                    // CancellationError when a queue rebuild cancels this task.
+                    // An obsolete request must never blacklist a still-valid
+                    // successor or overwrite the new queue's playback state.
+                    guard !Task.isCancelled, self.prefetchGeneration == request,
+                          !Self.isCancelledRequest(error) else { return }
+                    self.failedIDs.insert(entry.id)
+                    self.trace.record("next-prepare-failed", source: entry.track.source, error: error)
+                    Self.log.error("[OdifyPlayback] next-prepare-failed source=\(entry.track.source.rawValue, privacy: .public) codes=\(Self.errorCodes(error), privacy: .public)")
+                    self.error = "다음 곡 준비 실패: \(entry.track.title). \(Self.playbackMessage(error, source: entry.track.source))"
+                }
             }
         }
     }
@@ -550,6 +562,16 @@ import UIKit
         }
         if failure is OdifyError || failure is YouTubeAudioFailure || failure is AudioHTTPFailure { return failure.localizedDescription }
         return "\(source?.rawValue ?? "음원") 재생 오류 · " + errorCodes(failure)
+    }
+    static func isCancelledRequest(_ failure: Error) -> Bool {
+        if failure is CancellationError { return true }
+        var value: NSError? = failure as NSError
+        for _ in 0..<4 {
+            guard let error = value else { return false }
+            if error.domain == NSURLErrorDomain, error.code == URLError.cancelled.rawValue { return true }
+            value = error.userInfo[NSUnderlyingErrorKey] as? NSError
+        }
+        return false
     }
     private static func errorCodes(_ failure: Error) -> String {
         let value = failure as NSError

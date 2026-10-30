@@ -221,6 +221,7 @@ actor StreamResolver {
         catch YouTubeAudioFailure.restricted(let reason) { throw YouTubeAudioFailure.restricted(reason) }
         catch let error as URLError {
             try Task.checkCancellation()
+            if error.code == .cancelled { throw CancellationError() }
             throw OdifyError.message("YouTube 오디오 주소 연결 실패 (\(error.code.rawValue)). " + (error.code == .timedOut ? "요청 시간이 초과되었습니다. 다시 시도해 주세요." : error.localizedDescription))
         }
         catch YouTubeAudioFailure.temporarilyUnavailable { throw YouTubeAudioFailure.temporarilyUnavailable }

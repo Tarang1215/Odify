@@ -3,6 +3,28 @@ import XCTest
 import OdifyStreaming
 @testable import Odify
 
+private actor HeldSuccessor {
+    private var held: CheckedContinuation<Void, Never>?
+    private var attempts = 0
+    private let denied: Bool
+    init(denied: Bool) { self.denied = denied }
+    var isWaiting: Bool { held != nil }
+    func resolve(_ track: Track, file: URL) async throws -> URL {
+        if track.id == "b" {
+            attempts += 1
+            if attempts == 1 {
+                // Deliberately finish after cancellation, as a URLSession
+                // delegate completion can outlive the task that requested it.
+                await withCheckedContinuation { held = $0 }
+                if denied { throw AudioHTTPFailure(statusCode: 403) }
+                throw URLError(.cancelled)
+            }
+        }
+        return file
+    }
+    func release() { held?.resume(); held = nil }
+}
+
 private final class AudioRangeFixture: URLProtocol {
     static var media = Data()
     static var status = 206
@@ -29,6 +51,91 @@ private final class AudioRangeFixture: URLProtocol {
 }
 
 @MainActor final class YouTubeStreamingTests: XCTestCase {
+    func testCancelledOldPrefetchDoesNotShowErrorOrRemoveSuccessor() async throws {
+        try await verifyObsoletePrefetch(denied: false)
+    }
+    func testLateRealFailureFromOldPrefetchCannotOverwriteReplacementQueue() async throws {
+        try await verifyObsoletePrefetch(denied: true)
+    }
+    func testNetworkCancellationRecognitionPreservesOtherFailures() {
+        XCTAssertTrue(PlaybackEngine.isCancelledRequest(CancellationError()))
+        XCTAssertTrue(PlaybackEngine.isCancelledRequest(URLError(.cancelled)))
+        XCTAssertTrue(PlaybackEngine.isCancelledRequest(NSError(domain: "Outer", code: 1,
+            userInfo: [NSUnderlyingErrorKey: URLError(.cancelled)])))
+        XCTAssertFalse(PlaybackEngine.isCancelledRequest(URLError(.timedOut)))
+        XCTAssertFalse(PlaybackEngine.isCancelledRequest(AudioHTTPFailure(statusCode: 403)))
+    }
+    func testCurrentPrefetchDenialIsReportedAndTracedWithoutReplacingPlayingSong() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appendingPathComponent("fixture.m4a"); try aac(file)
+        let engine = PlaybackEngine(documents: directory, autoplay: false, sourceResolver: { track, _, _ in
+            if track.id == "b" { throw AudioHTTPFailure(statusCode: 403) }
+            return file
+        })
+        defer { engine.shutdown() }; engine.player.volume = 0
+        engine.play([Track(id: "a", title: "A", artist: "Test"), Track(id: "b", title: "B", artist: "Test")])
+        for _ in 0..<100 {
+            if engine.error?.contains("403") == true { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        engine.pause()
+        XCTAssertTrue(engine.error?.contains("403") == true, engine.error ?? "real denial was lost")
+        XCTAssertEqual(engine.current?.id, "a")
+        XCTAssertNotNil(engine.player.currentItem)
+        let data = try Data(contentsOf: directory.appendingPathComponent("odify-playback-diagnostics.json"))
+        let entries = try JSONDecoder().decode([PlaybackTrace.Entry].self, from: data)
+        XCTAssertTrue(entries.contains { $0.stage == "next-prepare-failed" && $0.source == "YouTube" && $0.codes.contains("com.odify.audio.http 403") })
+    }
+    private func verifyObsoletePrefetch(denied: Bool) async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appendingPathComponent("fixture.m4a"); try aac(file)
+        let gate = HeldSuccessor(denied: denied)
+        let engine = PlaybackEngine(documents: directory, autoplay: false, sourceResolver: { track, _, _ in
+            try await gate.resolve(track, file: file)
+        })
+        defer { engine.shutdown() }
+        engine.player.volume = 0
+        func track(_ id: String) -> Track { Track(id: id, title: id.uppercased(), artist: "Test") }
+        engine.play([track("a"), track("b")])
+        for _ in 0..<150 {
+            if await gate.isWaiting { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        let waiting = await gate.isWaiting
+        guard waiting else { await gate.release(); XCTFail("next request never started"); return }
+        engine.pause()
+        let current = engine.player.currentItem
+        engine.enqueue(track("c"))
+        for _ in 0..<150 {
+            if engine.preparedEntryIDs.count == 3 { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        await gate.release()
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertNil(engine.error, engine.error ?? "")
+        // A later rebuild must still include B; the obsolete request must not
+        // put it in the failed-ID set after its replacement was prepared.
+        engine.enqueue(track("d"))
+        for _ in 0..<100 {
+            if engine.preparedEntryIDs.count == 3 { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertEqual(engine.preparedEntryIDs, Array(engine.queue.entries.prefix(3)).map(\.id))
+        XCTAssertTrue(engine.player.currentItem === current)
+        XCTAssertEqual(engine.player.rate, 0, "queue maintenance must respect pause")
+        engine.next()
+        for _ in 0..<150 {
+            if engine.current?.id == "b", engine.player.currentItem?.status == .readyToPlay { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertEqual(engine.current?.id, "b")
+        XCTAssertEqual(engine.player.currentItem?.status, .readyToPlay)
+        XCTAssertNil(engine.error, engine.error ?? "")
+    }
     private func session() -> URLSession {
         AudioRangeFixture.requests = []; AudioRangeFixture.status = 206
         let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [AudioRangeFixture.self]
