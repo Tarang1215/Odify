@@ -26,6 +26,7 @@ final class DriveResourceLoader: NSObject, AVAssetResourceLoaderDelegate {
         total = length; self.contentType = contentType; self.read = read; self.onClose = onClose
     }
     func resourceLoader(_ resourceLoader: AVAssetResourceLoader, shouldWaitForLoadingOfRequestedResource request: AVAssetResourceLoadingRequest) -> Bool {
+        let total = self.total, contentType = self.contentType
         guard !closed, total > 0 else {
             request.finishLoading(with: OdifyError.message("Drive에서 파일 목록을 새로고침한 뒤 다시 선택해 주세요.")); return false
         }
@@ -35,7 +36,6 @@ final class DriveResourceLoader: NSObject, AVAssetResourceLoaderDelegate {
         let remaining = max(0, total - start)
         let length = dataRequest?.requestsAllDataToEndOfResource == true ? remaining : min(remaining, Int64(dataRequest?.requestedLength ?? 0))
         let end = start + length
-        let total = self.total, contentType = self.contentType
         pending[key] = Task { [weak self] in
             guard let self else { return }
             do {
