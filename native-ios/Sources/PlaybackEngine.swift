@@ -42,6 +42,10 @@ import UIKit
     var onTrackMetadata: ((Track) -> Void)?
     var diagnostics: [String] = []
     private let documents: URL
+    private let trace: PlaybackTrace
+    typealias SourceResolver = @Sendable (Track, URL, Bool) async throws -> URL
+    private let resolveSource: SourceResolver
+    private let youtubeSession: URLSession?
     private let driveClient: DriveClient
     private var itemIDs: [ObjectIdentifier: String] = [:]
     private var observations: [NSKeyValueObservation] = []
@@ -67,8 +71,12 @@ import UIKit
     private var waitingForRecommendations = false
     private static let log = Logger(subsystem: "com.odify.music.ios", category: "Playback")
 
-    init(documents: URL, queue: PlaybackQueue = PlaybackQueue(), position: Double = 0, autoplay: Bool = true, driveClient: DriveClient = .shared) {
+    init(documents: URL, queue: PlaybackQueue = PlaybackQueue(), position: Double = 0, autoplay: Bool = true, driveClient: DriveClient = .shared,
+         youtubeSession: URLSession? = nil,
+         sourceResolver: @escaping SourceResolver = { try await StreamResolver.shared.url(for: $0, documents: $1, refresh: $2) }) {
         self.documents = documents; self.queue = queue; savedPosition = position
+        trace = PlaybackTrace(documents: documents)
+        resolveSource = sourceResolver; self.youtubeSession = youtubeSession
         self.driveClient = driveClient
         autoplayEnabled = autoplay
         clock.position = position
@@ -257,6 +265,7 @@ import UIKit
         itemObservations.values.forEach { $0.invalidate() }; itemObservations.removeAll()
         driveLoaders.values.forEach { $0.cancel() }; driveLoaders.removeAll()
         guard let entry = queue.current else { wantsPlayback = false; isPlaying = false; return }
+        trace.record("prepare", source: entry.track.source)
         wantsPlayback = true; isPlaying = false; isBuffering = true; error = nil
         clock.position = resume; clock.duration = entry.track.duration
         // Resolve while the app still has its current background-audio lifetime.
@@ -269,9 +278,10 @@ import UIKit
             defer { background.end() }
             guard let self else { return }
             do {
-                let url = try await StreamResolver.shared.url(for: entry.track, documents: self.documents, refresh: refresh)
+                let url = try await self.resolveSource(entry.track, self.documents, refresh)
                 try Task.checkCancellation()
                 guard self.generation == request else { return }
+                self.trace.record("source-resolved", source: entry.track.source)
                 if self.wantsPlayback { try self.activateAudio() }
                 let item = try await self.makeItem(url, entry: entry)
                 guard !Task.isCancelled, self.generation == request else { self.discard(item); return }
@@ -293,15 +303,24 @@ import UIKit
         }
     }
     private func makeItem(_ url: URL, entry: QueueEntry) async throws -> AVPlayerItem {
-        let options: [String: Any] = url.host?.hasSuffix(".googlevideo.com") == true
-            ? [AVURLAssetHTTPUserAgentKey: YouTubeAudio.userAgent] : [:]
-        let asset = AVURLAsset(url: url, options: options)
+        let asset: AVURLAsset
         let loader: DriveResourceLoader?
         if entry.track.driveFileID != nil {
+            asset = AVURLAsset(url: url)
             let delegate = DriveResourceLoader(track: entry.track, client: driveClient)
             asset.resourceLoader.setDelegate(delegate, queue: delegate.queue)
             loader = delegate
-        } else { loader = nil }
+        } else if YouTubeByteSource.trusted(url) {
+            let source = try await YouTubeByteSource.open(url, session: youtubeSession)
+            try Task.checkCancellation()
+            asset = AVURLAsset(url: URL(string: "odify-audio://media/\(UUID().uuidString).m4a")!)
+            let delegate = DriveResourceLoader(length: source.length, contentType: "public.mpeg-4-audio") { start, count in
+                try await source.range(start: start, length: count)
+            }
+            asset.resourceLoader.setDelegate(delegate, queue: delegate.queue); loader = delegate
+            Self.log.notice("[OdifyPlayback] youtube-audio-range-verified")
+            trace.record("audio-range-verified", source: .youtube)
+        } else { asset = AVURLAsset(url: url); loader = nil }
         // A remote/custom-scheme asset can report isPlayable=false before its
         // actual media request has been established (including guest runtimes).
         // Only preflight local files. Streaming readiness belongs to AVPlayerItem
@@ -318,7 +337,10 @@ import UIKit
         itemObservations[ObjectIdentifier(item)] = item.observe(\.status, options: [.new]) { [weak self, weak item] _, _ in
             Task { @MainActor in
                 if let item, item.status == .failed { self?.failed(item) }
-                else if let item, item.status == .readyToPlay { self?.readDriveMetadata(item) }
+                else if let item, item.status == .readyToPlay {
+                    self?.trace.record("item-ready", source: self?.current?.source)
+                    self?.readDriveMetadata(item)
+                }
             }
         }
         return item
@@ -360,7 +382,7 @@ import UIKit
             var count = retained
             for entry in missing {
                 do {
-                    let url = try await StreamResolver.shared.url(for: entry.track, documents: self.documents)
+                    let url = try await self.resolveSource(entry.track, self.documents, false)
                     try Task.checkCancellation()
                     guard self.prefetchGeneration == request, self.player.items().contains(where: { $0 === lastItem }) else { return }
                     let item = try await self.makeItem(url, entry: entry)
@@ -415,7 +437,12 @@ import UIKit
     }
     private func failed(_ item: AVPlayerItem) {
         guard let id = itemIDs[ObjectIdentifier(item)] else { return }
-        let failure = item.error ?? OdifyError.message("재생 연결이 중단되었습니다.")
+        let statuses = item.errorLog()?.events.map(\.errorStatusCode) ?? []
+        let failure: Error
+        if current?.source == .youtube, let denied = statuses.first(where: { [401, 403, 429].contains($0) }) {
+            failure = AudioHTTPFailure(statusCode: denied)
+        } else { failure = item.error ?? OdifyError.message("재생 연결이 중단되었습니다.") }
+        trace.record("item-failed", source: current?.source, error: failure, statusCodes: statuses)
         guard queue.currentID == id, player.currentItem == nil || player.currentItem === item else {
             // Do not leave a failed successor sitting in AVQueuePlayer waiting
             // to poison a later automatic transition.
@@ -429,6 +456,7 @@ import UIKit
     private func recover(_ id: String, failure: Error) {
         guard queue.currentID == id else { return }
         guard wantsPlayback else { showError(failure); return }
+        if Self.accessDenied(failure) { wantsPlayback = false; showError(failure); onCheckpoint?(); return }
         // A restriction is a final service response, never a reason to try
         // another client or silently start a different selected recording.
         if case YouTubeAudioFailure.restricted = failure {
@@ -471,6 +499,7 @@ import UIKit
         // valid with playAndRecord; iPadOS 27 rejects that mix with OSStatus -50.
         try session.setCategory(.playback, mode: .default, policy: .longFormAudio, options: [])
         try session.setActive(true)
+        trace.record("audio-session-active", source: current?.source)
         Self.log.notice("[OdifyPlayback] audio-session-active")
     }
     private func readDriveMetadata(_ item: AVPlayerItem) {
@@ -506,6 +535,7 @@ import UIKit
         }
     }
     private func showError(_ failure: Error) {
+        trace.record("failed", source: current?.source, error: failure)
         error = Self.playbackMessage(failure, source: current?.source); isBuffering = false
         Self.log.error("[OdifyPlayback] failure source=\(self.current?.source.rawValue ?? "none", privacy: .public) codes=\(Self.errorCodes(failure), privacy: .public)")
         publishNowPlaying()
@@ -515,7 +545,7 @@ import UIKit
         if value.domain == NSURLErrorDomain, value.code == URLError.timedOut.rawValue {
             return "\(source?.rawValue ?? "음원") 연결 시간이 초과되었습니다 (-1001). 다시 시도해 주세요."
         }
-        if failure is OdifyError || failure is YouTubeAudioFailure { return failure.localizedDescription }
+        if failure is OdifyError || failure is YouTubeAudioFailure || failure is AudioHTTPFailure { return failure.localizedDescription }
         return "\(source?.rawValue ?? "음원") 재생 오류 · " + errorCodes(failure)
     }
     private static func errorCodes(_ failure: Error) -> String {
@@ -529,6 +559,15 @@ import UIKit
         // Codes identify the failing system layer without exposing signed
         // URLs, file identifiers, HTTP headers or access tokens in a report.
         return codes.joined(separator: " / ")
+    }
+    private static func accessDenied(_ failure: Error) -> Bool {
+        var value: NSError? = failure as NSError
+        for _ in 0..<4 {
+            guard let error = value else { break }
+            if error.domain == AudioHTTPFailure.errorDomain, [401, 403, 429].contains(error.code) { return true }
+            value = error.userInfo[NSUnderlyingErrorKey] as? NSError
+        }
+        return false
     }
     private func configureRemoteCommands() {
         let center = MPRemoteCommandCenter.shared()

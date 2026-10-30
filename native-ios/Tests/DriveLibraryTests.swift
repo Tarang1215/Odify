@@ -4,6 +4,7 @@ import XCTest
 
 private final class MusicFolderProtocol: URLProtocol {
     static var repeatingPage = false
+    static var emptyRoots = false
     static var queries: [String] = []
     override class func canInit(with request: URLRequest) -> Bool { request.url?.host == "www.googleapis.com" }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
@@ -13,8 +14,12 @@ private final class MusicFolderProtocol: URLProtocol {
         Self.queries.append(query)
         let page = items.first(where: { $0.name == "pageToken" })?.value
         var result: [String: Any]
-        if query.contains("mimeType =") {
-            result = ["files": [["id": "music-folder", "name": "Odify_Music_Test", "mimeType": "application/vnd.google-apps.folder"]]]
+        if request.url?.path.hasSuffix("/about") == true {
+            result = ["user": ["emailAddress": "fixture@example.invalid"]]
+        } else if query.contains("mimeType contains 'audio/'") {
+            result = ["files": [["id": "elsewhere", "name": "Artist - Elsewhere.mp3", "mimeType": "audio/mpeg", "size": "163090"]]]
+        } else if query.contains("mimeType =") {
+            result = Self.emptyRoots ? ["files": []] : ["files": [["id": "music-folder", "name": "Odify_Music_Test", "mimeType": "application/vnd.google-apps.folder"]]]
         } else if query.contains("'music-folder'") {
             if page == nil {
                 result = ["files": [
@@ -44,7 +49,7 @@ private final class MusicFolderProtocol: URLProtocol {
 
 final class DriveLibraryTests: XCTestCase {
     private func client() -> DriveClient {
-        MusicFolderProtocol.queries = []; MusicFolderProtocol.repeatingPage = false
+        MusicFolderProtocol.queries = []; MusicFolderProtocol.repeatingPage = false; MusicFolderProtocol.emptyRoots = false
         let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [MusicFolderProtocol.self]
         return DriveClient(session: URLSession(configuration: config), token: { _ in "fixture-token" })
     }
@@ -60,6 +65,22 @@ final class DriveLibraryTests: XCTestCase {
         let service = client(); MusicFolderProtocol.repeatingPage = true
         do { _ = try await service.musicLibrary(account: "fixture-account"); XCTFail("pagination loop was accepted") }
         catch { XCTAssertTrue(error.localizedDescription.contains("반복")) }
+    }
+    func testAudioOutsideNamedRootsIsFoundWithoutTraversingOtherFiles() async throws {
+        let service = client(); MusicFolderProtocol.emptyRoots = true
+        let tracks = try await service.musicLibrary(account: "fixture")
+        XCTAssertEqual(tracks.map(\.id), ["drive:fixture:elsewhere"])
+        XCTAssertTrue(MusicFolderProtocol.queries.last?.contains("mimeType contains 'audio/'") == true)
+        let url = try DriveClient.listingURL(parent: "root", allMusic: true)
+        let fields = Dictionary(uniqueKeysWithValues: URLComponents(url: url, resolvingAgainstBaseURL: false)!.queryItems!.map { ($0.name, $0.value!) })
+        XCTAssertEqual(fields["spaces"], "drive"); XCTAssertEqual(fields["corpora"], "user")
+        XCTAssertEqual(fields["q"], "mimeType contains 'audio/' and trashed=false")
+    }
+    func testDriveAccountVerificationRejectsAnUnexpectedIdentity() async throws {
+        let service = client()
+        try await service.confirmAccount(account: "fixture", expectedEmail: "FIXTURE@example.invalid")
+        do { try await service.confirmAccount(account: "fixture", expectedEmail: "different@example.invalid"); XCTFail("account mismatch ignored") }
+        catch { XCTAssertTrue(error.localizedDescription.contains("일치하지")) }
     }
     @MainActor func testBulkMergeRetainsReadTagsAndUsesFreshFileBinding() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

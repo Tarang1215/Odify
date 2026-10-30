@@ -175,6 +175,15 @@ struct AboutView: View {
                     Text("앱 내부 AVQueuePlayer가 Local·Drive 가져온 파일과 연결 가능한 YouTube 오디오를 재생합니다. YouTube 연결은 서비스 변경이나 네트워크 환경에 따라 실패할 수 있습니다.")
                     Text("Google 계정에 연결하면 Drive 폴더를 탐색하고 음원을 바로 스트리밍할 수 있습니다. 선택한 음원 구간만 읽으며 파일을 수정하지 않습니다. Android의 기존 보관함·플레이리스트 자동 이전은 아직 포함되지 않았습니다.")
                 }
+                Section("문제 확인") {
+                    Text("재생 단계와 오류 코드만 기기 안에 최대 80개 기록합니다. 곡 제목·사진·계정·음원 주소·인증 토큰은 기록하지 않습니다.")
+                    if let root = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
+                        let file = root.appendingPathComponent("odify-playback-diagnostics.json")
+                        if FileManager.default.fileExists(atPath: file.path) {
+                            ShareLink("재생 오류 기록 내보내기", item: file)
+                        }
+                    }
+                }
                 Section("LiveContainer") {
                     Text("홈 화면 WidgetKit 위젯은 LiveContainer 게스트 앱에서 등록할 수 없습니다. 앱 안의 미니플레이어와 시스템 재생 정보는 별개이며, 실제 기기의 LiveContainer 설정에 따라 확인이 필요합니다.")
                     Text("YTKACE는 별도 앱입니다. Odify는 YTKACE의 대기열이나 재생 상태를 제어하지 않습니다.")

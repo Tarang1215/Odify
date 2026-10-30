@@ -78,11 +78,12 @@ struct DriveBrowser: View {
             syncing = true; syncNotice = nil
             defer { if syncGeneration == request { syncing = false } }
             do {
+                try await DriveClient.shared.confirmAccount(account: hash, expectedEmail: account.email)
                 let tracks = try await DriveClient.shared.musicLibrary(account: hash)
                 try Task.checkCancellation()
                 guard account.accountHash == hash, syncGeneration == request else { return }
                 store.mergeDriveLibrary(tracks)
-                syncNotice = "\(tracks.count)곡을 보관함에 연결했습니다."
+                syncNotice = tracks.isEmpty ? "읽을 수 있는 음악이 0곡입니다. 오른쪽 위에서 연결 계정을 확인하거나, 계정을 다시 연결해 주세요." : "\(tracks.count)곡을 보관함에 연결했습니다."
             } catch is CancellationError { }
             catch { if !Task.isCancelled, account.accountHash == hash { syncNotice = error.localizedDescription } }
         }
@@ -93,7 +94,7 @@ struct DriveBrowser: View {
 struct DriveFolderRoute: Hashable { let id: String; let name: String; let account: String }
 
 enum DriveLocation: String, CaseIterable, Identifiable {
-    case music = "Odify 음악", personal = "내 Drive", shared = "공유받음"
+    case allMusic = "전체 음악", music = "Odify 폴더", personal = "내 Drive", shared = "공유받음"
     var id: String { rawValue }
 }
 
@@ -106,7 +107,7 @@ struct DriveFolderView: View {
     @State private var pageToken: String?
     @State private var loading = false
     @State private var error: String?
-    @State private var location: DriveLocation = .music
+    @State private var location: DriveLocation = .allMusic
     @State private var generation = UUID()
     private var audio: [Track] { files.filter(\.playable).map { $0.track(account: accountHash) } }
     var body: some View {
@@ -164,7 +165,8 @@ struct DriveFolderView: View {
         if reset { files = []; pageToken = nil }
         do {
             let result = try await DriveClient.shared.list(parent: folderID, page: pageToken, account: accountHash,
-                shared: folderID == "root" && location == .shared, musicRoots: folderID == "root" && location == .music)
+                shared: folderID == "root" && location == .shared, musicRoots: folderID == "root" && location == .music,
+                allMusic: folderID == "root" && location == .allMusic)
             try Task.checkCancellation()
             guard generation == request else { return }
             let oldIDs = Set(files.map(\.id))

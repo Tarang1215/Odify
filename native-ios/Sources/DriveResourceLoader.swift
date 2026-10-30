@@ -5,12 +5,26 @@ import UniformTypeIdentifiers
 /// seeking. Each HTTP request gets a fresh SDK-managed authorization header.
 final class DriveResourceLoader: NSObject, AVAssetResourceLoaderDelegate {
     let queue = DispatchQueue(label: "com.odify.drive.media")
-    private let track: Track
-    private let client: DriveClient
+    typealias Reader = @Sendable (Int64, Int64) async throws -> Data
+    private let total: Int64
+    private let contentType: String
+    private let read: Reader
     private var pending: [ObjectIdentifier: Task<Void, Never>] = [:]
-    init(track: Track, client: DriveClient = .shared) { self.track = track; self.client = client }
+    convenience init(track: Track, client: DriveClient = .shared) {
+        self.init(length: track.fileSize ?? 0,
+                  contentType: UTType(filenameExtension: track.fileExtension ?? "")?.identifier
+                    ?? UTType(mimeType: track.mimeType ?? "audio/mpeg")?.identifier ?? UTType.mp3.identifier) { start, count in
+            guard let file = track.driveFileID, let account = track.driveAccountHash, let size = track.fileSize else {
+                throw OdifyError.message("Drive에서 곡을 다시 선택해 주세요.")
+            }
+            return try await client.range(fileID: file, account: account, start: start, length: count, expectedSize: size)
+        }
+    }
+    init(length: Int64, contentType: String, read: @escaping Reader) {
+        total = length; self.contentType = contentType; self.read = read
+    }
     func resourceLoader(_ resourceLoader: AVAssetResourceLoader, shouldWaitForLoadingOfRequestedResource request: AVAssetResourceLoadingRequest) -> Bool {
-        guard let file = track.driveFileID, let account = track.driveAccountHash, let total = track.fileSize, total > 0 else {
+        guard total > 0 else {
             request.finishLoading(with: OdifyError.message("Drive에서 파일 목록을 새로고침한 뒤 다시 선택해 주세요.")); return false
         }
         let key = ObjectIdentifier(request)
@@ -19,13 +33,12 @@ final class DriveResourceLoader: NSObject, AVAssetResourceLoaderDelegate {
         let remaining = max(0, total - start)
         let length = dataRequest?.requestsAllDataToEndOfResource == true ? remaining : min(remaining, Int64(dataRequest?.requestedLength ?? 0))
         let end = start + length
-        let contentType = UTType(filenameExtension: track.fileExtension ?? "")?.identifier
-            ?? UTType(mimeType: track.mimeType ?? "audio/mpeg")?.identifier ?? UTType.mp3.identifier
+        let total = self.total, contentType = self.contentType
         pending[key] = Task { [weak self] in
             guard let self else { return }
             do {
                 if dataRequest == nil {
-                    _ = try await self.client.range(fileID: file, account: account, start: 0, length: min(2, total), expectedSize: total)
+                    _ = try await self.read(0, min(2, total))
                 }
                 try Task.checkCancellation()
                 let ready = await self.deliver(request, key: key) {
@@ -38,7 +51,8 @@ final class DriveResourceLoader: NSObject, AVAssetResourceLoaderDelegate {
                 while cursor < end {
                     try Task.checkCancellation()
                     let count = min(262_144, end - cursor)
-                    let bytes = try await self.client.range(fileID: file, account: account, start: cursor, length: count, expectedSize: total)
+                    let bytes = try await self.read(cursor, count)
+                    guard !bytes.isEmpty, bytes.count <= Int(count) else { throw OdifyError.message("음원 구간 연결이 중단되었습니다.") }
                     guard await self.deliver(request, key: key, action: { request.dataRequest?.respond(with: bytes) }) else { return }
                     cursor += Int64(bytes.count)
                 }
