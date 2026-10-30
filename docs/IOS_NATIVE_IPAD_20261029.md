@@ -173,3 +173,11 @@ not the user's collection.
 Still pending: actual LiveContainer Google login/return/refresh, the user's Drive
 audio, actual YouTube playback, system controls, landscape/resize behavior, frame
 pacing, and 60+ minute screen-off continuity. Android is untouched. PR 22 stays draft.
+
+
+## 2026-10-30 playback follow-up
+
+Build 6 supersedes build 3 for playback startup/recovery and square artist portraits.
+All 28 native tests and six packaging checks passed, including Drive MP3 start,
+seek and automatic next-song playback. Full evidence, direct IPA/checksum and
+remaining hardware/YouTube limitations are in `IOS_PLAYBACK_RECOVERY_20261030.md`.
