@@ -8,11 +8,12 @@ import XCTest
     var onEvent: ((UUID, YouTubeWebEvent) -> Void)?
     var attached = true
     var loads: [(String, UUID, Double)] = []
+    var loadIntents: [Bool] = []
     var searches: [Track] = []
     var plays = 0, pauses = 0, stops = 0
     var seeks: [Double] = []
     var active: [Bool] = []
-    func load(videoID: String, request: UUID, position: Double) { loads.append((videoID, request, position)) }
+    func load(videoID: String, request: UUID, position: Double, autoplay: Bool) { loads.append((videoID, request, position)); loadIntents.append(autoplay) }
     func search(track: Track, request: UUID) { searches.append(track) }
     func play() { plays += 1 }
     func pause() { pauses += 1 }
@@ -82,6 +83,15 @@ import XCTest
         driver.event(.failed(150))
         XCTAssertTrue(engine.error?.contains("150") == true); XCTAssertFalse(engine.isBuffering)
         XCTAssertEqual(engine.current?.id, "a"); XCTAssertEqual(driver.loads.count, 1)
+    }
+    func testPauseDuringVideoLookupLoadsTheWebItemWithoutAutoplay() async throws {
+        let root = try directory(), driver = WebDriverFixture()
+        let engine = PlaybackEngine(documents: root, autoplay: false, youtubeWebPlayer: driver,
+            webVideoResolver: { track in try await Task.sleep(for: .milliseconds(100)); return track.videoID! })
+        defer { engine.shutdown(); try? FileManager.default.removeItem(at: root) }
+        engine.play([a]); engine.pause()
+        try await waitForLoads(1, driver)
+        XCTAssertEqual(driver.loadIntents, [false]); XCTAssertFalse(engine.isPlaying); XCTAssertFalse(engine.isBuffering)
     }
     func testMixedWebLocalWebQueueReturnsToTheSameMusicControls() async throws {
         let root = try directory(), driver = WebDriverFixture()

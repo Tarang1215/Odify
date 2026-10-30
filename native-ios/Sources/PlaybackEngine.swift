@@ -346,7 +346,7 @@ import UIKit
                     guard YouTubeWebPlayback.validID(video) else { throw YouTubeWebFailure(code: 2) }
                     try self.activateAudio()
                     self.trace.record("web-player-load", source: .youtube)
-                    self.webPlayback?.load(videoID: video, request: request, position: resume)
+                    self.webPlayback?.load(videoID: video, request: request, position: resume, autoplay: self.wantsPlayback)
                     if !self.wantsPlayback { self.webPlayback?.pause() }
                 } catch is CancellationError { }
                 catch {
@@ -684,7 +684,7 @@ import UIKit
             var track = entry.track; track.videoID = id
             update(track); onTrackMetadata?(track)
             trace.record("web-video-matched", source: .youtube)
-            webPlayback?.load(videoID: id, request: request, position: savedPosition)
+            webPlayback?.load(videoID: id, request: request, position: savedPosition, autoplay: wantsPlayback)
             if !wantsPlayback { webPlayback?.pause() }
         case .state(let state, let position, let duration, let intent):
             guard position.isFinite, duration.isFinite, position >= 0, duration >= 0 else { return }

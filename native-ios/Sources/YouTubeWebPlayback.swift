@@ -11,7 +11,7 @@ enum YouTubeWebEvent {
 @MainActor protocol YouTubeWebPlaying: AnyObject {
     var onEvent: ((UUID, YouTubeWebEvent) -> Void)? { get set }
     var attached: Bool { get }
-    func load(videoID: String, request: UUID, position: Double)
+    func load(videoID: String, request: UUID, position: Double, autoplay: Bool)
     func search(track: Track, request: UUID)
     func play()
     func pause()
@@ -72,17 +72,17 @@ struct YouTubeWebFailure: LocalizedError, CustomNSError {
         let value = Bundle.main.bundleIdentifier?.lowercased() ?? "com.odify.music.ios"
         return URL(string: "https://" + value) ?? URL(string: "https://com.odify.music.ios")!
     }
-    func load(videoID: String, request: UUID, position: Double) {
+    func load(videoID: String, request: UUID, position: Double, autoplay: Bool = true) {
         guard Self.validID(videoID) else { onEvent?(request, .failed(2)); return }
         let reuse = loaded && !choosing
-        self.request = request; choosing = false; wantsPlayback = true; loaded = false
+        self.request = request; choosing = false; wantsPlayback = autoplay; loaded = false
         hasLoadedPage = true
         view.scrollView.isScrollEnabled = false
         view.configuration.userContentController.removeAllUserScripts()
         let html = Self.html(videoID: videoID, origin: origin.absoluteString, request: request, position: position, visible: attached)
         if reuse {
             let start = position.isFinite ? max(0, position) : 0
-            view.evaluateJavaScript("Boolean(window.odifyLoad && odifyLoad('\(videoID)','\(request.uuidString)',\(start)))") { [weak self] result, _ in
+            view.evaluateJavaScript("Boolean(window.odifyLoad && odifyLoad('\(videoID)','\(request.uuidString)',\(start),\(autoplay ? "true" : "false")))") { [weak self] result, _ in
                 Task { @MainActor in
                     guard let self, self.request == request else { return }
                     if (result as? Bool) != true { self.view.loadHTMLString(html, baseURL: self.origin) }
@@ -129,7 +129,10 @@ struct YouTubeWebFailure: LocalizedError, CustomNSError {
     func receive(_ message: WKScriptMessage) {
         guard message.frameInfo.isMainFrame, let data = message.body as? [String: Any],
               data["request"] as? String == request.uuidString, let kind = data["kind"] as? String else { return }
-        if kind == "state", !choosing {
+        if kind == "ready", !choosing {
+            loaded = true
+            command(wantsPlayback ? "odifyPlay()" : "odifyPause()")
+        } else if kind == "state", !choosing {
             guard let state = data["state"] as? Int, [-1, 0, 1, 2, 3, 5].contains(state),
                   let position = data["position"] as? Double, position.isFinite, position >= 0,
                   let duration = data["duration"] as? Double, duration.isFinite, duration >= 0,
@@ -180,18 +183,19 @@ struct YouTubeWebFailure: LocalizedError, CustomNSError {
         <meta name="referrer" content="strict-origin-when-cross-origin">
         <style>html,body{margin:0;width:100%;height:100%;background:#000}#player{width:100%;height:100%;position:absolute;inset:0}</style></head>
         <body><div id="player"></div><script>
-        var p,ready=false,mounted=\(visible ? "true" : "false"),intent=true,pending=1,commanded=Date.now(),tag='\(request.uuidString)';
+        var p,ready=false,mounted=\(visible ? "true" : "false"),intent=false,pending=0,commanded=Date.now(),tag='\(request.uuidString)';
         function send(kind,extra){window.webkit.messageHandlers.odify.postMessage(Object.assign({request:tag,kind:kind},extra||{}))}
         function snapshot(){if(!ready)return;send('state',{state:p.getPlayerState(),position:p.getCurrentTime()||0,duration:p.getDuration()||0,intent:intent})}
         function onYouTubeIframeAPIReady(){p=new YT.Player('player',{videoId:'\(videoID)',width:'100%',height:'100%',
         playerVars:{playsinline:1,autoplay:0,controls:1,origin:\(encodedOrigin)},events:{onReady:function(){ready=true;
-        if(\(start)>0)p.seekTo(\(start),true);if(mounted&&intent)p.playVideo();snapshot()},
+        if(\(start)>0)p.seekTo(\(start),true);send('ready')},
         onStateChange:function(e){if(e.data===1){if(pending===2){p.pauseVideo();return}intent=true;pending=0}
         if(e.data===2){if(pending===1&&Date.now()-commanded<3000)return;intent=false;pending=0}snapshot()},
         onError:function(e){intent=false;pending=0;send('error',{code:e.data})},onAutoplayBlocked:function(){intent=false;pending=0;send('blocked')}}})}
         function odifyPlay(){intent=true;pending=1;commanded=Date.now();if(ready&&mounted)p.playVideo()}
         function odifyPause(){intent=false;pending=2;commanded=Date.now();if(ready)p.pauseVideo()}
-        function odifyLoad(id,request,t){if(!ready)return false;tag=request;intent=true;pending=1;commanded=Date.now();p.loadVideoById({videoId:id,startSeconds:t});return true}
+        function odifyLoad(id,request,t,play){if(!ready)return false;tag=request;intent=play!==false;pending=intent?1:2;commanded=Date.now();
+        if(intent)p.loadVideoById({videoId:id,startSeconds:t});else p.cueVideoById({videoId:id,startSeconds:t});return true}
         function odifySeek(t){if(ready)p.seekTo(t,true)}
         function odifyMounted(v){mounted=v;if(ready&&mounted&&intent)p.playVideo()}
         setInterval(snapshot,500);
