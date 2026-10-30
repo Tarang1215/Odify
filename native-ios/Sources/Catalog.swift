@@ -178,14 +178,15 @@ actor YouTubeCatalog {
         return value
     }
     func match(_ track: Track) async throws -> VideoResult {
-        let videos = try await search("\(track.artist) \(track.title) official audio")
-        guard let result = Self.matchingVideo(track, in: videos) else {
-            throw OdifyError.message("정확한 재생 영상을 확인하지 못했습니다. 검색의 YouTube 결과에서 직접 선택해 주세요.")
+        for query in YouTubeSearchParser.queries(for: track) {
+            let videos = try await search(query)
+            if let result = Self.matchingVideo(track, in: videos) { return result }
         }
-        return result
+        throw OdifyError.message("정확한 재생 영상을 확인하지 못했습니다. 검색의 YouTube 결과에서 직접 선택해 주세요.")
     }
     static func matchingVideo(_ track: Track, in videos: [VideoResult]) -> VideoResult? {
         let title = Track.normalized(track.title), artist = Track.normalized(track.artist)
+        guard !title.isEmpty, !artist.isEmpty else { return nil }
         let candidates = videos.filter { video in
             !video.isVariant && Track.normalized(video.title).contains(title) &&
             (Track.normalized(video.channel).contains(artist) || Track.normalized(video.title).contains(artist))
@@ -215,26 +216,7 @@ actor YouTubeCatalog {
         return nil
     }
     static func videoResults(_ json: Any) -> [VideoResult] {
-        var results: [VideoResult] = [], seen = Set<String>()
-        func text(_ node: Any?) -> String {
-            let dict = node as? [String: Any]
-            return dict?["simpleText"] as? String ?? (dict?["runs"] as? [[String: Any]])?.compactMap { $0["text"] as? String }.joined() ?? ""
-        }
-        func visit(_ node: Any) {
-            guard results.count < 30 else { return }
-            if let rows = node as? [Any] { rows.forEach(visit) }
-            else if let dict = node as? [String: Any] {
-                if let row = dict["videoRenderer"] as? [String: Any], let id = row["videoId"] as? String,
-                   id.range(of: #"^[A-Za-z0-9_-]{11}$"#, options: .regularExpression) != nil, seen.insert(id).inserted {
-                    let title = text(row["title"]), channel = text(row["ownerText"] ?? row["longBylineText"])
-                    if !title.isEmpty { results.append(VideoResult(id: id, title: title, channel: channel)) }
-                }
-                // Traversal order in dictionaries is intentionally not used as a ranking signal.
-                for key in dict.keys.sorted() { if key != "videoRenderer", let child = dict[key] { visit(child) } }
-            }
-        }
-        visit(json)
-        return results
+        YouTubeSearchParser.videos(in: json)
     }
 }
 
