@@ -50,5 +50,27 @@ and `queue-advanced` stages are added to the existing local trace to distinguish
 ready media from playback that actually started. Remaining network-dependent
 buffering must be assessed separately on the physical device.
 
+## Final build 10 validation
+
+[CI 41002954942](https://github.com/Tarang1215/Odify/actions/runs/41002954942)
+completed successfully for source `f99974ecfc49f796a7be2c8845a4cdd96a526ed2`.
+All 41 XCTest cases passed, with zero failures, in 26.767 seconds of test time;
+the six packaging checks also passed. Cancellation, obsolete real failures,
+active-denial reporting and classification regression tests all passed.
+
+The [LiveContainer IPA release](https://github.com/Tarang1215/Odify/releases/tag/ios-native-1.1.0-b10-f99974e)
+contains a native arm64 device Release, version 1.1.0 (10), for iPad and iPhone,
+minimum OS 26. Independent inspection checked the device Mach-O, licenses,
+OAuth callback, background-audio mode and absence of guest extensions.
+
+The unauthenticated public IPA download matched the separately verified CI
+artifact. IPA size: 1,767,515 bytes. SHA256:
+`bb2c10dcdb2cf36c94aab31e5a9e5ec468c9515af6f2a33854f80389f738c951`.
+
+The separate live cloud YouTube probe still failed with a sign-in/bot
+confirmation response; its failed JSON is included in the release. Passing
+mock/simulator tests do not establish universal service availability, physical
+guest-runtime playback, buffering improvement or long screen-off survival.
+
 Apple's documented cancellation meaning:
 https://developer.apple.com/documentation/foundation/urlerror/cancelled
