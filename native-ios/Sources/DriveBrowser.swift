@@ -3,6 +3,7 @@ import SwiftUI
 struct DriveBrowser: View {
     @StateObject private var account = DriveAccount.shared
     @EnvironmentObject private var store: LibraryStore
+    @EnvironmentObject private var engine: PlaybackEngine
     @Environment(\.dismiss) private var dismiss
     var body: some View {
         NavigationStack {
@@ -45,7 +46,20 @@ struct DriveBrowser: View {
                     Button("확인") { account.error = nil }
                 } message: { Text(account.error ?? "") }
                 .task { await account.restore() }
-        }.preferredColorScheme(.dark).id(account.accountHash ?? "signed-out")
+        }
+        .safeAreaInset(edge: .bottom) {
+            if let error = engine.error {
+                VStack(alignment: .leading, spacing: 10) {
+                    Label(error, systemImage: "exclamationmark.circle").font(.system(size: 12)).textSelection(.enabled)
+                    HStack {
+                        Button("다시 시도") { engine.clearError(); engine.resume() }
+                        Spacer()
+                        Button("닫기") { engine.clearError() }
+                    }.font(.system(size: 12, weight: .semibold))
+                }.padding(16).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18)).padding(16)
+            }
+        }
+        .preferredColorScheme(.dark).id(account.accountHash ?? "signed-out")
     }
 }
 

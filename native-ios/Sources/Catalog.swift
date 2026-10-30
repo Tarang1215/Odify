@@ -99,11 +99,17 @@ actor MusicCatalog {
             let regex = try NSRegularExpression(pattern: pattern, options: .caseInsensitive)
             guard let match = regex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
                   let range = Range(match.range(at: 1), in: html) else { return nil }
-            let value = String(html[range]).replacingOccurrences(of: "&amp;", with: "&")
-            guard let image = URL(string: value), image.scheme == "https", image.host?.hasSuffix(".mzstatic.com") == true else { return nil }
+            guard let value = Self.squarePortrait(String(html[range]).replacingOccurrences(of: "&amp;", with: "&")) else { return nil }
             portraits[address] = value
             return value
         } catch { return nil }
+    }
+    static func squarePortrait(_ value: String) -> String? {
+        guard let image = URL(string: value), image.scheme == "https", image.host?.hasSuffix(".mzstatic.com") == true,
+              image.path.contains("/image/thumb/"), image.path.range(of: #"/(AMCArtistImages|Features|Music)[^/]*\/"#, options: .regularExpression) != nil else { return nil }
+        // OpenGraph's 1200x630cw is a social card with its own framing. Ask
+        // the image service for the actual square portrait before downsampling.
+        return image.deletingLastPathComponent().appendingPathComponent("600x600bb.jpg").absoluteString
     }
 }
 
@@ -206,21 +212,31 @@ actor StreamResolver {
         }
         let id: String
         if let videoID = track.videoID { id = videoID } else { id = try await YouTubeCatalog.shared.match(track).id }
-        if !refresh, let (url, date) = streams[id], Date().timeIntervalSince(date) < 1800 { return url }
+        if !refresh, let (url, expiry) = streams[id], expiry.timeIntervalSinceNow > 60 { return url }
+        try Task.checkCancellation()
         // Local extraction only: never send proxy requests or cookies to a third-party fallback server.
         let result: URL
         do { result = try await YouTubeAudio.url(videoID: id) }
+        catch is CancellationError { throw CancellationError() }
         catch YouTubeAudioFailure.restricted(let reason) { throw YouTubeAudioFailure.restricted(reason) }
+        catch let error as URLError {
+            try Task.checkCancellation()
+            throw OdifyError.message("YouTube 오디오 주소 연결 실패 (\(error.code.rawValue)). " + (error.code == .timedOut ? "요청 시간이 초과되었습니다. 다시 시도해 주세요." : error.localizedDescription))
+        }
+        catch YouTubeAudioFailure.temporarilyUnavailable { throw YouTubeAudioFailure.temporarilyUnavailable }
         catch {
+            try Task.checkCancellation()
             let all = try await YouTube(videoID: id, methods: [.local]).streams
             guard let stream = all.filterAudioOnly().filter({ $0.fileExtension == .m4a && $0.isNativelyPlayable }).highestAudioBitrateStream() else {
                 throw OdifyError.message("이 영상의 오디오 스트림을 연결하지 못했습니다. 다른 영상을 선택해 주세요.")
             }
             result = stream.url
         }
-        guard result.scheme == "https" else { throw OdifyError.message("안전한 음원 주소를 확인하지 못했습니다.") }
+        try Task.checkCancellation()
+        guard result.scheme == "https", result.host?.hasSuffix(".googlevideo.com") == true,
+              result.user == nil, result.password == nil else { throw OdifyError.message("안전한 음원 주소를 확인하지 못했습니다.") }
         if streams.count > 40 { streams.removeAll() }
-        streams[id] = (result, Date())
+        streams[id] = (result, YouTubeAudio.validUntil(result))
         return result
     }
 }

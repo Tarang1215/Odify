@@ -57,6 +57,40 @@ private final class DriveMockProtocol: URLProtocol {
 }
 
 @MainActor final class DriveStreamingTests: XCTestCase {
+    func testCompressedDriveAudioStartsAndAdvancesUsingActualPlaybackEngine() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appendingPathComponent("fixture.m4a")
+        try Self.aac(file)
+        let media = try Data(contentsOf: file)
+        DriveMockProtocol.lock.lock(); DriveMockProtocol.media = media; DriveMockProtocol.requests = []; DriveMockProtocol.lock.unlock()
+        let configuration = URLSessionConfiguration.ephemeral; configuration.protocolClasses = [DriveMockProtocol.self]
+        let client = DriveClient(session: URLSession(configuration: configuration), token: { _ in "fixture-token-not-a-real-credential" })
+        let tracks = (0..<3).map {
+            Track(id: "drive:\($0)", title: "AAC \($0)", artist: "Test", source: .drive,
+                  driveFileID: "fixture-file", driveAccountHash: "fixture-account", fileSize: Int64(media.count), mimeType: "audio/mp4", fileExtension: "m4a")
+        }
+        let engine = PlaybackEngine(documents: directory, autoplay: false, driveClient: client)
+        defer { engine.shutdown() }; engine.player.volume = 0
+        engine.play(tracks)
+        for _ in 0..<500 {
+            if engine.current?.id == "drive:2", engine.player.rate > 0 { break }
+            try await Task.sleep(for: .milliseconds(40))
+        }
+        XCTAssertEqual(engine.current?.id, "drive:2", engine.error ?? "compressed Drive playback never advanced")
+        XCTAssertGreaterThan(engine.player.rate, 0, engine.error ?? "AAC did not start")
+        XCTAssertTrue(engine.diagnostics.contains { $0.hasPrefix("advanced:") })
+    }
+    private static func aac(_ url: URL) throws {
+        let file = try AVAudioFile(forWriting: url, settings: [AVFormatIDKey: kAudioFormatMPEG4AAC, AVSampleRateKey: 44100, AVNumberOfChannelsKey: 1, AVEncoderBitRateKey: 64000])
+        let buffer = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: 44100 * 2))
+        buffer.frameLength = buffer.frameCapacity
+        for channel in 0..<Int(buffer.format.channelCount) {
+            buffer.floatChannelData?[channel].initialize(repeating: 0, count: Int(buffer.frameLength))
+        }
+        try file.write(from: buffer)
+    }
     func testAuthenticatedRangeLoaderReadsNativeAssetAndSeeksWithoutDownload() async throws {
         let wave = Self.wave()
         DriveMockProtocol.lock.lock(); DriveMockProtocol.media = wave; DriveMockProtocol.requests = []; DriveMockProtocol.lock.unlock()

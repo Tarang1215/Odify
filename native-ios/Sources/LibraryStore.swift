@@ -184,9 +184,18 @@ import UniformTypeIdentifiers
         guard !preview, recommendationTask == nil, engine.autoplayEnabled else { return }
         let queueIdentity = engine.queue.entries.first?.id
         let request = UUID(); recommendationGeneration = request
+        let background = AudioPreparationLease(name: "Odify prepare continuous queue") { [weak self] in
+            guard let self, self.recommendationGeneration == request else { return }
+            self.recommendationTask?.cancel(); self.engine.recommendationsFinished()
+        }
         recommendationTask = Task { [weak self] in
+            defer { background.end() }
             guard let self else { return }
-            defer { if self.recommendationGeneration == request { self.recommendationTask = nil } }
+            defer {
+                if self.recommendationGeneration == request {
+                    self.recommendationTask = nil; self.engine.recommendationsFinished()
+                }
+            }
             do {
                 let candidates: [Track]
                 if seed.source != .youtube {

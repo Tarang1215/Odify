@@ -1,7 +1,23 @@
 import AVFoundation
 import Combine
 import MediaPlayer
+import OdifyStreaming
 import UIKit
+
+/// A finite preparation window, never an artificial silent-audio keepalive.
+@MainActor final class AudioPreparationLease {
+    private var identifier: UIBackgroundTaskIdentifier = .invalid
+    init(name: String, expired: @escaping @MainActor () -> Void) {
+        identifier = UIApplication.shared.beginBackgroundTask(withName: name) { [weak self] in
+            Task { @MainActor in expired(); self?.end() }
+        }
+    }
+    func end() {
+        guard identifier != .invalid else { return }
+        let value = identifier; identifier = .invalid
+        UIApplication.shared.endBackgroundTask(value)
+    }
+}
 
 @MainActor final class PlaybackClock: ObservableObject {
     @Published var position: Double = 0
@@ -25,6 +41,7 @@ import UIKit
     var onTrackMetadata: ((Track) -> Void)?
     var diagnostics: [String] = []
     private let documents: URL
+    private let driveClient: DriveClient
     private var itemIDs: [ObjectIdentifier: String] = [:]
     private var observations: [NSKeyValueObservation] = []
     private var itemObservations: [ObjectIdentifier: NSKeyValueObservation] = [:]
@@ -34,6 +51,7 @@ import UIKit
     private var startTask: Task<Void, Never>?
     private var prefetchTask: Task<Void, Never>?
     private var artworkTask: Task<Void, Never>?
+    private var stallTask: Task<Void, Never>?
     private var generation = UUID()
     private var prefetchGeneration = UUID()
     private var wantsPlayback = false
@@ -45,9 +63,11 @@ import UIKit
     private var remoteTargets: [(MPRemoteCommand, Any)] = []
     private var metadataTask: Task<Void, Never>?
     private var metadataRead = Set<String>()
+    private var waitingForRecommendations = false
 
-    init(documents: URL, queue: PlaybackQueue = PlaybackQueue(), position: Double = 0, autoplay: Bool = true) {
+    init(documents: URL, queue: PlaybackQueue = PlaybackQueue(), position: Double = 0, autoplay: Bool = true, driveClient: DriveClient = .shared) {
         self.documents = documents; self.queue = queue; savedPosition = position
+        self.driveClient = driveClient
         autoplayEnabled = autoplay
         clock.position = position
         clock.duration = queue.current?.track.duration ?? 0
@@ -61,6 +81,8 @@ import UIKit
                 guard let self else { return }
                 self.isPlaying = self.player.timeControlStatus == .playing
                 self.isBuffering = self.player.timeControlStatus == .waitingToPlayAtSpecifiedRate
+                if self.isBuffering { self.monitorStall() }
+                else { self.stallTask?.cancel(); self.stallTask = nil }
                 self.publishNowPlaying()
             }
         })
@@ -86,6 +108,13 @@ import UIKit
             guard let item = notification.object as? AVPlayerItem else { return }
             Task { @MainActor in self?.failed(item) }
         })
+        notifications.append(center.addObserver(forName: .AVPlayerItemPlaybackStalled, object: nil, queue: .main) { [weak self] notification in
+            guard let item = notification.object as? AVPlayerItem else { return }
+            Task { @MainActor in
+                guard let self, self.player.currentItem === item else { return }
+                self.monitorStall()
+            }
+        })
         notifications.append(center.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: .main) { [weak self] note in
             let type = (note.userInfo?[AVAudioSessionInterruptionTypeKey] as? NSNumber)?.uintValue
             let options = (note.userInfo?[AVAudioSessionInterruptionOptionKey] as? NSNumber)?.uintValue ?? 0
@@ -93,6 +122,7 @@ import UIKit
                 guard let self else { return }
                 if type == AVAudioSession.InterruptionType.began.rawValue {
                     self.interrupted = self.wantsPlayback; self.wantsPlayback = false; self.player.pause()
+                    self.stallTask?.cancel(); self.onCheckpoint?()
                 } else if self.interrupted {
                     self.interrupted = false
                     if AVAudioSession.InterruptionOptions(rawValue: options).contains(.shouldResume) { self.resume() }
@@ -112,7 +142,7 @@ import UIKit
     func play(_ tracks: [Track], at index: Int = 0) {
         guard !tracks.isEmpty else { return }
         queue.replace(tracks, at: index); failedIDs.removeAll(); retries.removeAll()
-        savedPosition = 0; startCurrent()
+        waitingForRecommendations = false; savedPosition = 0; startCurrent()
     }
     func resume() {
         guard queue.current != nil else { return }
@@ -122,7 +152,9 @@ import UIKit
         catch { showError(error) }
     }
     func pause() {
-        wantsPlayback = false; player.pause(); isPlaying = false
+        wantsPlayback = false; interrupted = false; waitingForRecommendations = false
+        stallTask?.cancel(); stallTask = nil
+        player.pause(); isPlaying = false; isBuffering = false
         savedPosition = clock.position; onCheckpoint?(); publishNowPlaying()
     }
     func toggle() { if wantsPlayback { pause() } else { resume() } }
@@ -145,7 +177,7 @@ import UIKit
     }
     func jump(_ id: String) {
         guard queue.entries.contains(where: { $0.id == id }) else { return }
-        queue.currentID = id; savedPosition = 0; startCurrent()
+        waitingForRecommendations = false; queue.currentID = id; savedPosition = 0; startCurrent()
     }
     func move(_ offsets: IndexSet, to destination: Int) {
         queue.move(from: offsets, to: destination); rebuildUpcoming(); onCheckpoint?()
@@ -176,13 +208,23 @@ import UIKit
         if autoplayEnabled, let track = current, queue.upcoming.count < 3 { onNeedMore?(track) }
     }
     func appendRecommendations(_ tracks: [Track]) {
+        guard !tracks.isEmpty else { return }
         queue.entries.append(contentsOf: tracks.map { QueueEntry(track: $0) })
+        if waitingForRecommendations, wantsPlayback, let id = queue.currentID,
+           let next = queue.successor(after: id, automatic: false) {
+            jump(next.id); return
+        }
         rebuildUpcoming(); onCheckpoint?()
+    }
+    func recommendationsFinished() {
+        guard waitingForRecommendations else { return }
+        waitingForRecommendations = false; wantsPlayback = false; isBuffering = false
+        onCheckpoint?(); publishNowPlaying()
     }
     var preparedEntryIDs: [String] { player.items().compactMap { itemIDs[ObjectIdentifier($0)] } }
     func shutdown() {
         pause(); startTask?.cancel(); prefetchTask?.cancel(); artworkTask?.cancel()
-        metadataTask?.cancel()
+        metadataTask?.cancel(); stallTask?.cancel()
         observations.forEach { $0.invalidate() }; observations.removeAll()
         itemObservations.values.forEach { $0.invalidate() }; itemObservations.removeAll()
         driveLoaders.values.forEach { $0.cancel() }; driveLoaders.removeAll()
@@ -193,48 +235,58 @@ import UIKit
     }
 
     private func startCurrent(resume: Double = 0, refresh: Bool = false) {
-        startTask?.cancel(); prefetchTask?.cancel()
+        startTask?.cancel(); prefetchTask?.cancel(); stallTask?.cancel(); stallTask = nil
         generation = UUID(); let request = generation
         player.pause(); player.removeAllItems(); itemIDs.removeAll()
         itemObservations.values.forEach { $0.invalidate() }; itemObservations.removeAll()
         driveLoaders.values.forEach { $0.cancel() }; driveLoaders.removeAll()
         guard let entry = queue.current else { wantsPlayback = false; isPlaying = false; return }
-        wantsPlayback = true; isBuffering = true; error = nil
+        wantsPlayback = true; isPlaying = false; isBuffering = true; error = nil
         clock.position = resume; clock.duration = entry.track.duration
         // Resolve while the app still has its current background-audio lifetime.
-        var background = UIApplication.shared.beginBackgroundTask(withName: "Odify prepare audio")
+        let background = AudioPreparationLease(name: "Odify prepare audio") { [weak self] in
+            guard let self, self.generation == request else { return }
+            self.startTask?.cancel(); self.wantsPlayback = false
+            self.showError(OdifyError.message("음원 준비 시간이 초과되었습니다. 앱을 열고 다시 시도해 주세요."))
+        }
         startTask = Task { [weak self] in
-            defer { if background != .invalid { UIApplication.shared.endBackgroundTask(background); background = .invalid } }
+            defer { background.end() }
             guard let self else { return }
             do {
                 let url = try await StreamResolver.shared.url(for: entry.track, documents: self.documents, refresh: refresh)
                 try Task.checkCancellation()
                 guard self.generation == request else { return }
                 let item = try await self.makeItem(url, entry: entry)
-                try Task.checkCancellation()
+                guard !Task.isCancelled, self.generation == request else { self.discard(item); return }
                 self.player.insert(item, after: nil)
                 if resume > 0 { await self.player.seek(to: CMTime(seconds: resume, preferredTimescale: 600)) }
                 guard self.generation == request else { return }
-                try self.activateAudio()
-                if self.wantsPlayback { self.player.play() }
+                if self.wantsPlayback { try self.activateAudio(); self.player.play() }
                 self.rebuildUpcoming(); self.onCheckpoint?()
             } catch is CancellationError { }
             catch {
                 guard self.generation == request else { return }
-                self.isBuffering = false; self.wantsPlayback = false; self.showError(error)
+                self.recover(entry.id, failure: error)
             }
         }
     }
     private func makeItem(_ url: URL, entry: QueueEntry) async throws -> AVPlayerItem {
-        let asset = AVURLAsset(url: url)
+        let options: [String: Any] = url.host?.hasSuffix(".googlevideo.com") == true
+            ? [AVURLAssetHTTPUserAgentKey: YouTubeAudio.userAgent] : [:]
+        let asset = AVURLAsset(url: url, options: options)
         let loader: DriveResourceLoader?
         if entry.track.driveFileID != nil {
-            let delegate = DriveResourceLoader(track: entry.track)
+            let delegate = DriveResourceLoader(track: entry.track, client: driveClient)
             asset.resourceLoader.setDelegate(delegate, queue: delegate.queue)
             loader = delegate
         } else { loader = nil }
-        // Reject a corrupt successor before it poisons AVQueuePlayer's state.
-        guard try await asset.load(.isPlayable) else { throw OdifyError.message("재생할 수 없는 음원입니다: \(entry.track.title)") }
+        // A remote/custom-scheme asset can report isPlayable=false before its
+        // actual media request has been established (including guest runtimes).
+        // Only preflight local files. Streaming readiness belongs to AVPlayerItem
+        // status, whose concrete network/decoder failure can then be surfaced.
+        if url.isFileURL {
+            guard try await asset.load(.isPlayable) else { throw OdifyError.message("손상되었거나 지원하지 않는 파일입니다: \(entry.track.title)") }
+        }
         try Task.checkCancellation()
         let item = AVPlayerItem(asset: asset)
         item.preferredForwardBufferDuration = 30
@@ -253,7 +305,9 @@ import UIKit
         prefetchTask?.cancel(); prefetchGeneration = UUID(); let request = prefetchGeneration
         guard let currentItem = player.currentItem, let currentID = itemIDs[ObjectIdentifier(currentItem)] else { return }
         var prepared: [QueueEntry] = [], cursor = currentID
-        for _ in 0..<2 {
+        // Look beyond broken entries; stop after two usable successors have
+        // actually been inserted, rather than examining only two queue slots.
+        for _ in 0..<max(2, queue.entries.count) {
             guard let entry = queue.successor(after: cursor, automatic: true) else { break }
             if !failedIDs.contains(entry.id) { prepared.append(entry) }
             cursor = entry.id
@@ -272,19 +326,28 @@ import UIKit
             driveLoaders.removeValue(forKey: ObjectIdentifier(item))?.cancel()
         }
         let missing = Array(prepared.dropFirst(retained))
-        guard !missing.isEmpty else { return }
+        guard retained < 2, !missing.isEmpty else { return }
+        let background = AudioPreparationLease(name: "Odify buffer next songs") { [weak self] in
+            guard let self, self.prefetchGeneration == request else { return }
+            self.prefetchTask?.cancel()
+        }
         prefetchTask = Task { [weak self] in
+            defer { background.end() }
             guard let self else { return }
             var lastItem = lastPrepared
+            var count = retained
             for entry in missing {
                 do {
                     let url = try await StreamResolver.shared.url(for: entry.track, documents: self.documents)
                     try Task.checkCancellation()
                     guard self.prefetchGeneration == request, self.player.items().contains(where: { $0 === lastItem }) else { return }
                     let item = try await self.makeItem(url, entry: entry)
-                    try Task.checkCancellation()
-                    guard self.prefetchGeneration == request, self.player.items().contains(where: { $0 === lastItem }) else { return }
-                    if self.player.canInsert(item, after: lastItem) { self.player.insert(item, after: lastItem); lastItem = item }
+                    guard !Task.isCancelled, self.prefetchGeneration == request,
+                          self.player.items().contains(where: { $0 === lastItem }) else { self.discard(item); return }
+                    if self.player.canInsert(item, after: lastItem) {
+                        self.player.insert(item, after: lastItem); lastItem = item; count += 1
+                        if count == 2 { return }
+                    } else { self.discard(item) }
                 } catch is CancellationError { return }
                 catch { self.failedIDs.insert(entry.id); self.error = "다음 곡 준비 실패: \(entry.track.title). \(error.localizedDescription)" }
             }
@@ -301,7 +364,7 @@ import UIKit
         itemIDs = itemIDs.filter { currentItems.contains($0.key) }
         for key in itemObservations.keys.filter({ !currentItems.contains($0) }) { itemObservations.removeValue(forKey: key)?.invalidate() }
         for key in driveLoaders.keys.filter({ !currentItems.contains($0) }) { driveLoaders.removeValue(forKey: key)?.cancel() }
-        clock.position = 0; clock.duration = current?.duration ?? 0; savedPosition = 0
+        if changed { clock.position = 0; clock.duration = current?.duration ?? 0; savedPosition = 0 }
         if changed { diagnostics.append("advanced:\(id)"); if diagnostics.count > 40 { diagnostics.removeFirst() } }
         publishNowPlaying(resetArtwork: true); rebuildUpcoming(); onCheckpoint?()
         if item.status == .readyToPlay { readDriveMetadata(item) }
@@ -320,15 +383,38 @@ import UIKit
             return
         }
         guard let next = queue.successor(after: id, automatic: true) else {
-            wantsPlayback = false; isPlaying = false; isBuffering = false; onCheckpoint?(); publishNowPlaying(); return
+            isPlaying = false
+            if autoplayEnabled, onNeedMore != nil, let track = current {
+                waitingForRecommendations = true; isBuffering = true; onNeedMore?(track)
+            } else { wantsPlayback = false; isBuffering = false }
+            onCheckpoint?(); publishNowPlaying(); return
         }
         queue.currentID = next.id; savedPosition = 0; startCurrent()
     }
     private func failed(_ item: AVPlayerItem) {
-        guard let id = itemIDs[ObjectIdentifier(item)], queue.currentID == id else { return }
+        guard let id = itemIDs[ObjectIdentifier(item)] else { return }
+        let failure = item.error ?? OdifyError.message("재생 연결이 중단되었습니다.")
+        guard player.currentItem === item, queue.currentID == id else {
+            // Do not leave a failed successor sitting in AVQueuePlayer waiting
+            // to poison a later automatic transition.
+            if player.items().contains(where: { $0 === item }) {
+                failedIDs.insert(id); player.remove(item); discard(item); rebuildUpcoming()
+            }
+            return
+        }
+        recover(id, failure: failure)
+    }
+    private func recover(_ id: String, failure: Error) {
+        guard queue.currentID == id else { return }
+        guard wantsPlayback else { showError(failure); return }
+        // A restriction is a final service response, never a reason to try
+        // another client or silently start a different selected recording.
+        if case YouTubeAudioFailure.restricted = failure {
+            wantsPlayback = false; showError(failure); onCheckpoint?(); return
+        }
         if retries.insert(id).inserted { startCurrent(resume: clock.position, refresh: true); return }
         failedIDs.insert(id)
-        error = "\(current?.title ?? "이 곡") 재생 연결이 끊겼습니다."
+        error = Self.playbackMessage(failure, source: current?.source)
         var cursor = id
         for _ in 0..<queue.entries.count {
             guard let next = queue.successor(after: cursor, automatic: false), next.id != id else { break }
@@ -336,6 +422,26 @@ import UIKit
             cursor = next.id
         }
         pause()
+    }
+    private func discard(_ item: AVPlayerItem) {
+        let key = ObjectIdentifier(item)
+        itemIDs.removeValue(forKey: key)
+        itemObservations.removeValue(forKey: key)?.invalidate()
+        driveLoaders.removeValue(forKey: key)?.cancel()
+    }
+    private func monitorStall() {
+        guard wantsPlayback, stallTask == nil, let item = player.currentItem else { return }
+        let position = player.currentTime().seconds
+        let background = AudioPreparationLease(name: "Odify recover stalled audio") { [weak self] in self?.stallTask?.cancel() }
+        stallTask = Task { [weak self, weak item] in
+            defer { background.end() }
+            do { try await Task.sleep(for: .seconds(20)) } catch { return }
+            guard let self, let item, self.wantsPlayback, self.player.currentItem === item else { return }
+            self.stallTask = nil
+            let now = self.player.currentTime().seconds
+            guard self.player.timeControlStatus != .playing, !now.isFinite || !position.isFinite || now - position < 0.2 else { return }
+            self.failed(item)
+        }
     }
     private func activateAudio() throws {
         let session = AVAudioSession.sharedInstance()
@@ -375,8 +481,24 @@ import UIKit
         }
     }
     private func showError(_ failure: Error) {
-        error = failure.localizedDescription; isBuffering = false
+        error = Self.playbackMessage(failure, source: current?.source); isBuffering = false
         publishNowPlaying()
+    }
+    private static func playbackMessage(_ failure: Error, source: MusicSource?) -> String {
+        let value = failure as NSError
+        if value.domain == NSURLErrorDomain, value.code == URLError.timedOut.rawValue {
+            return "\(source?.rawValue ?? "음원") 연결 시간이 초과되었습니다 (-1001). 다시 시도해 주세요."
+        }
+        guard value.domain == AVFoundationErrorDomain || value.domain == NSOSStatusErrorDomain else { return failure.localizedDescription }
+        var codes = ["\(value.domain) \(value.code)"]
+        var child = value.userInfo[NSUnderlyingErrorKey] as? NSError
+        for _ in 0..<3 {
+            guard let error = child else { break }
+            codes.append("\(error.domain) \(error.code)"); child = error.userInfo[NSUnderlyingErrorKey] as? NSError
+        }
+        // Codes identify the failing system layer without exposing signed
+        // URLs, file identifiers, HTTP headers or access tokens in a report.
+        return "\(source?.rawValue ?? "음원") 재생 준비 실패 · " + codes.joined(separator: " / ")
     }
     private func configureRemoteCommands() {
         let center = MPRemoteCommandCenter.shared()

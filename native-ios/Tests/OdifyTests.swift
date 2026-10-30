@@ -1,5 +1,6 @@
 import AVFoundation
 import Combine
+import UIKit
 import XCTest
 @testable import Odify
 
@@ -81,6 +82,11 @@ final class QueueTests: XCTestCase {
         XCTAssertNil(track.localFile); XCTAssertNil(track.videoID)
         XCTAssertEqual(track.source, .youtube)
     }
+    func testArtistPortraitUsesSquareOriginalInsteadOfSocialCard() throws {
+        let input = "https://is1-ssl.mzstatic.com/image/thumb/AMCArtistImages221/v4/example/portrait.png/1200x630cw.png"
+        XCTAssertEqual(MusicCatalog.squarePortrait(input), "https://is1-ssl.mzstatic.com/image/thumb/AMCArtistImages221/v4/example/portrait.png/600x600bb.jpg")
+        XCTAssertNil(MusicCatalog.squarePortrait("https://untrusted.example/image/thumb/AMCArtistImages/a/1200x630cw.png"))
+    }
 }
 
 @MainActor final class NativePlaybackTests: XCTestCase {
@@ -142,6 +148,89 @@ final class QueueTests: XCTestCase {
         }
         XCTAssertEqual(engine.current?.id, "ok2", engine.error ?? "stopped at corrupt file")
         XCTAssertEqual(engine.player.currentItem?.status, .readyToPlay)
+    }
+    func testMissingSelectedFileSkipsMultipleFailuresAndStartsPlayableSuccessor() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try Self.silence(seconds: 2).write(to: directory.appendingPathComponent("ok.wav"))
+        let engine = PlaybackEngine(documents: directory, autoplay: false)
+        defer { engine.shutdown() }; engine.player.volume = 0
+        engine.play((0..<4).map { Track(id: "bad\($0)", title: "Missing", artist: "Test", source: .local, localFile: "missing.wav") }
+                    + [Track(id: "ok", title: "OK", artist: "Test", source: .local, localFile: "ok.wav")])
+        for _ in 0..<100 {
+            if engine.current?.id == "ok", engine.player.currentItem?.status == .readyToPlay { break }
+            try await Task.sleep(for: .milliseconds(30))
+        }
+        XCTAssertEqual(engine.current?.id, "ok", engine.error ?? "did not skip missing files")
+        XCTAssertEqual(engine.player.currentItem?.status, .readyToPlay)
+    }
+    func testPauseWhileFailedNotificationArrivesNeverRestartsPlayback() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try Self.silence(seconds: 3).write(to: directory.appendingPathComponent("ok.wav"))
+        let engine = PlaybackEngine(documents: directory, autoplay: false)
+        defer { engine.shutdown() }; engine.player.volume = 0
+        engine.play([Track(id: "ok", title: "OK", artist: "Test", source: .local, localFile: "ok.wav")])
+        for _ in 0..<100 {
+            if engine.player.currentItem?.status == .readyToPlay { break }
+            try await Task.sleep(for: .milliseconds(30))
+        }
+        let item = try XCTUnwrap(engine.player.currentItem)
+        engine.pause()
+        NotificationCenter.default.post(name: .AVPlayerItemFailedToPlayToEndTime, object: item)
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertTrue(engine.player.currentItem === item)
+        XCTAssertEqual(engine.player.rate, 0); XCTAssertFalse(engine.isPlaying)
+    }
+    func testDelayedRecommendationContinuesAfterSingleSongEndsButPauseCancelsIntent() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try Self.silence(seconds: 1).write(to: directory.appendingPathComponent("ok.wav"))
+        let a = Track(id: "a", title: "A", artist: "Test", source: .local, localFile: "ok.wav")
+        let b = Track(id: "b", title: "B", artist: "Test", source: .local, localFile: "ok.wav")
+        let engine = PlaybackEngine(documents: directory)
+        defer { engine.shutdown() }; engine.player.volume = 0
+        var requests = 0
+        engine.onNeedMore = { _ in requests += 1 }
+        engine.play([a])
+        for _ in 0..<160 {
+            if requests >= 2 { break }
+            try await Task.sleep(for: .milliseconds(30))
+        }
+        XCTAssertGreaterThanOrEqual(requests, 2, "must retain natural-end intent while discovery is pending")
+        engine.appendRecommendations([b])
+        for _ in 0..<100 {
+            if engine.current?.id == "b", engine.player.rate > 0 { break }
+            try await Task.sleep(for: .milliseconds(30))
+        }
+        XCTAssertEqual(engine.current?.id, "b"); XCTAssertGreaterThan(engine.player.rate, 0)
+        engine.pause()
+        engine.appendRecommendations([a])
+        try await Task.sleep(for: .milliseconds(150))
+        XCTAssertEqual(engine.player.rate, 0)
+    }
+    func testTwelveSilentTransitionsKeepOnlyBoundedPreparedItems() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try Self.silence(seconds: 1).write(to: directory.appendingPathComponent("ok.wav"))
+        let tracks = (0..<12).map { Track(id: "song\($0)", title: "Silent \($0)", artist: "Test", source: .local, localFile: "ok.wav") }
+        let engine = PlaybackEngine(documents: directory, autoplay: false)
+        defer { engine.shutdown() }; engine.player.volume = 0
+        engine.play(tracks)
+        // Lifecycle notification coverage only: this does not claim a physical
+        // iPad/LiveContainer lock-screen or suspension test.
+        NotificationCenter.default.post(name: UIApplication.didEnterBackgroundNotification, object: nil)
+        for _ in 0..<650 {
+            XCTAssertLessThanOrEqual(engine.player.items().count, 3)
+            if engine.current?.id == "song11", engine.player.currentItem?.status == .readyToPlay { break }
+            try await Task.sleep(for: .milliseconds(40))
+        }
+        XCTAssertEqual(engine.current?.id, "song11", engine.error ?? "continuous queue stopped")
+        XCTAssertEqual(engine.diagnostics.filter { $0.hasPrefix("advanced:") }.count, 11)
     }
     private static func silence(seconds: UInt32) -> Data {
         let sampleRate: UInt32 = 8000, count = sampleRate * seconds * 2

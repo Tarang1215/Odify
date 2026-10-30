@@ -83,6 +83,14 @@ struct RootView: View {
             .background(MusicBackdrop(tint: Color(uiColor: engine.tint)))
             .safeAreaInset(edge: .bottom, spacing: 10) {
                 VStack(spacing: 10) {
+                    if let error = engine.error {
+                        HStack(spacing: 12) {
+                            Image(systemName: "exclamationmark.circle")
+                            Text(error).font(.system(size: 12)).lineLimit(3).frame(maxWidth: .infinity, alignment: .leading)
+                            Button("다시 시도") { engine.clearError(); engine.resume() }.font(.system(size: 12, weight: .semibold))
+                            Button { engine.clearError() } label: { Image(systemName: "xmark").frame(width: 30, height: 30) }.accessibilityLabel("안내 닫기")
+                        }.padding(14).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18)).padding(.horizontal, 20)
+                    }
                     if engine.current != nil { MiniPlayer(wide: sidebar, open: { fullPlayer = true }).padding(.horizontal, sidebar ? 20 : 12) }
                     if !sidebar { compactTabs.padding(.horizontal, 32) }
                 }.padding(.bottom, 8)

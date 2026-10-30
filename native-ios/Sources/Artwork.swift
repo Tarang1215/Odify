@@ -69,10 +69,14 @@ struct Artwork: View {
     var radius: CGFloat = 16
     var portrait = false
     @EnvironmentObject private var store: LibraryStore
+    @Environment(\.displayScale) private var displayScale
     @State private var image: UIImage?
     var body: some View {
         ZStack {
-            if let image { Image(uiImage: image).resizable().scaledToFill() }
+            if let image {
+                Image(uiImage: image).resizable().interpolation(.high).scaledToFill()
+                    .frame(width: size, height: size).clipped()
+            }
             else {
                 let seed = title.unicodeScalars.reduce(0) { ($0 + Int($1.value)) % 360 }
                 LinearGradient(colors: [Color(hue: Double(seed) / 360, saturation: 0.28, brightness: 0.48), Color(hue: Double((seed + 50) % 360) / 360, saturation: 0.45, brightness: 0.14)], startPoint: .topLeading, endPoint: .bottomTrailing)
@@ -82,9 +86,12 @@ struct Artwork: View {
         .frame(width: size, height: size)
         .clipShape(RoundedRectangle(cornerRadius: portrait ? size / 2 : radius, style: .continuous))
         .accessibilityHidden(true)
-        .task(id: address) {
+        .task(id: "\(address ?? "")|\(size)|\(displayScale)") {
             image = nil
-            if let address { image = await ArtworkLoader.shared.image(address, documents: store.documents, size: Int(size * 2)) }
+            if let address {
+                let loaded = await ArtworkLoader.shared.image(address, documents: store.documents, size: Int(size * displayScale))
+                if !Task.isCancelled { image = loaded }
+            }
         }
     }
 }
