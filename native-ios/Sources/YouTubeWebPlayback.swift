@@ -26,6 +26,9 @@ struct YouTubeWebFailure: LocalizedError, CustomNSError {
     var errorCode: Int { code }
     var errorDescription: String? {
         switch code {
+        case -2: return "가수와 곡명이 일치하는 YouTube 영상을 찾지 못했습니다. 검색의 YouTube 결과에서 직접 선택해 주세요 (-2)."
+        case -3: return "YouTube 검색 결과를 읽지 못했습니다. 잠시 후 다시 시도해 주세요 (-3)."
+        case -4: return "YouTube 검색에 사용자 확인이 필요합니다. YouTube에서 연결 상태를 확인해 주세요 (-4)."
         case 100: return "YouTube에서 이 영상을 찾을 수 없습니다 (100)."
         case 101, 150: return "이 영상은 앱 안 재생이 허용되지 않습니다. YouTube에서 확인해 주세요 (\(code))."
         case 153: return "YouTube가 앱의 플레이어 식별 정보를 확인하지 못했습니다 (153)."
@@ -48,6 +51,9 @@ struct YouTubeWebFailure: LocalizedError, CustomNSError {
     private var request = UUID()
     private var choosing = false
     private var searchTrack: Track?
+    private var searchIndex = 0
+    private var searchRead: Task<Void, Never>?
+    private var searchNavigation: WKNavigation?
     private var wantsPlayback = false
     private var loaded = false
     private var timeout: Task<Void, Never>?
@@ -74,6 +80,7 @@ struct YouTubeWebFailure: LocalizedError, CustomNSError {
     }
     func load(videoID: String, request: UUID, position: Double, autoplay: Bool = true) {
         guard Self.validID(videoID) else { onEvent?(request, .failed(2)); return }
+        searchRead?.cancel(); searchRead = nil
         let reuse = loaded && !choosing
         self.request = request; choosing = false; wantsPlayback = autoplay; loaded = false
         hasLoadedPage = true
@@ -93,21 +100,26 @@ struct YouTubeWebFailure: LocalizedError, CustomNSError {
         timeout = nil; scheduleTimeout(request)
     }
     func search(track: Track, request: UUID) {
-        timeout?.cancel(); self.request = request; choosing = true; loaded = false
+        timeout?.cancel(); searchRead?.cancel(); self.request = request; choosing = true; loaded = false
         searchTrack = track; wantsPlayback = false
         hasLoadedPage = true
         let scripts = view.configuration.userContentController
         scripts.removeAllUserScripts()
-        let query = String((track.artist + " " + track.title + " official audio").prefix(160))
-        view.load(URLRequest(url: MusicHTTP.url("https://www.youtube.com/results", ["search_query": query])))
+        searchIndex = 0; loadSearchPage()
         timeout = Task { [weak self] in
             do { try await Task.sleep(for: .seconds(20)) } catch { return }
             guard let self, self.request == request, self.choosing else { return }
-            self.choosing = false; self.onEvent?(request, .failed(-1001))
+            self.finishSearch(.failed(-1001))
         }
     }
     func play() { wantsPlayback = true; command("odifyPlay()") }
-    func pause() { wantsPlayback = false; timeout?.cancel(); timeout = nil; command("odifyPause()") }
+    func pause() {
+        wantsPlayback = false
+        // A paused lookup still needs a bounded deadline. Playback intent is
+        // owned by PlaybackEngine and is checked when the selected ID arrives.
+        if !choosing { timeout?.cancel(); timeout = nil }
+        command("odifyPause()")
+    }
     func seek(_ seconds: Double) { if seconds.isFinite { command("odifySeek(\(max(0, seconds)))") } }
     func mount(_ mounted: Bool) {
         self.mounted = mounted; attached = mounted
@@ -118,7 +130,8 @@ struct YouTubeWebFailure: LocalizedError, CustomNSError {
     func setActive(_ active: Bool) { self.active = active }
     func stop() {
         guard hasLoadedPage else { return }; hasLoadedPage = false
-        timeout?.cancel(); timeout = nil; wantsPlayback = false; loaded = false
+        timeout?.cancel(); timeout = nil; searchRead?.cancel(); searchRead = nil
+        wantsPlayback = false; loaded = false
         choosing = false; searchTrack = nil
         request = UUID(); view.stopLoading(); view.loadHTMLString("", baseURL: nil)
     }
@@ -146,9 +159,18 @@ struct YouTubeWebFailure: LocalizedError, CustomNSError {
         } else if kind == "blocked" { timeout?.cancel(); onEvent?(request, .needsTap) }
     }
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
-        if (error as NSError).code != URLError.cancelled.rawValue { timeout?.cancel(); onEvent?(request, .failed((error as NSError).code)) }
+        if (error as NSError).code != URLError.cancelled.rawValue { navigationFailed(error) }
     }
-    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) { timeout?.cancel(); onEvent?(request, .failed(-1)) }
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) { navigationFailed(error) }
+    private func navigationFailed(_ error: Error) {
+        guard (error as NSError).code != URLError.cancelled.rawValue else { return }
+        if choosing { finishSearch(.failed((error as NSError).code)) }
+        else { timeout?.cancel(); onEvent?(request, .failed((error as NSError).code)) }
+    }
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        if choosing { finishSearch(.failed(-1)) }
+        else { timeout?.cancel(); onEvent?(request, .failed(-1)) }
+    }
     private func scheduleTimeout(_ request: UUID) {
         guard timeout == nil else { return }
         timeout = Task { [weak self] in
@@ -158,22 +180,53 @@ struct YouTubeWebFailure: LocalizedError, CustomNSError {
         }
     }
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        guard choosing, let track = searchTrack else { return }
-        guard ["www.youtube.com", "m.youtube.com"].contains(webView.url?.host ?? ""), webView.url?.path == "/results" else { return }
-        let token = request
-        webView.evaluateJavaScript("JSON.stringify(window.ytInitialData || null)") { [weak self] value, _ in
-            Task { @MainActor in
-                guard let self, self.request == token, self.choosing else { return }
-                self.timeout?.cancel(); self.choosing = false
-                guard let text = value as? String, let data = text.data(using: .utf8), data.count < 8_000_000,
-                      let json = try? JSONSerialization.jsonObject(with: data),
-                      let video = YouTubeCatalog.matchingVideo(track, in: YouTubeCatalog.videoResults(json)) else {
-                    self.onEvent?(token, .failed(-2)); return
+        guard choosing, navigation === searchNavigation, let track = searchTrack else { return }
+        guard ["www.youtube.com", "m.youtube.com"].contains(webView.url?.host ?? ""), webView.url?.path == "/results" else {
+            finishSearch(.failed(-4)); return
+        }
+        let token = request, index = searchIndex
+        searchRead?.cancel()
+        searchRead = Task { [weak self] in
+            guard let self else { return }
+            // didFinish can precede YouTube's result hydration. Re-read only
+            // while the same query and queue occurrence are still selected.
+            for _ in 0..<12 {
+                guard !Task.isCancelled, self.request == token, self.choosing, self.searchIndex == index else { return }
+                let value = try? await webView.evaluateJavaScript(Self.searchSnapshotScript)
+                guard !Task.isCancelled, self.request == token, self.choosing, self.searchIndex == index else { return }
+                if let text = value as? String, let data = text.data(using: .utf8), data.count < 8_000_000,
+                   let json = try? JSONSerialization.jsonObject(with: data) {
+                    let videos = YouTubeCatalog.videoResults(json)
+                    if let video = YouTubeCatalog.matchingVideo(track, in: videos) {
+                        self.finishSearch(.selected(video.id)); return
+                    }
+                    if !videos.isEmpty {
+                        if index + 1 < YouTubeSearchParser.queries(for: track).count {
+                            self.searchIndex += 1; self.loadSearchPage()
+                        } else { self.finishSearch(.failed(-2)) }
+                        return
+                    }
                 }
-                self.onEvent?(token, .selected(video.id))
+                do { try await Task.sleep(for: .milliseconds(250)) } catch { return }
             }
+            self.finishSearch(.failed(-3))
         }
     }
+    private func loadSearchPage() {
+        guard let track = searchTrack else { return }
+        let query = YouTubeSearchParser.queries(for: track)[searchIndex]
+        searchNavigation = view.load(URLRequest(url: MusicHTTP.url("https://www.youtube.com/results", ["search_query": query, "hl": "en"])))
+    }
+    private func finishSearch(_ event: YouTubeWebEvent) {
+        guard choosing else { return }
+        choosing = false; searchNavigation = nil; timeout?.cancel(); timeout = nil; searchRead?.cancel(); searchRead = nil
+        onEvent?(request, event)
+    }
+    // YouTube mobile sometimes assigns JSON as a JavaScript string, whereas
+    // desktop assigns an object. Never execute page text to decode either.
+    static let searchSnapshotScript = """
+    (function(){var d=window.ytInitialData;if(typeof d==='string'){try{d=JSON.parse(d)}catch(e){return null}}return d?JSON.stringify(d):null})()
+    """
     static func html(videoID: String, origin: String, request: UUID, position: Double, visible: Bool) -> String {
         precondition(validID(videoID))
         let encodedOrigin = String(data: try! JSONSerialization.data(withJSONObject: origin, options: .fragmentsAllowed), encoding: .utf8)!
