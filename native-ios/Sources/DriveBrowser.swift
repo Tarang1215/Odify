@@ -5,6 +5,10 @@ struct DriveBrowser: View {
     @EnvironmentObject private var store: LibraryStore
     @EnvironmentObject private var engine: PlaybackEngine
     @Environment(\.dismiss) private var dismiss
+    @State private var syncRequest = UUID()
+    @State private var syncing = false
+    @State private var syncNotice: String?
+    @State private var syncGeneration = UUID()
     var body: some View {
         NavigationStack {
             Group {
@@ -34,6 +38,7 @@ struct DriveBrowser: View {
                         if account.connected {
                             Menu {
                                 Text(account.email ?? "Google 계정")
+                                Button("음악 보관함 다시 연결", systemImage: "arrow.triangle.2.circlepath") { syncRequest = UUID() }
                                 Button("계정 연결 해제", systemImage: "rectangle.portrait.and.arrow.right", role: .destructive) {
                                     if store.engine.current?.driveFileID != nil { store.engine.pause() }
                                     account.signOut()
@@ -48,7 +53,14 @@ struct DriveBrowser: View {
                 .task { await account.restore() }
         }
         .safeAreaInset(edge: .bottom) {
-            if let error = engine.error {
+            VStack(spacing: 8) {
+                if syncing {
+                    HStack { ProgressView(); Text("Odify 음악 폴더의 곡을 보관함에 연결하는 중…").font(.system(size: 12)) }
+                        .padding(14).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16)).padding(.horizontal, 16)
+                } else if let syncNotice {
+                    Text(syncNotice).font(.system(size: 12)).foregroundStyle(.secondary).padding(.horizontal, 20).padding(.vertical, 10)
+                }
+                if let error = engine.error {
                 VStack(alignment: .leading, spacing: 10) {
                     Label(error, systemImage: "exclamationmark.circle").font(.system(size: 12)).textSelection(.enabled)
                     HStack {
@@ -57,13 +69,33 @@ struct DriveBrowser: View {
                         Button("닫기") { engine.clearError() }
                     }.font(.system(size: 12, weight: .semibold))
                 }.padding(16).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18)).padding(16)
+                }
             }
+        }
+        .task(id: (account.accountHash ?? "signed-out") + syncRequest.uuidString) {
+            guard let hash = account.accountHash else { return }
+            let request = UUID(); syncGeneration = request
+            syncing = true; syncNotice = nil
+            defer { if syncGeneration == request { syncing = false } }
+            do {
+                let tracks = try await DriveClient.shared.musicLibrary(account: hash)
+                try Task.checkCancellation()
+                guard account.accountHash == hash, syncGeneration == request else { return }
+                store.mergeDriveLibrary(tracks)
+                syncNotice = "\(tracks.count)곡을 보관함에 연결했습니다."
+            } catch is CancellationError { }
+            catch { if !Task.isCancelled, account.accountHash == hash { syncNotice = error.localizedDescription } }
         }
         .preferredColorScheme(.dark).id(account.accountHash ?? "signed-out")
     }
 }
 
 struct DriveFolderRoute: Hashable { let id: String; let name: String; let account: String }
+
+enum DriveLocation: String, CaseIterable, Identifiable {
+    case music = "Odify 음악", personal = "내 Drive", shared = "공유받음"
+    var id: String { rawValue }
+}
 
 struct DriveFolderView: View {
     let folderID: String
@@ -74,14 +106,19 @@ struct DriveFolderView: View {
     @State private var pageToken: String?
     @State private var loading = false
     @State private var error: String?
-    @State private var shared = false
+    @State private var location: DriveLocation = .music
     @State private var generation = UUID()
     private var audio: [Track] { files.filter(\.playable).map { $0.track(account: accountHash) } }
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 12) {
                 if folderID == "root" {
-                    Picker("Drive 위치", selection: $shared) { Text("내 Drive").tag(false); Text("공유받은 항목").tag(true) }.pickerStyle(.segmented).padding(.bottom, 10)
+                    Picker("Drive 위치", selection: $location) {
+                        ForEach(DriveLocation.allCases) { Text($0.rawValue).tag($0) }
+                    }.pickerStyle(.segmented).padding(.bottom, 10)
+                    if location == .music {
+                        Text("Android에서 사용하던 Odify 음악 폴더를 위치에 관계없이 찾습니다.").font(.system(size: 11)).foregroundStyle(.secondary)
+                    }
                 }
                 HStack {
                     VStack(alignment: .leading, spacing: 6) {
@@ -111,11 +148,13 @@ struct DriveFolderView: View {
                 if loading { ProgressView().frame(maxWidth: .infinity).padding(20) }
                 if let error { RetryMessage(message: error) { Task { await load(reset: files.isEmpty) } } }
                 if pageToken != nil && !loading { Button("더 불러오기") { Task { await load(reset: false) } }.buttonStyle(.glass).frame(maxWidth: .infinity).padding(16) }
-                if files.isEmpty && !loading && error == nil { ContentUnavailableView("이 위치에 음악이나 폴더가 없습니다", systemImage: "folder") }
+                if files.isEmpty && !loading && error == nil {
+                    ContentUnavailableView("이 위치에 음악이나 폴더가 없습니다", systemImage: "folder", description: Text(folderID == "root" && location == .music ? "‘내 Drive’ 또는 ‘공유받음’에서 음악 폴더를 직접 열어 보세요." : "다른 폴더나 Drive 위치를 선택해 주세요."))
+                }
             }.padding(24)
         }.navigationTitle(title).toolbarTitleDisplayMode(.inline)
             .refreshable { await load(reset: true) }
-            .task(id: shared) { await load(reset: true) }
+            .task(id: location) { await load(reset: true) }
     }
     private func load(reset: Bool) async {
         guard reset || !loading else { return }
@@ -124,7 +163,8 @@ struct DriveFolderView: View {
         defer { if generation == request { loading = false } }
         if reset { files = []; pageToken = nil }
         do {
-            let result = try await DriveClient.shared.list(parent: folderID, page: pageToken, account: accountHash, shared: folderID == "root" && shared)
+            let result = try await DriveClient.shared.list(parent: folderID, page: pageToken, account: accountHash,
+                shared: folderID == "root" && location == .shared, musicRoots: folderID == "root" && location == .music)
             try Task.checkCancellation()
             guard generation == request else { return }
             let oldIDs = Set(files.map(\.id))

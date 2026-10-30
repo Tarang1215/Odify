@@ -61,14 +61,16 @@ jobs:
         run: |
           mkdir -p dist/ios-checks
           python3 - <<'PY'
-          import json, os, subprocess
+          import json, os, re, subprocess
           devices = json.loads(subprocess.check_output(['xcrun', 'simctl', 'list', 'devices', 'available', '-j']))['devices']
           choices = [(runtime, d) for runtime, ds in devices.items() if 'iOS-26' in runtime for d in ds if 'iPad' in d['name']]
           if not choices: raise RuntimeError('No iOS 26 iPad simulator available')
-          choices.sort(key=lambda pair: ('13-inch' not in pair[1]['name'], pair[0], pair[1]['name']))
+          sdk = tuple(map(int, subprocess.check_output(['xcrun', '--sdk', 'iphonesimulator', '--show-sdk-version'], text=True).strip().split('.')[:2]))
+          def version(pair): return tuple(map(int, re.search(r'iOS-(\d+)-(\d+)', pair[0]).groups()))
+          choices.sort(key=lambda pair: (version(pair) != sdk, tuple(-n for n in version(pair)), '13-inch' not in pair[1]['name'], pair[1]['name']))
           device = choices[0][1]
           with open(os.environ['GITHUB_ENV'], 'a') as f: f.write('IPAD_SIM=' + device['udid'] + '\n')
-          print(device['name'], device['udid'])
+          print(choices[0][0], device['name'], device['udid'])
           subprocess.run(['xcrun','simctl','boot',device['udid']],check=device['state'] != 'Booted')
           subprocess.run(['xcrun','simctl','bootstatus',device['udid'],'-b'],check=True)
           PY
@@ -115,8 +117,8 @@ jobs:
           notes = Path('docs/IOS_NATIVE_RELEASE_NOTES.md').read_text() + '\n\n이번 빌드의 무음 YouTube 연결 검사: **' + result + '**. 실제 기기 재생 검사는 아닙니다. 결과 JSON을 함께 첨부합니다.\n'
           Path('build/ios-release-notes.md').write_text(notes)
           PY
-          ODIFY_RELEASE_TAG="ios-native-1.1.0-b6-${GITHUB_SHA::7}"
-          gh release create "$ODIFY_RELEASE_TAG" dist/ios/Odify-iOS-1.1.0.ipa dist/ios/Odify-iOS-1.1.0.ipa.sha256 dist/ios/Odify-iOS-1.1.0.build.json dist/ios/Odify-stream-connection-check.json --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease --title 'Odify iPad 1.1.0 (6) — playback recovery preview' --notes-file build/ios-release-notes.md
+          ODIFY_RELEASE_TAG="ios-native-1.1.0-b7-${GITHUB_SHA::7}"
+          gh release create "$ODIFY_RELEASE_TAG" dist/ios/Odify-iOS-1.1.0.ipa dist/ios/Odify-iOS-1.1.0.ipa.sha256 dist/ios/Odify-iOS-1.1.0.build.json dist/ios/Odify-stream-connection-check.json --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease --title 'Odify iPad 1.1.0 (7) — playback recovery preview' --notes-file build/ios-release-notes.md
       - name: Preserve validation and simulator evidence
         if: always()
         uses: actions/upload-artifact@v4

@@ -2,6 +2,7 @@ import AVFoundation
 import Combine
 import MediaPlayer
 import OdifyStreaming
+import OSLog
 import UIKit
 
 /// A finite preparation window, never an artificial silent-audio keepalive.
@@ -64,6 +65,7 @@ import UIKit
     private var metadataTask: Task<Void, Never>?
     private var metadataRead = Set<String>()
     private var waitingForRecommendations = false
+    private static let log = Logger(subsystem: "com.odify.music.ios", category: "Playback")
 
     init(documents: URL, queue: PlaybackQueue = PlaybackQueue(), position: Double = 0, autoplay: Bool = true, driveClient: DriveClient = .shared) {
         self.documents = documents; self.queue = queue; savedPosition = position
@@ -270,12 +272,13 @@ import UIKit
                 let url = try await StreamResolver.shared.url(for: entry.track, documents: self.documents, refresh: refresh)
                 try Task.checkCancellation()
                 guard self.generation == request else { return }
+                if self.wantsPlayback { try self.activateAudio() }
                 let item = try await self.makeItem(url, entry: entry)
                 guard !Task.isCancelled, self.generation == request else { self.discard(item); return }
                 self.player.insert(item, after: nil)
                 if resume > 0 { await self.player.seek(to: CMTime(seconds: resume, preferredTimescale: 600)) }
                 guard self.generation == request else { return }
-                if self.wantsPlayback { try self.activateAudio(); self.player.play() }
+                if self.wantsPlayback { self.player.play() }
                 self.rebuildUpcoming(); self.onCheckpoint?()
             } catch is CancellationError { }
             catch {
@@ -433,7 +436,7 @@ import UIKit
         }
         if retries.insert(id).inserted { startCurrent(resume: clock.position, refresh: true); return }
         failedIDs.insert(id)
-        error = Self.playbackMessage(failure, source: current?.source)
+        showError(failure)
         var cursor = id
         for _ in 0..<queue.entries.count {
             guard let next = queue.successor(after: cursor, automatic: false), next.id != id else { break }
@@ -464,8 +467,11 @@ import UIKit
     }
     private func activateAudio() throws {
         let session = AVAudioSession.sharedInstance()
-        try session.setCategory(.playback, mode: .default, options: [.allowAirPlay])
+        // playback already supports AirPlay. Explicit allowAirPlay is only
+        // valid with playAndRecord; iPadOS 27 rejects that mix with OSStatus -50.
+        try session.setCategory(.playback, mode: .default, policy: .longFormAudio, options: [])
         try session.setActive(true)
+        Self.log.notice("[OdifyPlayback] audio-session-active")
     }
     private func readDriveMetadata(_ item: AVPlayerItem) {
         guard let id = itemIDs[ObjectIdentifier(item)], id == queue.currentID, let original = current,
@@ -501,14 +507,19 @@ import UIKit
     }
     private func showError(_ failure: Error) {
         error = Self.playbackMessage(failure, source: current?.source); isBuffering = false
+        Self.log.error("[OdifyPlayback] failure source=\(self.current?.source.rawValue ?? "none", privacy: .public) codes=\(Self.errorCodes(failure), privacy: .public)")
         publishNowPlaying()
     }
-    private static func playbackMessage(_ failure: Error, source: MusicSource?) -> String {
+    static func playbackMessage(_ failure: Error, source: MusicSource?) -> String {
         let value = failure as NSError
         if value.domain == NSURLErrorDomain, value.code == URLError.timedOut.rawValue {
             return "\(source?.rawValue ?? "음원") 연결 시간이 초과되었습니다 (-1001). 다시 시도해 주세요."
         }
-        guard value.domain == AVFoundationErrorDomain || value.domain == NSOSStatusErrorDomain else { return failure.localizedDescription }
+        if failure is OdifyError || failure is YouTubeAudioFailure { return failure.localizedDescription }
+        return "\(source?.rawValue ?? "음원") 재생 오류 · " + errorCodes(failure)
+    }
+    private static func errorCodes(_ failure: Error) -> String {
+        let value = failure as NSError
         var codes = ["\(value.domain) \(value.code)"]
         var child = value.userInfo[NSUnderlyingErrorKey] as? NSError
         for _ in 0..<3 {
@@ -517,7 +528,7 @@ import UIKit
         }
         // Codes identify the failing system layer without exposing signed
         // URLs, file identifiers, HTTP headers or access tokens in a report.
-        return "\(source?.rawValue ?? "음원") 재생 준비 실패 · " + codes.joined(separator: " / ")
+        return codes.joined(separator: " / ")
     }
     private func configureRemoteCommands() {
         let center = MPRemoteCommandCenter.shared()

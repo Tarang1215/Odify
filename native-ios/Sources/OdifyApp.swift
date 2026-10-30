@@ -167,7 +167,10 @@ struct AboutView: View {
     var body: some View {
         NavigationStack {
             List {
-                Section("Odify 1.1 · Native iOS") { Text("iPad와 iPhone을 위한 SwiftUI 화면 · iOS 26 이상") }
+                Section("Odify · Native iOS") {
+                    Text("iPad와 iPhone을 위한 SwiftUI 화면 · iOS 26 이상")
+                    LabeledContent("버전", value: "\(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—") (\(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "—"))")
+                }
                 Section("재생") {
                     Text("앱 내부 AVQueuePlayer가 Local·Drive 가져온 파일과 연결 가능한 YouTube 오디오를 재생합니다. YouTube 연결은 서비스 변경이나 네트워크 환경에 따라 실패할 수 있습니다.")
                     Text("Google 계정에 연결하면 Drive 폴더를 탐색하고 음원을 바로 스트리밍할 수 있습니다. 선택한 음원 구간만 읽으며 파일을 수정하지 않습니다. Android의 기존 보관함·플레이리스트 자동 이전은 아직 포함되지 않았습니다.")

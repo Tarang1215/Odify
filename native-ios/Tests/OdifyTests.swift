@@ -106,6 +106,8 @@ final class QueueTests: XCTestCase {
             try await Task.sleep(for: .milliseconds(50))
         }
         XCTAssertEqual(engine.preparedEntryIDs.count, 3, engine.error ?? "not prepared")
+        XCTAssertEqual(AVAudioSession.sharedInstance().category, .playback)
+        XCTAssertFalse(AVAudioSession.sharedInstance().categoryOptions.contains(.allowAirPlay), "playback already supports AirPlay; this explicit option is invalid on physical iPadOS 27")
         let original = try XCTUnwrap(engine.player.currentItem)
         engine.move(IndexSet(integer: 2), to: 1)
         for _ in 0..<60 {
@@ -127,6 +129,17 @@ final class QueueTests: XCTestCase {
         let track = Track(id: "x", title: "X", artist: "X", source: .local, localFile: "../outside.mp3")
         do { _ = try await StreamResolver.shared.url(for: track, documents: FileManager.default.temporaryDirectory); XCTFail("escaped library") }
         catch { XCTAssertTrue(error.localizedDescription.contains("파일")) }
+    }
+    func testUnknownNetworkErrorKeepsSourceAndUnderlyingCodesWithoutPrivateURLs() {
+        let child = NSError(domain: NSOSStatusErrorDomain, code: -12935)
+        let failure = NSError(domain: NSURLErrorDomain, code: -1, userInfo: [
+            NSLocalizedDescriptionKey: "Unknown error https://private.example/file?access_token=private-fixture",
+            NSUnderlyingErrorKey: child
+        ])
+        let message = PlaybackEngine.playbackMessage(failure, source: .youtube)
+        XCTAssertTrue(message.contains("YouTube")); XCTAssertTrue(message.contains("NSURLErrorDomain -1"))
+        XCTAssertTrue(message.contains("-12935"))
+        XCTAssertFalse(message.contains("private")); XCTAssertFalse(message.contains("https://"))
     }
     func testBrokenPreparedFileDoesNotStopTheRemainingQueue() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

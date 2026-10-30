@@ -65,6 +65,22 @@ import UniformTypeIdentifiers
         value.artwork = stored.artwork; value.lyrics = stored.lyrics; value.duration = stored.duration
         return value
     }
+    func mergeDriveLibrary(_ incoming: [Track]) {
+        var values = snapshot.tracks
+        var indices = Dictionary(values.enumerated().map { ($0.element.id, $0.offset) }, uniquingKeysWith: { first, _ in first })
+        for fresh in incoming {
+            if let index = indices[fresh.id] {
+                let stored = values[index]
+                var updated = fresh
+                if stored.driveModifiedTime == fresh.driveModifiedTime {
+                    updated.title = stored.title; updated.artist = stored.artist; updated.album = stored.album
+                    updated.artwork = stored.artwork; updated.lyrics = stored.lyrics; updated.duration = stored.duration
+                }
+                values[index] = updated
+            } else { indices[fresh.id] = values.count; values.append(fresh) }
+        }
+        snapshot.tracks = values; save()
+    }
     func play(_ tracks: [Track], at index: Int = 0) {
         recommendationTask?.cancel(); recommendationTask = nil
         recommendationGeneration = UUID()

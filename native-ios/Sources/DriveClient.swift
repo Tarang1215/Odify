@@ -1,5 +1,6 @@
 import Foundation
 import UniformTypeIdentifiers
+import OSLog
 
 struct DriveFile: Identifiable, Decodable, Hashable {
     var id: String
@@ -58,6 +59,8 @@ actor DriveClient {
     typealias Token = @Sendable (String) async throws -> String
     private let session: URLSession
     private let token: Token
+    private static let log = Logger(subsystem: "com.odify.music.ios", category: "Drive")
+    static let libraryRootNames = ["Odify_Music_Test", "odify_music_test", "Odify_Auto_Upload", "odify_auto_upload", "Odify_Cloud_Uploads"]
     init(session: URLSession? = nil, token: @escaping Token = { try await DriveAccount.shared.token(expectedAccount: $0) }) {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 25; configuration.timeoutIntervalForResource = 90
@@ -66,21 +69,63 @@ actor DriveClient {
         self.token = token
     }
     static func validID(_ id: String) -> Bool { id.range(of: #"^[A-Za-z0-9_-]{1,200}$"#, options: .regularExpression) != nil }
-    static func listingURL(parent: String, page: String? = nil, shared: Bool = false) throws -> URL {
+    static func listingURL(parent: String, page: String? = nil, shared: Bool = false, musicRoots: Bool = false) throws -> URL {
         guard validID(parent) else { throw OdifyError.message("올바른 Drive 폴더가 아닙니다.") }
-        var parameters = ["q": (shared ? "sharedWithMe" : "'\(parent)' in parents") + " and trashed=false",
+        let query: String
+        if musicRoots {
+            let names = libraryRootNames.map { "name = '\($0)'" }.joined(separator: " or ")
+            query = "mimeType = 'application/vnd.google-apps.folder' and (\(names))"
+        } else { query = shared ? "sharedWithMe" : "'\(parent)' in parents" }
+        var parameters = ["q": query + " and trashed=false",
                           "fields": "nextPageToken,files(id,name,mimeType,size,modifiedTime,capabilities(canDownload))",
                           "pageSize": "100", "orderBy": "folder,name_natural", "supportsAllDrives": "true", "includeItemsFromAllDrives": "true"]
         if let page { parameters["pageToken"] = page }
         return MusicHTTP.url("https://www.googleapis.com/drive/v3/files", parameters)
     }
-    func list(parent: String = "root", page: String? = nil, account: String, shared: Bool = false) async throws -> DrivePage {
-        var request = URLRequest(url: try Self.listingURL(parent: parent, page: page, shared: shared))
+    func list(parent: String = "root", page: String? = nil, account: String, shared: Bool = false, musicRoots: Bool = false) async throws -> DrivePage {
+        var request = URLRequest(url: try Self.listingURL(parent: parent, page: page, shared: shared, musicRoots: musicRoots))
         request.setValue("Bearer " + (try await token(account)), forHTTPHeaderField: "Authorization")
         let (data, response) = try await session.data(for: request)
         try Self.check(response)
         guard data.count < 4_000_000 else { throw OdifyError.message("폴더 목록이 너무 큽니다.") }
-        return try JSONDecoder().decode(DrivePage.self, from: data)
+        let result = try JSONDecoder().decode(DrivePage.self, from: data)
+        Self.log.notice("[OdifyDrive] listing roots=\(musicRoots, privacy: .public) shared=\(shared, privacy: .public) files=\(result.files.count, privacy: .public) folders=\(result.files.filter(\.isFolder).count, privacy: .public) audio=\(result.files.filter(\.playable).count, privacy: .public) more=\(result.nextPageToken != nil, privacy: .public)")
+        return result
+    }
+    /// Match Android's explicit Odify music roots. Never recursively scan the
+    /// rest of the account; only folder metadata and playable audio are indexed.
+    func musicLibrary(account: String) async throws -> [Track] {
+        var folders: [String] = []
+        var rootPage: String?, rootPages = Set<String>()
+        repeat {
+            try Task.checkCancellation()
+            guard rootPages.insert(rootPage ?? "").inserted else { throw OdifyError.message("Drive 폴더 페이지가 반복되었습니다.") }
+            let result = try await list(page: rootPage, account: account, musicRoots: true)
+            folders += result.files.filter(\.isFolder).map(\.id)
+            guard folders.count <= 4_000 else { throw OdifyError.message("음악 폴더 수가 너무 많습니다.") }
+            rootPage = result.nextPageToken
+        } while rootPage != nil
+        guard !folders.isEmpty else { throw OdifyError.message("Odify 음악 폴더를 찾지 못했습니다. ‘내 Drive’ 또는 ‘공유받음’에서 폴더를 직접 열어 주세요.") }
+        var visited = Set<String>(), songs = Set<String>(), tracks: [Track] = [], cursor = 0
+        while cursor < folders.count {
+            let parent = folders[cursor]; cursor += 1
+            guard visited.insert(parent).inserted else { continue }
+            guard visited.count <= 4_000 else { throw OdifyError.message("음악 폴더 수가 너무 많습니다.") }
+            var page: String?, pages = Set<String>()
+            repeat {
+                try Task.checkCancellation()
+                guard pages.insert(page ?? "").inserted else { throw OdifyError.message("Drive 음원 페이지가 반복되었습니다.") }
+                let result = try await list(parent: parent, page: page, account: account)
+                for file in result.files {
+                    if file.isFolder { folders.append(file.id) }
+                    else if file.playable, songs.insert(file.id).inserted { tracks.append(file.track(account: account)) }
+                }
+                guard tracks.count <= 50_000 else { throw OdifyError.message("보관함의 음원 수 제한을 초과했습니다.") }
+                page = result.nextPageToken
+            } while page != nil
+        }
+        Self.log.notice("[OdifyDrive] library-scan-complete folders=\(visited.count, privacy: .public) audio=\(tracks.count, privacy: .public)")
+        return tracks
     }
     func range(fileID: String, account: String, start: Int64, length: Int64, expectedSize: Int64) async throws -> Data {
         guard Self.validID(fileID), start >= 0, length > 0, length <= 524_288, expectedSize > start else {
