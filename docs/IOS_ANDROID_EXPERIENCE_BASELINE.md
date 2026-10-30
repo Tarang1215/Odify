@@ -52,6 +52,29 @@ WebKit media behavior under physical suspension or Android feature parity.
 Those remain release-blocking evidence gaps for calling this a completed port;
 the IPA is a preview for that validation.
 
+## Verified build 15 preview
+
+Source: `017a4c51cc64c0a0ca18af9e46f8770a5498b087`.
+[Cloud validation](https://github.com/Tarang1215/Odify/actions/runs/41018706108)
+passed six packaging checks and 61 XCTest cases with zero failures (37.462
+seconds of test execution). All seven new web-driver/JavaScript regression
+cases passed, including pause during asynchronous video lookup and mixed
+Web/native/Web queue transitions with a generated silent local MP3.
+
+The downloaded CI artifact and separately downloaded public IPA were checked
+independently. The preview is native arm64 device Release, version 1.1.0 (15),
+iPad/iPhone, minimum OS 26, with the required background-audio declaration,
+OAuth callback and original dependency notices. It contains no guest extensions
+or embedded provisioning profile. Public IPA: 1,864,067 bytes; SHA256
+`94a3b3e06a534b0ae79e1acc358428e300157f425ab29ca284f3d96503129031`.
+
+[LiveContainer IPA](https://github.com/Tarang1215/Odify/releases/download/ios-native-1.1.0-b15-017a4c5/Odify-iOS-1.1.0.ipa).
+The historical direct-audio probe still returned a service sign-in/bot denial;
+it does not test the new production WebKit route. Simulator presentation
+fixtures and controlled tests do not verify live web playback, actual screen-off
+continuation, remote controls, frame pacing or complete Android feature parity.
+Those physical acceptance checks remain pending.
+
 Primary references:
 - https://developers.google.com/youtube/iframe_api_reference
 - https://developers.google.com/youtube/terms/required-minimum-functionality
