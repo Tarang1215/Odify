@@ -115,8 +115,8 @@ jobs:
           notes = Path('docs/IOS_NATIVE_RELEASE_NOTES.md').read_text() + '\n\n이번 빌드의 무음 YouTube 연결 검사: **' + result + '**. 실제 기기 재생 검사는 아닙니다. 결과 JSON을 함께 첨부합니다.\n'
           Path('build/ios-release-notes.md').write_text(notes)
           PY
-          ODIFY_RELEASE_TAG="ios-native-1.1.0-b4-${GITHUB_SHA::7}"
-          gh release create "$ODIFY_RELEASE_TAG" dist/ios/Odify-iOS-1.1.0.ipa dist/ios/Odify-iOS-1.1.0.ipa.sha256 dist/ios/Odify-iOS-1.1.0.build.json dist/ios/Odify-stream-connection-check.json --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease --title 'Odify iPad 1.1.0 (4) — playback recovery preview' --notes-file build/ios-release-notes.md
+          ODIFY_RELEASE_TAG="ios-native-1.1.0-b5-${GITHUB_SHA::7}"
+          gh release create "$ODIFY_RELEASE_TAG" dist/ios/Odify-iOS-1.1.0.ipa dist/ios/Odify-iOS-1.1.0.ipa.sha256 dist/ios/Odify-iOS-1.1.0.build.json dist/ios/Odify-stream-connection-check.json --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease --title 'Odify iPad 1.1.0 (5) — playback recovery preview' --notes-file build/ios-release-notes.md
       - name: Preserve validation and simulator evidence
         if: always()
         uses: actions/upload-artifact@v4

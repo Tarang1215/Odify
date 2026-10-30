@@ -34,7 +34,7 @@ import UIKit
     @Published private(set) var autoplayEnabled: Bool
     @Published private(set) var tint = UIColor(red: 0.35, green: 0.56, blue: 0.48, alpha: 1)
     let clock = PlaybackClock()
-    let player = AVQueuePlayer()
+    private(set) var player = AVQueuePlayer()
     var current: Track? { queue.current?.track }
     var onCheckpoint: (() -> Void)?
     var onNeedMore: ((Track) -> Void)?
@@ -71,34 +71,7 @@ import UIKit
         autoplayEnabled = autoplay
         clock.position = position
         clock.duration = queue.current?.track.duration ?? 0
-        player.automaticallyWaitsToMinimizeStalling = true
-        player.actionAtItemEnd = .advance
-        observations.append(player.observe(\.currentItem, options: [.new]) { [weak self] _, _ in
-            Task { @MainActor in self?.currentItemChanged() }
-        })
-        observations.append(player.observe(\.timeControlStatus, options: [.new]) { [weak self] _, _ in
-            Task { @MainActor in
-                guard let self else { return }
-                self.isPlaying = self.player.timeControlStatus == .playing
-                self.isBuffering = self.player.timeControlStatus == .waitingToPlayAtSpecifiedRate
-                if self.isBuffering { self.monitorStall() }
-                else { self.stallTask?.cancel(); self.stallTask = nil }
-                self.publishNowPlaying()
-            }
-        })
-        timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.5, preferredTimescale: 600), queue: .main) { [weak self] time in
-            Task { @MainActor in
-                guard let self else { return }
-                let position = time.seconds, duration = self.player.currentItem?.duration.seconds ?? 0
-                if position.isFinite { self.clock.position = max(0, position) }
-                if duration.isFinite && duration > 0 && abs(self.clock.duration - duration) > 0.1 {
-                    self.clock.duration = duration; self.publishNowPlaying()
-                }
-                if Date().timeIntervalSince(self.lastCheckpoint) > 10 {
-                    self.lastCheckpoint = Date(); self.onCheckpoint?(); self.publishNowPlaying()
-                }
-            }
-        }
+        configurePlayer()
         let center = NotificationCenter.default
         notifications.append(center.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: nil, queue: .main) { [weak self] notification in
             guard let item = notification.object as? AVPlayerItem else { return }
@@ -139,6 +112,45 @@ import UIKit
         configureRemoteCommands()
     }
 
+    private func configurePlayer() {
+        player.automaticallyWaitsToMinimizeStalling = true
+        player.actionAtItemEnd = .advance
+        observations.append(player.observe(\.currentItem, options: [.new]) { [weak self] _, _ in
+            Task { @MainActor in self?.currentItemChanged() }
+        })
+        observations.append(player.observe(\.timeControlStatus, options: [.new]) { [weak self] _, _ in
+            Task { @MainActor in
+                guard let self else { return }
+                self.isPlaying = self.player.timeControlStatus == .playing
+                self.isBuffering = self.player.timeControlStatus == .waitingToPlayAtSpecifiedRate
+                if self.isBuffering { self.monitorStall() }
+                else { self.stallTask?.cancel(); self.stallTask = nil }
+                self.publishNowPlaying()
+            }
+        })
+        timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.5, preferredTimescale: 600), queue: .main) { [weak self] time in
+            Task { @MainActor in
+                guard let self else { return }
+                let position = time.seconds, duration = self.player.currentItem?.duration.seconds ?? 0
+                if position.isFinite { self.clock.position = max(0, position) }
+                if duration.isFinite && duration > 0 && abs(self.clock.duration - duration) > 0.1 {
+                    self.clock.duration = duration; self.publishNowPlaying()
+                }
+                if Date().timeIntervalSince(self.lastCheckpoint) > 10 {
+                    self.lastCheckpoint = Date(); self.onCheckpoint?(); self.publishNowPlaying()
+                }
+            }
+        }
+    }
+    private func replaceFailedPlayer() {
+        let volume = player.volume
+        observations.forEach { $0.invalidate() }; observations.removeAll()
+        if let timeObserver { player.removeTimeObserver(timeObserver); self.timeObserver = nil }
+        player.pause(); player.removeAllItems()
+        player = AVQueuePlayer(); player.volume = volume
+        configurePlayer()
+    }
+
     func play(_ tracks: [Track], at index: Int = 0) {
         guard !tracks.isEmpty else { return }
         queue.replace(tracks, at: index); failedIDs.removeAll(); retries.removeAll()
@@ -147,7 +159,7 @@ import UIKit
     func resume() {
         guard queue.current != nil else { return }
         wantsPlayback = true
-        if player.currentItem == nil || player.currentItem?.status == .failed { startCurrent(resume: savedPosition, refresh: true); return }
+        if player.status == .failed || player.currentItem == nil || player.currentItem?.status == .failed { startCurrent(resume: savedPosition, refresh: true); return }
         do { try activateAudio(); player.play(); publishNowPlaying() }
         catch { showError(error) }
     }
@@ -237,6 +249,8 @@ import UIKit
     private func startCurrent(resume: Double = 0, refresh: Bool = false) {
         startTask?.cancel(); prefetchTask?.cancel(); stallTask?.cancel(); stallTask = nil
         generation = UUID(); let request = generation
+        // AVPlayer.Status.failed is terminal for that player instance.
+        if player.status == .failed { replaceFailedPlayer() }
         player.pause(); player.removeAllItems(); itemIDs.removeAll()
         itemObservations.values.forEach { $0.invalidate() }; itemObservations.removeAll()
         driveLoaders.values.forEach { $0.cancel() }; driveLoaders.removeAll()
@@ -394,7 +408,7 @@ import UIKit
     private func failed(_ item: AVPlayerItem) {
         guard let id = itemIDs[ObjectIdentifier(item)] else { return }
         let failure = item.error ?? OdifyError.message("재생 연결이 중단되었습니다.")
-        guard player.currentItem === item, queue.currentID == id else {
+        guard queue.currentID == id, player.currentItem == nil || player.currentItem === item else {
             // Do not leave a failed successor sitting in AVQueuePlayer waiting
             // to poison a later automatic transition.
             if player.items().contains(where: { $0 === item }) {

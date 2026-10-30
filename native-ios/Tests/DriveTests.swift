@@ -43,6 +43,9 @@ private final class DriveMockProtocol: URLProtocol {
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
         Self.lock.lock(); Self.requests.append(request); let data = Self.media; Self.lock.unlock()
+        if request.url?.path.hasSuffix("/broken-file") == true {
+            client?.urlProtocol(self, didFailWithError: URLError(.cannotDecodeContentData)); return
+        }
         let range = request.value(forHTTPHeaderField: "Range")?.replacingOccurrences(of: "bytes=", with: "").split(separator: "-") ?? []
         guard range.count == 2, let begin = Int(range[0]), let end = Int(range[1]), begin >= 0, end < data.count, end >= begin else {
             client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse)); return
@@ -57,6 +60,28 @@ private final class DriveMockProtocol: URLProtocol {
 }
 
 @MainActor final class DriveStreamingTests: XCTestCase {
+    func testFailedRemoteCurrentRecoversToNextPlayableStream() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appendingPathComponent("fixture.m4a"); try Self.aac(file)
+        let media = try Data(contentsOf: file)
+        DriveMockProtocol.lock.lock(); DriveMockProtocol.media = media; DriveMockProtocol.requests = []; DriveMockProtocol.lock.unlock()
+        let configuration = URLSessionConfiguration.ephemeral; configuration.protocolClasses = [DriveMockProtocol.self]
+        let client = DriveClient(session: URLSession(configuration: configuration), token: { _ in "fixture-token" })
+        let good = Track(id: "good", title: "Good", artist: "Test", source: .drive, driveFileID: "fixture-file", driveAccountHash: "fixture-account", fileSize: Int64(media.count), mimeType: "audio/mp4", fileExtension: "m4a")
+        var bad = good; bad.id = "bad"; bad.title = "Broken"; bad.driveFileID = "broken-file"
+        let engine = PlaybackEngine(documents: directory, autoplay: false, driveClient: client)
+        defer { engine.shutdown() }; engine.player.volume = 0
+        engine.play([bad, good])
+        for _ in 0..<500 {
+            if engine.current?.id == "good", engine.player.rate > 0 { break }
+            try await Task.sleep(for: .milliseconds(40))
+        }
+        XCTAssertEqual(engine.current?.id, "good", engine.error ?? "remote failure poisoned player")
+        XCTAssertGreaterThan(engine.player.rate, 0, engine.error ?? "recovery did not resume")
+        XCTAssertEqual(engine.player.volume, 0, "recreated players must preserve mute")
+    }
     func testCompressedDriveAudioStartsAndAdvancesUsingActualPlaybackEngine() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

@@ -8,6 +8,7 @@ import OdifyStreaming
             let url = try await YouTubeAudio.url(videoID: id)
             var request = URLRequest(url: url, timeoutInterval: 20)
             request.setValue("bytes=0-1023", forHTTPHeaderField: "Range")
+            request.setValue(YouTubeAudio.userAgent, forHTTPHeaderField: "User-Agent")
             let (data, response) = try await URLSession.shared.data(for: request)
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
             let pass = (200..<300).contains(status) && !data.isEmpty
