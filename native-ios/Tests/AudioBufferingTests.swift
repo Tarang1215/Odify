@@ -1,4 +1,5 @@
 import AVFoundation
+import UIKit
 import XCTest
 @testable import Odify
 
@@ -54,7 +55,7 @@ private final class BufferedAudioFixture: URLProtocol {
         return URLSession(configuration: config)
     }
     func testOverlappingReadsShareOneRequestAndCachedReadsNeedNoNetwork() async throws {
-        let media = Data((0..<(2 * 1024 * 1024)).map { UInt8($0 % 251) })
+        let media = pattern(count: 2_097_152)
         let http = session(media); defer { http.invalidateAndCancel() }
         let source = try await YouTubeByteSource.open(url, session: http)
         async let a = source.range(start: 40_000, length: 90_000)
@@ -70,7 +71,7 @@ private final class BufferedAudioFixture: URLProtocol {
         await source.close()
     }
     func testWarmStartKeepsBeginningAndTailAvailableWhenNetworkDisappearsAndMemoryIsBounded() async throws {
-        let media = Data((0..<(4 * 1024 * 1024 + 120_000)).map { UInt8($0 % 251) })
+        let media = pattern(count: 4_314_304)
         let http = session(media); defer { http.invalidateAndCancel() }
         let source = try await YouTubeByteSource.open(url, session: http)
         try await source.warmStart()
@@ -164,6 +165,14 @@ private final class BufferedAudioFixture: URLProtocol {
             buffer.floatChannelData?[0][index] = Float(Int32(bitPattern: seed)) / Float(Int32.max) * 0.02
         }
         try file.write(from: buffer)
+    }
+    private func pattern(count: Int) -> Data {
+        var data = Data(count: count)
+        data.withUnsafeMutableBytes { (raw: UnsafeMutableRawBufferPointer) in
+            let bytes = raw.bindMemory(to: UInt8.self)
+            for index in 0..<count { bytes[index] = UInt8(index % 251) }
+        }
+        return data
     }
     func testRepeatOneRefillsWhenPlayerItemChangesButQueueOccurrenceIsTheSame() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

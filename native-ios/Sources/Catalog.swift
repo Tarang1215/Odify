@@ -8,11 +8,37 @@ enum MusicCountry: String, CaseIterable, Identifiable {
     var title: String { switch self { case .korea: return "한국"; case .japan: return "일본"; case .unitedStates: return "미국" } }
 }
 
+struct MusicHTTPFailure: LocalizedError, CustomNSError {
+    var youtube: Bool
+    var code: Int
+    static var errorDomain: String { "com.odify.catalog.network" }
+    var errorCode: Int { code }
+    var errorDescription: String? {
+        let service = youtube ? "YouTube 검색" : "음악 정보"
+        if code == URLError.timedOut.rawValue { return "\(service) 연결 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요 (\(code))." }
+        return "\(service)에 연결하지 못했습니다. 네트워크를 확인한 뒤 다시 시도해 주세요 (\(code))."
+    }
+    var errorUserInfo: [String: Any] { [NSLocalizedDescriptionKey: errorDescription ?? "음악 정보 연결 오류"] }
+}
+
 enum MusicHTTP {
+    private static let session: URLSession = {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = 10; configuration.timeoutIntervalForResource = 15
+        configuration.httpCookieStorage = nil; configuration.httpShouldSetCookies = false
+        configuration.urlCache = URLCache(memoryCapacity: 4 * 1024 * 1024, diskCapacity: 0, diskPath: nil)
+        return URLSession(configuration: configuration)
+    }()
     static func data(_ url: URL) async throws -> Data {
-        var request = URLRequest(url: url, cachePolicy: .useProtocolCachePolicy, timeoutInterval: 25)
+        var request = URLRequest(url: url, cachePolicy: .useProtocolCachePolicy, timeoutInterval: 10)
         request.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let data: Data, response: URLResponse
+        do { (data, response) = try await session.data(for: request) }
+        catch let error as URLError {
+            try Task.checkCancellation()
+            if error.code == .cancelled { throw CancellationError() }
+            throw MusicHTTPFailure(youtube: url.host == "www.youtube.com", code: error.code.rawValue)
+        }
         guard let response = response as? HTTPURLResponse, (200..<300).contains(response.statusCode), data.count < 12_000_000 else {
             throw OdifyError.message("음악 정보를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.")
         }

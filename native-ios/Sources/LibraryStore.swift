@@ -11,15 +11,21 @@ import UniformTypeIdentifiers
     @Published var importing = false
     @Published var chart: [Track] = []
     @Published var homeLoading = false
+    @Published private(set) var homeError: String?
+    typealias HomeProvider = @Sendable () async throws -> [Track]
+    private let homeProvider: HomeProvider
+    private var homeFetchedAt: Date?
+    private struct HomeCache: Codable { var fetchedAt: Date; var tracks: [Track] }
     private var persistTask: Task<Void, Never>?
     private var recommendationTask: Task<Void, Never>?
     private var recommendationGeneration = UUID()
     private var subscriptions = Set<AnyCancellable>()
     private let preview: Bool
 
-    init(documents: URL? = nil, preview: Bool = false) {
+    init(documents: URL? = nil, preview: Bool = false,
+         homeProvider: @escaping HomeProvider = { try await MusicCatalog.shared.chart(.korea) }) {
         let root = documents ?? FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        self.documents = root; self.preview = preview
+        self.documents = root; self.preview = preview; self.homeProvider = homeProvider
         try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         var loaded = LibrarySnapshot()
         let file = root.appendingPathComponent("odify-library-v1.json")
@@ -41,6 +47,10 @@ import UniformTypeIdentifiers
         engine.onNeedMore = { [weak self] track in self?.prepareRecommendations(after: track) }
         engine.$queue.dropFirst().sink { [weak self] _ in self?.scheduleSave() }.store(in: &subscriptions)
         if preview { chart = loaded.tracks }
+        else if let data = try? Data(contentsOf: root.appendingPathComponent("odify-home-chart-v1.json")),
+                data.count <= 500_000, let cached = try? JSONDecoder().decode(HomeCache.self, from: data) {
+            chart = Array(cached.tracks.prefix(60)); homeFetchedAt = cached.fetchedAt
+        }
     }
     var tracks: [Track] { snapshot.tracks }
     var playlists: [MusicPlaylist] { snapshot.playlists }
@@ -128,13 +138,28 @@ import UniformTypeIdentifiers
     }
     private func awaitlessEvictArtwork(_ relative: String) { Task { await ArtworkLoader.shared.evict(relative) } }
 
-    func loadHome() async {
-        guard !preview, chart.isEmpty, !homeLoading else { return }
-        homeLoading = true
+    func loadHome(refresh: Bool = false) async {
+        guard !preview, !homeLoading else { return }
+        if !refresh, !chart.isEmpty, let date = homeFetchedAt, Date().timeIntervalSince(date) < 3600 { return }
+        homeLoading = true; homeError = nil
         defer { homeLoading = false }
-        do { chart = try await MusicCatalog.shared.chart(.korea) }
+        do {
+            let value = try await homeProvider()
+            try Task.checkCancellation()
+            guard !value.isEmpty else { throw OdifyError.message("추천 정보를 받지 못했습니다.") }
+            let fetchedAt = Date()
+            chart = Array(value.prefix(60)); homeFetchedAt = fetchedAt
+            if let data = try? JSONEncoder().encode(HomeCache(fetchedAt: fetchedAt, tracks: chart)) {
+                try? data.write(to: documents.appendingPathComponent("odify-home-chart-v1.json"), options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+            }
+        }
         catch is CancellationError { }
-        catch { notice = error.localizedDescription }
+        catch {
+            guard !Task.isCancelled else { return }
+            if PlaybackEngine.isCancelledRequest(error) { return }
+            engine.recordHomeFailure(error)
+            homeError = chart.isEmpty ? "새 추천을 불러오지 못했습니다. 보관함의 음악은 계속 이용하실 수 있습니다." : "추천 새로고침이 지연되고 있습니다. 저장된 추천을 표시합니다."
+        }
     }
     func importFiles(_ urls: [URL], source: MusicSource) async {
         guard !importing else { return }

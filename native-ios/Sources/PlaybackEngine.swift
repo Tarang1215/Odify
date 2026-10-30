@@ -227,6 +227,7 @@ import UIKit
         publishNowPlaying(resetArtwork: current?.id == track.id); onCheckpoint?()
     }
     func clearError() { error = nil }
+    func recordHomeFailure(_ failure: Error) { trace.record("home-catalog-failed", source: nil, error: failure) }
     func toggleAutoplay() {
         autoplayEnabled.toggle(); onCheckpoint?()
         if autoplayEnabled, let track = current, queue.upcoming.count < 3 { onNeedMore?(track) }
@@ -590,7 +591,7 @@ import UIKit
         if value.domain == NSURLErrorDomain, value.code == URLError.timedOut.rawValue {
             return "\(source?.rawValue ?? "음원") 연결 시간이 초과되었습니다 (-1001). 다시 시도해 주세요."
         }
-        if failure is OdifyError || failure is YouTubeAudioFailure || failure is AudioHTTPFailure { return failure.localizedDescription }
+        if failure is OdifyError || failure is YouTubeAudioFailure || failure is AudioHTTPFailure || failure is MusicHTTPFailure { return failure.localizedDescription }
         return "\(source?.rawValue ?? "음원") 재생 오류 · " + errorCodes(failure)
     }
     nonisolated static func isCancelledRequest(_ failure: Error) -> Bool {

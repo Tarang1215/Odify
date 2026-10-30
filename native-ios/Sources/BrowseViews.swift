@@ -31,6 +31,13 @@ struct HomeView: View {
                         }.padding(.bottom, 6)
                     }.scrollIndicators(.hidden)
                     if store.homeLoading { ProgressView().frame(maxWidth: .infinity) }
+                    if let error = store.homeError {
+                        HStack(alignment: .center, spacing: 12) {
+                            Text(error).font(.system(size: 12)).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
+                            Button("다시 불러오기") { Task { await store.loadHome(refresh: true) } }
+                                .font(.system(size: 12, weight: .medium)).buttonStyle(.glass)
+                        }.padding(14).background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 16))
+                    }
                 }
                 VStack(alignment: .leading, spacing: 18) {
                     sectionTitle("Made for you", subtitle: "모아둔 음악과 새로 만나는 음악")
@@ -61,6 +68,7 @@ struct HomeView: View {
                 }
             }.padding(24).padding(.bottom, 20)
         }.navigationTitle("Home").toolbarTitleDisplayMode(.inline)
+            .refreshable { await store.loadHome(refresh: true) }
     }
 }
 
