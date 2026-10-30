@@ -60,6 +60,35 @@ private final class DriveMockProtocol: URLProtocol {
 }
 
 @MainActor final class DriveStreamingTests: XCTestCase {
+    func testMP3DriveStartsSeeksAndAutomaticallyPlaysTheNextSong() async throws {
+        let bundle = Bundle(for: DriveStreamingTests.self)
+        let url = try XCTUnwrap(bundle.url(forResource: "silence-320k", withExtension: "mp3"), "generated MP3 fixture missing")
+        let media = try Data(contentsOf: url)
+        DriveMockProtocol.lock.lock(); DriveMockProtocol.media = media; DriveMockProtocol.requests = []; DriveMockProtocol.lock.unlock()
+        let configuration = URLSessionConfiguration.ephemeral; configuration.protocolClasses = [DriveMockProtocol.self]
+        let client = DriveClient(session: URLSession(configuration: configuration), token: { _ in "fixture-token" })
+        let tracks = (0..<2).map {
+            Track(id: "mp3:\($0)", title: "MP3 \($0)", artist: "Test", source: .drive, duration: 4,
+                  driveFileID: "fixture-file", driveAccountHash: "fixture-account", fileSize: Int64(media.count), mimeType: "audio/mpeg", fileExtension: "mp3")
+        }
+        let engine = PlaybackEngine(documents: FileManager.default.temporaryDirectory, autoplay: false, driveClient: client)
+        defer { engine.shutdown() }; engine.player.volume = 0
+        engine.play(tracks)
+        for _ in 0..<300 {
+            if engine.player.rate > 0, engine.player.currentItem?.status == .readyToPlay { break }
+            try await Task.sleep(for: .milliseconds(30))
+        }
+        XCTAssertGreaterThan(engine.player.rate, 0, engine.error ?? "MP3 never started")
+        let seek = await engine.player.seek(to: CMTime(seconds: 2.5, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
+        XCTAssertTrue(seek)
+        XCTAssertEqual(engine.player.currentTime().seconds, 2.5, accuracy: 0.2)
+        for _ in 0..<300 {
+            if engine.current?.id == "mp3:1", engine.player.rate > 0 { break }
+            try await Task.sleep(for: .milliseconds(30))
+        }
+        XCTAssertEqual(engine.current?.id, "mp3:1", engine.error ?? "MP3 queue did not advance")
+        XCTAssertGreaterThan(engine.player.rate, 0)
+    }
     func testFailedRemoteCurrentRecoversToNextPlayableStream() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

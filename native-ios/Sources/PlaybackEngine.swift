@@ -280,7 +280,12 @@ import UIKit
             } catch is CancellationError { }
             catch {
                 guard self.generation == request else { return }
-                self.recover(entry.id, failure: error)
+                if entry.track.source == .youtube {
+                    // Resolution already performs its bounded transport retry.
+                    // Do not multiply that timeout by retrying the entire
+                    // selection or silently replacing it with another song.
+                    self.wantsPlayback = false; self.showError(error); self.onCheckpoint?()
+                } else { self.recover(entry.id, failure: error) }
             }
         }
     }

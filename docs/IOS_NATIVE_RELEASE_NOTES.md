@@ -1,4 +1,4 @@
-Odify iPad / iPhone 1.1.0 (5), iOS/iPadOS 26 이상, LiveContainer용 미리보기입니다.
+Odify iPad / iPhone 1.1.0 (6), iOS/iPadOS 26 이상, LiveContainer용 미리보기입니다.
 
 이번 수정: 원격 음원을 사전 검사만으로 거절하던 흐름 제거, 실제 플레이어 오류 안내·재시도,
 YouTube 요청과 음원 재생의 User-Agent 일치, 주소 만료 전 갱신,
