@@ -5,7 +5,7 @@ struct AudioHTTPFailure: Error, LocalizedError, CustomNSError {
     var statusCode: Int
     static var errorDomain: String { "com.odify.audio.http" }
     var errorCode: Int { statusCode }
-    var errorDescription: String? { "YouTube 음원 서버가 연결을 허용하지 않았습니다 (HTTP \(statusCode))." }
+    var errorDescription: String? { "YouTube가 오디오 연결을 거절했습니다 (HTTP \(statusCode)). YouTube에서 직접 재생을 확인해 주세요." }
     var errorUserInfo: [String: Any] { [NSLocalizedDescriptionKey: errorDescription ?? "YouTube 연결 오류"] }
 }
 
@@ -24,6 +24,7 @@ actor YouTubeByteSource {
     private var recent: [Int64] = []
     private var pending: [Int64: (UUID, Task<Data, Error>)] = [:]
     private var closed = false
+    private var denied: AudioHTTPFailure?
 
     private init(url: URL, session: URLSession, length: Int64, prefix: Data, ownsSession: Bool) {
         self.url = url; self.session = session; self.length = length; self.prefix = prefix; self.ownsSession = ownsSession
@@ -59,6 +60,7 @@ actor YouTubeByteSource {
     func range(start: Int64, length: Int64) async throws -> Data {
         try Task.checkCancellation()
         guard !closed else { throw CancellationError() }
+        if let denied { throw denied }
         guard start >= 0, length > 0, length <= 262_144, start < self.length else { throw OdifyError.message("올바른 YouTube 음원 구간이 아닙니다.") }
         let count = min(length, self.length - start)
         if start + count <= Int64(prefix.count) { return prefix.subdata(in: Int(start)..<Int(start + count)) }
@@ -69,6 +71,7 @@ actor YouTubeByteSource {
             let bytes = try await block(at: offset)
             try Task.checkCancellation()
             guard !closed else { throw CancellationError() }
+            if let denied { throw denied }
             let lower = Int(cursor - offset)
             let take = min(bytes.count - lower, Int(start + count - cursor))
             guard take > 0 else { throw OdifyError.message("YouTube 음원 구간이 비어 있습니다.") }
@@ -79,6 +82,7 @@ actor YouTubeByteSource {
     }
     private func block(at offset: Int64) async throws -> Data {
         guard !closed else { throw CancellationError() }
+        if let denied { throw denied }
         if let bytes = cache[offset] { touch(offset); return bytes }
         if let (_, task) = pending[offset] { return try await task.value }
         // At most two network blocks per source, regardless of overlapping
@@ -87,6 +91,7 @@ actor YouTubeByteSource {
             if let task = pending.values.first?.1 { _ = try? await task.value }
             try Task.checkCancellation()
             guard !closed else { throw CancellationError() }
+            if let denied { throw denied }
             if let bytes = cache[offset] { touch(offset); return bytes }
             if let (_, task) = pending[offset] { return try await task.value }
             // Let the completed block's owner commit/clear its pending entry.
@@ -105,12 +110,19 @@ actor YouTubeByteSource {
         do {
             let bytes = try await task.value
             guard !closed else { throw CancellationError() }
+            if let denied { throw denied }
             if pending[offset]?.0 == token { pending.removeValue(forKey: offset) }
             cache[offset] = bytes; touch(offset)
             while recent.count > cacheLimit { cache.removeValue(forKey: recent.removeFirst()) }
             return bytes
         } catch {
             if pending[offset]?.0 == token { pending.removeValue(forKey: offset) }
+            if let failure = error as? AudioHTTPFailure {
+                denied = failure
+                pending.values.forEach { $0.1.cancel() }; pending.removeAll()
+                if ownsSession { session.invalidateAndCancel() }
+            }
+            if let denied { throw denied }
             throw error
         }
     }

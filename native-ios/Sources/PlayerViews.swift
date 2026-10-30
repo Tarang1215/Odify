@@ -144,7 +144,11 @@ struct FullPlayerView: View {
                         HStack(alignment: .top, spacing: 10) {
                             Image(systemName: "exclamationmark.circle")
                             Text(error).font(.system(size: 11)).lineLimit(3)
-                            Button("다시 시도") { engine.resume() }.font(.system(size: 11, weight: .semibold))
+                            if let url = engine.restrictedYouTubeURL {
+                                Link("YouTube에서 열기", destination: url).font(.system(size: 11, weight: .semibold))
+                            } else {
+                                Button("다시 시도") { engine.resume() }.font(.system(size: 11, weight: .semibold))
+                            }
                         }.foregroundStyle(.secondary).padding(.horizontal, 8)
                        }
                       }.frame(maxWidth: .infinity)
@@ -260,6 +264,9 @@ struct FullPlayerView: View {
                 }.padding(.vertical, 10)
                 Button { beginLyricsEdit(); options = false } label: { Label("가사 수정", systemImage: "square.and.pencil").frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 10) }
                 Button { engine.toggleAutoplay() } label: { Label(engine.autoplayEnabled ? "자동 추천 재생 켜짐" : "자동 추천 재생 꺼짐", systemImage: "infinity").frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 10) }
+                if let url = engine.externalYouTubeURL {
+                    Link(destination: url) { Label("YouTube에서 열기", systemImage: "arrow.up.right.square").frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 10) }
+                }
             }
             AirPlayButton().frame(height: 40)
         }.font(.system(size: 14)).buttonStyle(.plain).padding(20).frame(width: 270)

@@ -15,6 +15,7 @@ struct MusicHTTPFailure: LocalizedError, CustomNSError {
     var errorCode: Int { code }
     var errorDescription: String? {
         let service = youtube ? "YouTube 검색" : "음악 정보"
+        if code == URLError.httpTooManyRedirects.rawValue { return "\(service) 응답이 반복해서 다른 주소로 이동했습니다 (\(code)). 잠시 후 다시 확인해 주세요." }
         if code == URLError.timedOut.rawValue { return "\(service) 연결 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요 (\(code))." }
         return "\(service)에 연결하지 못했습니다. 네트워크를 확인한 뒤 다시 시도해 주세요 (\(code))."
     }
@@ -22,6 +23,15 @@ struct MusicHTTPFailure: LocalizedError, CustomNSError {
 }
 
 enum MusicHTTP {
+    // Public chart JSON uses a dedicated connection pool and honest app
+    // identity, independent of artwork downloads and HTML search requests.
+    private static let chartSession: URLSession = {
+        let configuration = URLSessionConfiguration.default
+        configuration.timeoutIntervalForRequest = 15; configuration.timeoutIntervalForResource = 20
+        configuration.httpCookieStorage = nil; configuration.httpShouldSetCookies = false
+        configuration.urlCache = URLCache(memoryCapacity: 2 * 1024 * 1024, diskCapacity: 0, diskPath: nil)
+        return URLSession(configuration: configuration)
+    }()
     private static let session: URLSession = {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 10; configuration.timeoutIntervalForResource = 15
@@ -32,12 +42,22 @@ enum MusicHTTP {
     static func data(_ url: URL) async throws -> Data {
         var request = URLRequest(url: url, cachePolicy: .useProtocolCachePolicy, timeoutInterval: 10)
         request.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
+        return try await response(request, session: session)
+    }
+    static func chartData(_ url: URL, using session: URLSession? = nil) async throws -> Data {
+        var request = URLRequest(url: url, cachePolicy: .useProtocolCachePolicy, timeoutInterval: 15)
+        request.httpShouldHandleCookies = false
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("Odify/1.1 (iOS)", forHTTPHeaderField: "User-Agent")
+        return try await response(request, session: session ?? chartSession)
+    }
+    private static func response(_ request: URLRequest, session: URLSession) async throws -> Data {
         let data: Data, response: URLResponse
         do { (data, response) = try await session.data(for: request) }
         catch let error as URLError {
             try Task.checkCancellation()
             if error.code == .cancelled { throw CancellationError() }
-            throw MusicHTTPFailure(youtube: url.host == "www.youtube.com", code: error.code.rawValue)
+            throw MusicHTTPFailure(youtube: request.url?.host == "www.youtube.com", code: error.code.rawValue)
         }
         guard let response = response as? HTTPURLResponse, (200..<300).contains(response.statusCode), data.count < 12_000_000 else {
             throw OdifyError.message("음악 정보를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.")
@@ -83,7 +103,7 @@ actor MusicCatalog {
     func chart(_ country: MusicCountry) async throws -> [Track] {
         let key = "chart:" + country.rawValue
         if let (date, value) = cache[key], Date().timeIntervalSince(date) < 3600 { return value }
-        let data = try await MusicHTTP.data(MusicHTTP.url("https://rss.marketingtools.apple.com/api/v2/\(country.rawValue)/music/most-played/50/songs.json"))
+        let data = try await MusicHTTP.chartData(MusicHTTP.url("https://rss.marketingtools.apple.com/api/v2/\(country.rawValue)/music/most-played/50/songs.json"))
         let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
         let feed = json?["feed"] as? [String: Any]
         let rows = feed?["results"] as? [[String: Any]] ?? []

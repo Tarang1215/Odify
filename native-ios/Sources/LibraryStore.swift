@@ -222,7 +222,7 @@ import UniformTypeIdentifiers
         }
     }
     private func prepareRecommendations(after seed: Track) {
-        guard !preview, recommendationTask == nil, engine.autoplayEnabled else { return }
+        guard !preview, recommendationTask == nil, engine.autoplayEnabled, engine.canPrepareAutomatically else { return }
         let queueIdentity = engine.queue.entries.first?.id
         let request = UUID(); recommendationGeneration = request
         let background = AudioPreparationLease(name: "Odify prepare continuous queue") { [weak self] in
@@ -252,7 +252,7 @@ import UniformTypeIdentifiers
                     } else { candidates = official }
                 }
                 try Task.checkCancellation()
-                guard self.engine.autoplayEnabled, self.engine.queue.entries.first?.id == queueIdentity else { return }
+                guard self.engine.autoplayEnabled, self.engine.canPrepareAutomatically, self.engine.queue.entries.first?.id == queueIdentity else { return }
                 let existing = Set(self.engine.queue.entries.map { $0.track.recordingKey })
                 let additions = Array(Track.unique(candidates).filter { !existing.contains($0.recordingKey) }.prefix(5))
                 self.engine.appendRecommendations(additions)

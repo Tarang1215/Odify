@@ -4,7 +4,7 @@ import XCTest
 @testable import Odify
 
 private final class BufferedAudioFixture: URLProtocol {
-    enum Mode { case normal, oversized, timeout, denied, noResponse }
+    enum Mode { case normal, oversized, timeout, denied, prefixOnly, noResponse }
     private static let lock = NSLock()
     private static var media = Data()
     private static var mode = Mode.normal
@@ -25,7 +25,7 @@ private final class BufferedAudioFixture: URLProtocol {
             stateLock.lock(); defer { stateLock.unlock() }
             guard !stopped else { return }
             if mode == .timeout { client?.urlProtocol(self, didFailWithError: URLError(.timedOut)); return }
-            if mode == .denied {
+            if mode == .denied || (mode == .prefixOnly && request.value(forHTTPHeaderField: "Range") != "bytes=0-32767") {
                 client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: 403, httpVersion: nil, headerFields: nil)!, cacheStoragePolicy: .notAllowed)
                 client?.urlProtocolDidFinishLoading(self); return
             }
@@ -119,6 +119,68 @@ private final class BufferedAudioFixture: URLProtocol {
         catch { XCTAssertTrue(PlaybackEngine.isCancelledRequest(error)) }
         XCTAssertLessThan(Date().timeIntervalSince(before), 1)
     }
+    func testDenialIsRememberedAcrossFurtherReadsAndDoesNotRefetchCachedPrefix() async throws {
+        let http = session(Data(repeating: 7, count: 800_000)); defer { http.invalidateAndCancel() }
+        let source = try await YouTubeByteSource.open(url, session: http)
+        BufferedAudioFixture.setMode(.denied)
+        for offset in [Int64(40_000), 0, 200_000] {
+            do { _ = try await source.range(start: offset, length: 1000); XCTFail("a denied source returned bytes") }
+            catch { XCTAssertEqual((error as? AudioHTTPFailure)?.statusCode, 403) }
+        }
+        XCTAssertEqual(BufferedAudioFixture.requests.count, 2, "only the prefix and the first denied request may reach the server")
+        await source.close()
+    }
+    func testDeniedRangeImmediatelyStopsCurrentLoadingAndDoesNotScanTheQueue() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let file = root.appendingPathComponent("denial.m4a"); try makeAudio(file)
+        let http = session(try Data(contentsOf: file), mode: .prefixOnly)
+        defer { http.invalidateAndCancel() }
+        let engine = PlaybackEngine(documents: root, autoplay: false, youtubeSession: http,
+            sourceResolver: { _, _, _ in URL(string: "https://buffer.googlevideo.com/media")! })
+        defer { engine.shutdown() }; engine.player.volume = 0
+        engine.play((0..<8).map { Track(id: "song\($0)", title: "Generated", artist: "Test") })
+        for _ in 0..<200 {
+            if engine.playbackRestricted, engine.error?.contains("403") == true { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertTrue(engine.playbackRestricted); XCTAssertFalse(engine.isBuffering); XCTAssertFalse(engine.isPlaying)
+        XCTAssertEqual(engine.current?.id, "song0"); XCTAssertTrue(engine.player.items().isEmpty)
+        XCTAssertNotNil(engine.externalYouTubeURL)
+        try await Task.sleep(for: .milliseconds(100))
+        let before = BufferedAudioFixture.requests.count
+        engine.enqueue(Track(id: "new", title: "Generated", artist: "Test"))
+        engine.appendRecommendations([Track(id: "recommended", title: "Generated", artist: "Test")])
+        NotificationCenter.default.post(name: UIApplication.didEnterBackgroundNotification, object: nil)
+        try await Task.sleep(for: .milliseconds(200))
+        XCTAssertEqual(BufferedAudioFixture.requests.count, before)
+        XCTAssertFalse(engine.canPrepareAutomatically)
+    }
+    func testDeniedSuccessorKeepsCurrentAudioAndStopsResolvingLaterCandidates() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let file = root.appendingPathComponent("current.m4a"); try makeAudio(file)
+        let calls = ResolutionCalls()
+        let engine = PlaybackEngine(documents: root, autoplay: false, sourceResolver: { track, _, _ in
+            await calls.record(track.id)
+            if track.id == "b" { throw AudioHTTPFailure(statusCode: 403) }
+            return file
+        })
+        defer { engine.shutdown() }; engine.player.volume = 0
+        engine.play(["a", "b", "c", "d"].map { Track(id: $0, title: "Generated", artist: "Test") })
+        for _ in 0..<150 {
+            if engine.error?.contains("403") == true, engine.player.rate > 0 { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertEqual(engine.current?.id, "a"); XCTAssertGreaterThan(engine.player.rate, 0)
+        engine.enqueue(Track(id: "e", title: "Generated", artist: "Test"))
+        try await Task.sleep(for: .milliseconds(100))
+        let ids = await calls.ids
+        XCTAssertEqual(ids, ["a", "b"], "one denied successor must not trigger a scan of other recordings")
+        engine.pause()
+    }
     func testPreparedYouTubeSuccessorsAdvanceWithNetworkUnavailableAfterBackgroundNotification() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -201,4 +263,9 @@ private final class BufferedAudioFixture: URLProtocol {
         }
         XCTAssertEqual(engine.diagnostics.filter { $0.hasPrefix("advanced:") }.count, 4)
     }
+}
+
+private actor ResolutionCalls {
+    private(set) var ids: [String] = []
+    func record(_ id: String) { ids.append(id) }
 }

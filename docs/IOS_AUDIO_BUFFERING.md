@@ -65,6 +65,31 @@ succeeded, but a large generated-data test expression exceeded Swift's type
 checker budget. The fixture generator was rewritten as a simple bounded loop;
 final automated results are recorded after validation.
 
+## Final validation: 1.1.0 (13)
+
+[CI 41011165549](https://github.com/Tarang1215/Odify/actions/runs/41011165549)
+passed for source `1ed4c3dc2cca9019564600deae402f60cc60ecfd`. Device Release
+compilation, six packaging checks and all 50 XCTest cases passed, with no test
+failures (31.626 seconds of test time). All six new audio-buffering scenarios
+and all three home-loading scenarios passed. The two prepared-successor
+network-cutoff test reused the pre-existing AVPlayerItems and passed in 1.913s.
+This remains a controlled simulator test, not a physical lock-screen result.
+
+The [LiveContainer release](https://github.com/Tarang1215/Odify/releases/tag/ios-native-1.1.0-b13-1ed4c3d)
+contains a native arm64 device IPA for iPad/iPhone, minimum OS 26. Independent
+inspection verified bundle/version, Mach-O device platform, background audio,
+OAuth callback, original dependency licenses and no guest extensions. The
+unauthenticated public download matched the separately downloaded CI artifact.
+
+IPA size: 1,813,801 bytes. SHA256:
+`c2fe5d14043bae0a57af26e88affa844c060f59a409de9bb9e3ab882a8607723`.
+
+The separate live cloud YouTube probe failed with a sign-in/bot confirmation
+response; the failed JSON is attached to the release. No physical buffering,
+home-network timeout resolution or long screen-off success is claimed from
+these mock/simulator tests. Source URLs, service restrictions and the guest
+runtime still affect actual availability and require device validation.
+
 Primary API references:
 - https://developer.apple.com/documentation/foundation/urlsessiontask/delegate
 - https://developer.apple.com/documentation/foundation/urlsessiondatadelegate

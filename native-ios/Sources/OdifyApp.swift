@@ -87,7 +87,11 @@ struct RootView: View {
                         HStack(spacing: 12) {
                             Image(systemName: "exclamationmark.circle")
                             Text(error).font(.system(size: 12)).lineLimit(3).frame(maxWidth: .infinity, alignment: .leading)
-                            Button("다시 시도") { engine.clearError(); engine.resume() }.font(.system(size: 12, weight: .semibold))
+                            if let url = engine.restrictedYouTubeURL {
+                                Link("YouTube에서 열기", destination: url).font(.system(size: 12, weight: .semibold))
+                            } else {
+                                Button("다시 시도") { engine.clearError(); engine.resume() }.font(.system(size: 12, weight: .semibold))
+                            }
                             Button { engine.clearError() } label: { Image(systemName: "xmark").frame(width: 30, height: 30) }.accessibilityLabel("안내 닫기")
                         }.padding(14).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18)).padding(.horizontal, 20)
                     }

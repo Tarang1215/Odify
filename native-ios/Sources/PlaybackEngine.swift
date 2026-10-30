@@ -32,6 +32,7 @@ import UIKit
     @Published private(set) var isPlaying = false
     @Published private(set) var isBuffering = false
     @Published private(set) var error: String?
+    @Published private(set) var playbackRestricted = false
     @Published private(set) var autoplayEnabled: Bool
     @Published private(set) var tint = UIColor(red: 0.35, green: 0.56, blue: 0.48, alpha: 1)
     let clock = PlaybackClock()
@@ -48,6 +49,7 @@ import UIKit
     private let youtubeSession: URLSession?
     private let driveClient: DriveClient
     private var itemIDs: [ObjectIdentifier: String] = [:]
+    private var itemSourceKeys: [ObjectIdentifier: UUID] = [:]
     private var activeItemKey: ObjectIdentifier?
     private var observations: [NSKeyValueObservation] = []
     private var itemObservations: [ObjectIdentifier: NSKeyValueObservation] = [:]
@@ -70,6 +72,23 @@ import UIKit
     private var metadataTask: Task<Void, Never>?
     private var metadataRead = Set<String>()
     private var waitingForRecommendations = false
+    private var prefetchDenied = false
+    private var deniedEntries: [String: Error] = [:]
+    var canPrepareAutomatically: Bool { !prefetchDenied }
+    var externalYouTubeURL: URL? {
+        current.flatMap(Self.youtubeURL)
+    }
+    var restrictedYouTubeURL: URL? {
+        if let entry = queue.current, deniedEntries[entry.id] != nil { return Self.youtubeURL(entry.track) }
+        return queue.entries.first(where: { deniedEntries[$0.id] != nil }).flatMap { Self.youtubeURL($0.track) }
+    }
+    private static func youtubeURL(_ track: Track) -> URL? {
+        guard track.source == .youtube else { return nil }
+        if let id = track.videoID, id.range(of: #"^[A-Za-z0-9_-]{11}$"#, options: .regularExpression) != nil {
+            return MusicHTTP.url("https://www.youtube.com/watch", ["v": id])
+        }
+        return MusicHTTP.url("https://www.youtube.com/results", ["search_query": String((track.artist + " " + track.title).prefix(160))])
+    }
     private static let log = Logger(subsystem: "com.odify.music.ios", category: "Playback")
 
     init(documents: URL, queue: PlaybackQueue = PlaybackQueue(), position: Double = 0, autoplay: Bool = true, driveClient: DriveClient = .shared,
@@ -132,8 +151,8 @@ import UIKit
         observations.append(player.observe(\.timeControlStatus, options: [.new]) { [weak self] _, _ in
             Task { @MainActor in
                 guard let self else { return }
-                self.isPlaying = self.player.timeControlStatus == .playing
-                self.isBuffering = self.player.timeControlStatus == .waitingToPlayAtSpecifiedRate
+                self.isPlaying = self.wantsPlayback && self.player.timeControlStatus == .playing
+                self.isBuffering = self.wantsPlayback && self.player.timeControlStatus == .waitingToPlayAtSpecifiedRate
                 if self.isPlaying { self.trace.record("playing", source: self.current?.source) }
                 if self.isBuffering { self.monitorStall() }
                 else { self.stallTask?.cancel(); self.stallTask = nil }
@@ -165,14 +184,20 @@ import UIKit
 
     func play(_ tracks: [Track], at index: Int = 0) {
         guard !tracks.isEmpty else { return }
+        prefetchDenied = false; deniedEntries.removeAll(); playbackRestricted = false
         queue.replace(tracks, at: index); failedIDs.removeAll(); retries.removeAll()
         waitingForRecommendations = false; savedPosition = 0; startCurrent()
     }
     func resume() {
         guard queue.current != nil else { return }
+        if prefetchDenied {
+            failedIDs.subtract(deniedEntries.keys)
+            prefetchDenied = false; deniedEntries.removeAll(); playbackRestricted = false
+            error = nil
+        }
         wantsPlayback = true
         if player.status == .failed || player.currentItem == nil || player.currentItem?.status == .failed { startCurrent(resume: savedPosition, refresh: true); return }
-        do { try activateAudio(); player.play(); publishNowPlaying() }
+        do { try activateAudio(); player.play(); rebuildUpcoming(); publishNowPlaying() }
         catch { showError(error) }
     }
     func pause() {
@@ -199,8 +224,9 @@ import UIKit
         guard let index = queue.currentIndex, index > 0 else { seek(0); return }
         jump(queue.entries[index - 1].id)
     }
-    func jump(_ id: String) {
+    func jump(_ id: String, userInitiated: Bool = true) {
         guard queue.entries.contains(where: { $0.id == id }) else { return }
+        if userInitiated { prefetchDenied = false; deniedEntries.removeAll(); playbackRestricted = false }
         waitingForRecommendations = false; queue.currentID = id; savedPosition = 0; startCurrent()
     }
     func move(_ offsets: IndexSet, to destination: Int) {
@@ -237,7 +263,7 @@ import UIKit
         queue.entries.append(contentsOf: tracks.map { QueueEntry(track: $0) })
         if waitingForRecommendations, wantsPlayback, let id = queue.currentID,
            let next = queue.successor(after: id, automatic: false) {
-            jump(next.id); return
+            jump(next.id, userInitiated: false); return
         }
         rebuildUpcoming(); onCheckpoint?()
     }
@@ -264,10 +290,11 @@ import UIKit
         generation = UUID(); let request = generation
         // AVPlayer.Status.failed is terminal for that player instance.
         if player.status == .failed { replaceFailedPlayer() }
-        player.pause(); player.removeAllItems(); itemIDs.removeAll()
+        player.pause(); player.removeAllItems(); itemIDs.removeAll(); itemSourceKeys.removeAll()
         itemObservations.values.forEach { $0.invalidate() }; itemObservations.removeAll()
         driveLoaders.values.forEach { $0.cancel() }; driveLoaders.removeAll()
         guard let entry = queue.current else { wantsPlayback = false; isPlaying = false; return }
+        if let failure = deniedEntries[entry.id] { stopForTerminalFailure(entry.id, failure: failure); return }
         trace.record("prepare", source: entry.track.source)
         wantsPlayback = true; isPlaying = false; isBuffering = true; error = nil
         clock.position = resume; clock.duration = entry.track.duration
@@ -301,7 +328,8 @@ import UIKit
                     // Resolution already performs its bounded transport retry.
                     // Do not multiply that timeout by retrying the entire
                     // selection or silently replacing it with another song.
-                    self.wantsPlayback = false; self.showError(error); self.onCheckpoint?()
+                    if Self.isTerminalNetworkFailure(error) { self.stopForTerminalFailure(entry.id, failure: error) }
+                    else { self.wantsPlayback = false; self.showError(error); self.onCheckpoint?() }
                 } else { self.recover(entry.id, failure: error) }
             }
         }
@@ -309,6 +337,7 @@ import UIKit
     private func makeItem(_ url: URL, entry: QueueEntry, prepareAhead: Bool = false) async throws -> AVPlayerItem {
         let asset: AVURLAsset
         let loader: DriveResourceLoader?
+        var sourceKey: UUID?
         if entry.track.driveFileID != nil {
             asset = AVURLAsset(url: url)
             let delegate = DriveResourceLoader(track: entry.track, client: driveClient)
@@ -325,12 +354,12 @@ import UIKit
             }
             catch { await source.close(); throw error }
             asset = AVURLAsset(url: URL(string: "odify-audio://media/\(UUID().uuidString).m4a")!)
-            let trace = trace
-            let delegate = DriveResourceLoader(length: source.length, contentType: "public.mpeg-4-audio", chunkSize: 131_072, onClose: { Task { await source.close() } }) { start, count in
+            let sourceToken = UUID(); sourceKey = sourceToken
+            let delegate = DriveResourceLoader(length: source.length, contentType: "public.mpeg-4-audio", chunkSize: 131_072, onClose: { Task { await source.close() } }) { [weak self] start, count in
                 do { return try await source.range(start: start, length: count) }
                 catch {
                     if !Self.isCancelledRequest(error) {
-                        await trace.record("audio-range-failed", source: .youtube, error: error)
+                        await self?.rangeFailed(entry.id, sourceKey: sourceToken, failure: error)
                     }
                     throw error
                 }
@@ -353,6 +382,7 @@ import UIKit
         item.preferredForwardBufferDuration = 30
         item.canUseNetworkResourcesForLiveStreamingWhilePaused = true
         itemIDs[ObjectIdentifier(item)] = entry.id
+        if let sourceKey { itemSourceKeys[ObjectIdentifier(item)] = sourceKey }
         if let loader { driveLoaders[ObjectIdentifier(item)] = loader }
         retained = true
         itemObservations[ObjectIdentifier(item)] = item.observe(\.status, options: [.new]) { [weak self, weak item] _, _ in
@@ -368,6 +398,7 @@ import UIKit
     }
     private func rebuildUpcoming() {
         prefetchTask?.cancel(); prefetchGeneration = UUID(); let request = prefetchGeneration
+        guard !prefetchDenied else { return }
         guard let currentItem = player.currentItem, let currentID = itemIDs[ObjectIdentifier(currentItem)] else { return }
         var prepared: [QueueEntry] = [], cursor = currentID
         // Look beyond broken entries; stop after two usable successors have
@@ -387,6 +418,7 @@ import UIKit
         }
         for item in existing.dropFirst(retained) {
             player.remove(item); itemIDs.removeValue(forKey: ObjectIdentifier(item))
+            itemSourceKeys.removeValue(forKey: ObjectIdentifier(item))
             itemObservations.removeValue(forKey: ObjectIdentifier(item))?.invalidate()
             driveLoaders.removeValue(forKey: ObjectIdentifier(item))?.cancel()
         }
@@ -428,6 +460,11 @@ import UIKit
                     self.trace.record("next-prepare-failed", source: entry.track.source, error: error)
                     Self.log.error("[OdifyPlayback] next-prepare-failed source=\(entry.track.source.rawValue, privacy: .public) codes=\(Self.errorCodes(error), privacy: .public)")
                     self.error = "다음 곡 준비 실패: \(entry.track.title). \(Self.playbackMessage(error, source: entry.track.source))"
+                    if Self.isTerminalNetworkFailure(error) {
+                        self.prefetchDenied = true
+                        self.deniedEntries[entry.id] = error
+                        return
+                    }
                 }
             }
         }
@@ -443,6 +480,7 @@ import UIKit
         if item.status == .failed { failed(item); return }
         let currentItems = Set(player.items().map(ObjectIdentifier.init))
         itemIDs = itemIDs.filter { currentItems.contains($0.key) }
+        itemSourceKeys = itemSourceKeys.filter { currentItems.contains($0.key) }
         for key in itemObservations.keys.filter({ !currentItems.contains($0) }) { itemObservations.removeValue(forKey: key)?.invalidate() }
         for key in driveLoaders.keys.filter({ !currentItems.contains($0) }) { driveLoaders.removeValue(forKey: key)?.cancel() }
         if changed { clock.position = 0; clock.duration = current?.duration ?? 0; savedPosition = 0 }
@@ -458,7 +496,7 @@ import UIKit
         if changed { rebuildUpcoming() }
         onCheckpoint?()
         if item.status == .readyToPlay { readDriveMetadata(item) }
-        if autoplayEnabled, queue.repeatMode == .off, queue.upcoming.count < 3, let track = current { onNeedMore?(track) }
+        if !prefetchDenied, autoplayEnabled, queue.repeatMode == .off, queue.upcoming.count < 3, let track = current { onNeedMore?(track) }
     }
     private func ended(_ item: AVPlayerItem) {
         guard let id = itemIDs[ObjectIdentifier(item)] else { return }
@@ -472,6 +510,9 @@ import UIKit
             if wantsPlayback { player.play() }
             return
         }
+        // Already buffered audio may finish naturally. A terminal server
+        // response must not start a new round of cold automatic requests.
+        if prefetchDenied { pause(); return }
         guard let next = queue.successor(after: id, automatic: true) else {
             isPlaying = false
             if autoplayEnabled, onNeedMore != nil, let track = current {
@@ -483,6 +524,7 @@ import UIKit
     }
     private func failed(_ item: AVPlayerItem) {
         guard let id = itemIDs[ObjectIdentifier(item)] else { return }
+        if deniedEntries[id] != nil { return }
         let statuses = item.errorLog()?.events.map(\.errorStatusCode) ?? []
         let failure: Error
         if current?.source == .youtube, let denied = statuses.first(where: { [401, 403, 429].contains($0) }) {
@@ -502,11 +544,11 @@ import UIKit
     private func recover(_ id: String, failure: Error) {
         guard queue.currentID == id else { return }
         guard wantsPlayback else { showError(failure); return }
-        if Self.accessDenied(failure) { wantsPlayback = false; showError(failure); onCheckpoint?(); return }
+        if Self.isTerminalNetworkFailure(failure) { stopForTerminalFailure(id, failure: failure); return }
         // A restriction is a final service response, never a reason to try
         // another client or silently start a different selected recording.
         if case YouTubeAudioFailure.restricted = failure {
-            wantsPlayback = false; showError(failure); onCheckpoint?(); return
+            stopForTerminalFailure(id, failure: failure); return
         }
         if retries.insert(id).inserted { startCurrent(resume: clock.position, refresh: true); return }
         failedIDs.insert(id)
@@ -514,7 +556,7 @@ import UIKit
         var cursor = id
         for _ in 0..<queue.entries.count {
             guard let next = queue.successor(after: cursor, automatic: false), next.id != id else { break }
-            if !failedIDs.contains(next.id) { jump(next.id); return }
+            if !failedIDs.contains(next.id) { jump(next.id, userInitiated: false); return }
             cursor = next.id
         }
         pause()
@@ -522,8 +564,38 @@ import UIKit
     private func discard(_ item: AVPlayerItem) {
         let key = ObjectIdentifier(item)
         itemIDs.removeValue(forKey: key)
+        itemSourceKeys.removeValue(forKey: key)
         itemObservations.removeValue(forKey: key)?.invalidate()
         driveLoaders.removeValue(forKey: key)?.cancel()
+    }
+    private func rangeFailed(_ id: String, sourceKey: UUID, failure: Error) {
+        let items = player.items().filter { itemSourceKeys[ObjectIdentifier($0)] == sourceKey }
+        guard queue.entries.contains(where: { $0.id == id }), !items.isEmpty else { return }
+        trace.record("audio-range-failed", source: .youtube, error: failure)
+        guard Self.isTerminalNetworkFailure(failure) else { return }
+        deniedEntries[id] = failure
+        prefetchDenied = true; prefetchGeneration = UUID()
+        prefetchTask?.cancel(); prefetchTask = nil
+        if let currentItem = player.currentItem, itemSourceKeys[ObjectIdentifier(currentItem)] == sourceKey {
+            stopForTerminalFailure(id, failure: failure)
+        } else {
+            for item in items { player.remove(item); discard(item) }
+            error = "다음 곡 연결이 거절되었습니다. " + Self.playbackMessage(failure, source: .youtube)
+            onCheckpoint?()
+        }
+    }
+    private func stopForTerminalFailure(_ id: String, failure: Error) {
+        deniedEntries[id] = failure; prefetchDenied = true; playbackRestricted = true
+        generation = UUID(); startTask?.cancel(); startTask = nil
+        wantsPlayback = false; interrupted = false; waitingForRecommendations = false
+        prefetchGeneration = UUID(); prefetchTask?.cancel(); prefetchTask = nil
+        stallTask?.cancel(); stallTask = nil
+        savedPosition = clock.position
+        player.pause()
+        for item in player.items() { discard(item) }
+        player.removeAllItems()
+        isPlaying = false; isBuffering = false
+        showError(failure); onCheckpoint?()
     }
     private func monitorStall() {
         guard wantsPlayback, stallTask == nil, let item = player.currentItem else { return }
@@ -616,11 +688,13 @@ import UIKit
         // URLs, file identifiers, HTTP headers or access tokens in a report.
         return codes.joined(separator: " / ")
     }
-    private static func accessDenied(_ failure: Error) -> Bool {
+    nonisolated static func isTerminalNetworkFailure(_ failure: Error) -> Bool {
+        if let value = failure as? YouTubeAudioFailure, case .restricted = value { return true }
         var value: NSError? = failure as NSError
         for _ in 0..<4 {
             guard let error = value else { break }
             if error.domain == AudioHTTPFailure.errorDomain, [401, 403, 429].contains(error.code) { return true }
+            if [NSURLErrorDomain, MusicHTTPFailure.errorDomain].contains(error.domain), error.code == URLError.httpTooManyRedirects.rawValue { return true }
             value = error.userInfo[NSUnderlyingErrorKey] as? NSError
         }
         return false
