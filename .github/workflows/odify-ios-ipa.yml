@@ -1,0 +1,96 @@
+name: Odify common iOS baseline (legacy)
+
+on:
+  push:
+    branches: ['codex/ios-common-*']
+    paths:
+      - '.github/workflows/odify-ios-ipa.yml'
+      - 'scripts/*ios*.py'
+      - 'scripts/assemble*.py'
+      - 'scripts/port_521.py'
+      - 'overlay/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: odify-ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ios:
+    runs-on: macos-26
+    timeout-minutes: 90
+    env:
+      MORNYE_DISCORD_SDK: '0'
+      SPOTIFLAC_DISCORD_SDK: '0'
+      COCOAPODS_DISABLE_STATS: 'true'
+      FLUTTER_SUPPRESS_ANALYTICS: 'true'
+      CARGO_BUILD_JOBS: '2'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify Apple toolchain
+        run: |
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+          uname -m
+      - name: Assemble immutable attributed iOS core
+        run: |
+          python3 -m unittest discover -s tests -p test_ios_packaging.py -v
+          python3 scripts/assemble_v521.py build/ios-source
+      - name: Prepare Odify iOS identity and icon
+        run: |
+          python3 -m pip install pillow
+          python3 scripts/prepare_ios_sideload.py build/ios-source --icon-vector native-android/app/src/main/res/drawable/odify_launcher_foreground.xml
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version-file: build/ios-source/.fvmrc
+          cache: true
+      - name: Fetch Flutter dependencies
+        working-directory: build/ios-source
+        run: flutter pub get
+      - name: Check Dart compilation and library logic
+        working-directory: build/ios-source
+        run: |
+          flutter analyze --no-fatal-infos --no-fatal-warnings
+          flutter test test/ios_container_paths_test.dart test/ios_history_restore_test.dart test/ios_download_folder_test.dart test/odify_metadata_test.dart test/odify_discovery_test.dart
+      - uses: actions/cache/restore@v4
+        id: cargo-cache
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            build/ios-source/rust_backend/target
+          key: odify-ios-rust-${{ runner.arch }}-${{ hashFiles('build/ios-source/rust_backend/Cargo.lock', 'build/ios-source/rust_backend/rust-toolchain.toml') }}-v2-${{ github.run_id }}
+          restore-keys: |
+            odify-ios-rust-${{ runner.arch }}-${{ hashFiles('build/ios-source/rust_backend/Cargo.lock', 'build/ios-source/rust_backend/rust-toolchain.toml') }}-v2-
+            odify-ios-rust-${{ runner.arch }}-${{ hashFiles('build/ios-source/rust_backend/Cargo.lock', 'build/ios-source/rust_backend/rust-toolchain.toml') }}-v1
+      - name: Build native Rust iOS audio backend and Swift bindings
+        working-directory: build/ios-source
+        run: bash scripts/build_rust_backend.sh ios
+      - name: Build iPhone arm64 release app without Apple credentials
+        working-directory: build/ios-source
+        run: flutter build ios --release --no-codesign --build-name=1.0.0 --build-number=1
+      - name: Verify Mach-O, AOT runtime and IPA structure
+        run: python3 scripts/package_ios_ipa.py build/ios-source/build/ios/iphoneos/Runner.app dist/ios/Odify-iOS-1.0.0.ipa
+      - name: Upload verified IPA approved by repository owner
+        uses: actions/upload-artifact@v4
+        with:
+          name: Odify-iOS-IPA
+          if-no-files-found: error
+          retention-days: 14
+          path: dist/ios/*
+      - name: Preserve Rust compilation progress for repairs
+        uses: actions/cache/save@v4
+        if: always() && steps.cargo-cache.outputs.cache-hit != 'true'
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            build/ios-source/rust_backend/target
+          key: odify-ios-rust-${{ runner.arch }}-${{ hashFiles('build/ios-source/rust_backend/Cargo.lock', 'build/ios-source/rust_backend/rust-toolchain.toml') }}-v2-${{ github.run_id }}

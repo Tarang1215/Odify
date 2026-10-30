@@ -1,0 +1,135 @@
+name: Odify native iPad and iPhone IPA
+
+on:
+  push:
+    branches: ['codex/ios-*']
+    paths:
+      - '.github/workflows/odify-native-ios.yml'
+      - 'native-ios/**'
+      - 'scripts/*ios*.py'
+      - 'tools/ios-stream-probe/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: odify-native-ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ios:
+    permissions:
+      contents: write
+    runs-on: macos-26
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify Apple toolchain
+        run: |
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+      - name: Prepare existing Odify identity and licenses
+        run: |
+          python3 -m pip install pillow
+          python3 -m unittest discover -s tests -p test_ios_packaging.py -v
+          python3 scripts/prepare_native_ios.py
+          brew list xcodegen || brew install xcodegen
+          cd native-ios
+          xcodegen generate
+      - name: Resolve native SDKs and include original dependency notices
+        run: |
+          xcodebuild -resolvePackageDependencies -project native-ios/Odify.xcodeproj -scheme Odify -derivedDataPath build/native-ios-device
+          python3 scripts/prepare_native_ios.py --dependency-notices build/native-ios-device/SourcePackages/checkouts
+          cp native-ios/Odify.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved native-ios/Package.resolved
+      - name: Probe live YouTube audio connection without sound
+        continue-on-error: true
+        run: |
+          mkdir -p dist/ios-checks
+          swift run --package-path tools/ios-stream-probe OdifyStreamProbe > dist/ios-checks/stream-probe.json
+      - name: Build native iPad and iPhone release without Apple credentials
+        run: |
+          set -o pipefail
+          mkdir -p build
+          xcodebuild -project native-ios/Odify.xcodeproj -scheme Odify -configuration Release -destination 'generic/platform=iOS' -derivedDataPath build/native-ios-device build CODE_SIGNING_ALLOWED=NO | tee build/native-ios-release.log
+      - name: Verify device Mach-O and package LiveContainer IPA
+        run: python3 scripts/package_ios_ipa.py build/native-ios-device/Build/Products/Release-iphoneos/Odify.app dist/ios/Odify-iOS-1.1.0.ipa --runtime native
+      - name: Select iPad simulator
+        run: |
+          mkdir -p dist/ios-checks
+          python3 - <<'PY'
+          import json, os, re, subprocess
+          devices = json.loads(subprocess.check_output(['xcrun', 'simctl', 'list', 'devices', 'available', '-j']))['devices']
+          choices = [(runtime, d) for runtime, ds in devices.items() if 'iOS-26' in runtime for d in ds if 'iPad' in d['name']]
+          if not choices: raise RuntimeError('No iOS 26 iPad simulator available')
+          sdk = tuple(map(int, subprocess.check_output(['xcrun', '--sdk', 'iphonesimulator', '--show-sdk-version'], text=True).strip().split('.')[:2]))
+          def version(pair): return tuple(map(int, re.search(r'iOS-(\d+)-(\d+)', pair[0]).groups()))
+          choices.sort(key=lambda pair: (version(pair) != sdk, tuple(-n for n in version(pair)), '13-inch' not in pair[1]['name'], pair[1]['name']))
+          device = choices[0][1]
+          with open(os.environ['GITHUB_ENV'], 'a') as f: f.write('IPAD_SIM=' + device['udid'] + '\n')
+          print(choices[0][0], device['name'], device['udid'])
+          subprocess.run(['xcrun','simctl','boot',device['udid']],check=device['state'] != 'Booted')
+          subprocess.run(['xcrun','simctl','bootstatus',device['udid'],'-b'],check=True)
+          PY
+      - name: Test queue identity, metadata and real silent AVQueue transitions
+        timeout-minutes: 14
+        run: |
+          set -o pipefail
+          xcodebuild -project native-ios/Odify.xcodeproj -scheme Odify -configuration Debug -destination "platform=iOS Simulator,id=$IPAD_SIM" -parallel-testing-enabled NO -derivedDataPath build/native-ios-sim -resultBundlePath dist/ios-checks/Odify.xcresult test CODE_SIGNING_ALLOWED=NO | tee build/native-ios-tests.log
+      - name: Capture native iPad presentation fixture
+        if: ${{ !cancelled() && env.IPAD_SIM != '' }}
+        run: |
+          xcrun simctl install "$IPAD_SIM" build/native-ios-sim/Build/Products/Debug-iphonesimulator/Odify.app
+          xcrun simctl terminate "$IPAD_SIM" com.odify.music.ios || true
+          xcrun simctl status_bar "$IPAD_SIM" override --time '9:41' --batteryState charged --batteryLevel 100
+          xcrun simctl launch "$IPAD_SIM" com.odify.music.ios --odify-preview
+          sleep 4
+          xcrun simctl io "$IPAD_SIM" screenshot dist/ios-checks/ipad-portrait.png
+          xcrun simctl terminate "$IPAD_SIM" com.odify.music.ios
+          xcrun simctl launch "$IPAD_SIM" com.odify.music.ios --odify-preview --odify-player
+          sleep 3
+          xcrun simctl io "$IPAD_SIM" screenshot dist/ios-checks/ipad-player-portrait.png
+          xcrun simctl terminate "$IPAD_SIM" com.odify.music.ios
+          xcrun simctl launch "$IPAD_SIM" com.odify.music.ios --odify-preview --odify-landscape
+          sleep 3
+          xcrun simctl io "$IPAD_SIM" screenshot dist/ios-checks/ipad-landscape.png
+          xcrun simctl terminate "$IPAD_SIM" com.odify.music.ios
+          xcrun simctl launch "$IPAD_SIM" com.odify.music.ios --odify-preview --odify-landscape --odify-player
+          sleep 3
+          xcrun simctl io "$IPAD_SIM" screenshot dist/ios-checks/ipad-player.png
+      - name: Upload verified IPA approved by repository owner
+        uses: actions/upload-artifact@v4
+        with:
+          name: Odify-iOS-IPA
+          if-no-files-found: error
+          retention-days: 14
+          path: dist/ios/*
+      - name: Publish directly downloadable LiveContainer prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          try: probe = json.loads(Path('dist/ios-checks/stream-probe.json').read_text())
+          except Exception: probe = {'success': False, 'error': 'Cloud connection probe did not return a result', 'devicePlaybackTested': False}
+          Path('dist/ios/Odify-stream-connection-check.json').write_text(json.dumps(probe, indent=2))
+          result = '성공' if probe.get('success') is True else '실패 — 실제 iPad 네트워크에서 별도 확인 필요'
+          notes = Path('docs/IOS_NATIVE_RELEASE_NOTES.md').read_text() + '\n\n구형 직접 오디오 경로의 연결 검사: **' + result + '**. 현재 기본 웹 플레이어의 재생 검사 결과가 아닙니다. 실제 기기 재생 검사는 별도로 필요하며 기존 경로 결과 JSON을 함께 첨부합니다.\n'
+          Path('build/ios-release-notes.md').write_text(notes)
+          PY
+          ODIFY_RELEASE_TAG="ios-native-1.1.0-b15-${GITHUB_SHA::7}"
+          gh release create "$ODIFY_RELEASE_TAG" dist/ios/Odify-iOS-1.1.0.ipa dist/ios/Odify-iOS-1.1.0.ipa.sha256 dist/ios/Odify-iOS-1.1.0.build.json dist/ios/Odify-stream-connection-check.json --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease --title 'Odify iPad 1.1.0 (15) — Android-style music playback preview' --notes-file build/ios-release-notes.md
+      - name: Preserve validation and simulator evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Odify-iOS-validation
+          retention-days: 7
+          path: |
+            dist/ios-checks/
+            build/native-ios-*.log
+            native-ios/Package.resolved

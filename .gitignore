@@ -8,3 +8,11 @@ native-android/licenses/
 **/__pycache__/
 *.keystore
 *.jks
+build/ios-source/
+dist/ios/
+dist/ios-checks/
+native-ios/Odify.xcodeproj/
+native-ios/Resources/Assets.xcassets/
+native-ios/Resources/*LICENSE.txt
+native-ios/Resources/ThirdPartyNotices.txt
+tools/ios-stream-probe/.build/
