@@ -5,18 +5,23 @@ struct MiniPlayer: View {
     var wide: Bool
     var open: () -> Void
     @EnvironmentObject private var engine: PlaybackEngine
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
         if let track = engine.current {
             HStack(spacing: 14) {
                 Button(action: open) {
                     HStack(spacing: 12) {
                         Artwork(address: track.artwork, title: track.album.isEmpty ? track.title : track.album, size: 48, radius: 12)
+                            .scaleEffect(engine.isPlaying ? 1 : 0.92)
+                            .animation(reduceMotion ? nil : .spring(response: 0.55, dampingFraction: 0.7), value: engine.isPlaying)
                         VStack(alignment: .leading, spacing: 5) {
                             Text(track.title).font(.system(size: 14, weight: .semibold)).lineLimit(1)
                             Text(track.artist).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
                         }.frame(maxWidth: .infinity, alignment: .leading)
+                        Image(systemName: "waveform").font(.system(size: 16)).foregroundStyle(Color(uiColor: engine.tint).opacity(0.9))
+                            .symbolEffect(.variableColor.iterative, options: .repeating, isActive: engine.isPlaying && !reduceMotion)
                     }.contentShape(Rectangle())
-                }.buttonStyle(.plain)
+                }.buttonStyle(.plain).accessibilityIdentifier("player.expand")
                 if wide { TimelineViewCompact(clock: engine.clock).frame(maxWidth: 280).padding(.horizontal, 20) }
                 HStack(spacing: wide ? 22 : 12) {
                     if wide { Button(action: engine.previous) { Image(systemName: "backward.end.fill").frame(width: 40, height: 44) }.accessibilityLabel("이전 곡") }
@@ -27,8 +32,11 @@ struct MiniPlayer: View {
                 }.buttonStyle(.plain)
                 if wide { AirPlayButton().frame(width: 40, height: 40) }
             }.padding(10).padding(.horizontal, wide ? 10 : 0)
-                .glassEffect(.regular, in: .rect(cornerRadius: 24))
-                .overlay(alignment: .bottom) { MiniProgress(clock: engine.clock).padding(.horizontal, 22).padding(.bottom, 3) }
+                .background(Color(uiColor: engine.tint).opacity(0.22), in: RoundedRectangle(cornerRadius: 24))
+                .glassEffect(.regular.tint(Color(uiColor: engine.tint).opacity(0.16)), in: .rect(cornerRadius: 24))
+                .shadow(color: Color(uiColor: engine.tint).opacity(0.2), radius: 22, y: 7)
+                .animation(reduceMotion ? nil : .easeInOut(duration: 1.1), value: engine.tint)
+                .accessibilityIdentifier("player.mini")
         }
     }
 }
@@ -100,9 +108,9 @@ struct NowPlayingPane: View {
 private enum PlayerPanel { case lyrics, queue }
 
 struct FullPlayerView: View {
+    var close: () -> Void
     @EnvironmentObject private var engine: PlaybackEngine
     @EnvironmentObject private var store: LibraryStore
-    @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var panel: PlayerPanel?
     @State private var expanded = false
@@ -110,23 +118,28 @@ struct FullPlayerView: View {
     @State private var options = false
     @State private var editLyrics = false
     @State private var lyricText = ""
+    @State private var lyricEditTrack: Track?
+    @State private var lyricSearchTrack: Track?
+    @State private var dragOffset: CGFloat = 0
     @Namespace private var glass
     var body: some View {
         GeometryReader { geometry in
             let wide = geometry.size.width >= 850 && geometry.size.width > geometry.size.height
             let coverSize = min(wide ? geometry.size.width * 0.42 : geometry.size.width - 64, geometry.size.height * (wide ? 0.63 : 0.38))
-            let panelHeight: CGFloat = panel != nil && !expanded ? min(290, geometry.size.height * 0.34) : 0
             ZStack {
-                MusicBackdrop(tint: Color(uiColor: engine.tint))
+                PlayerGlassBackdrop(tint: Color(uiColor: engine.tint))
                 VStack(spacing: 18) {
                     HStack {
-                        GlassCircle(symbol: "chevron.down", label: "플레이어 닫기", action: { dismiss() })
+                        GlassCircle(symbol: "chevron.down", label: "플레이어 닫기", action: close)
+                            .accessibilityIdentifier("player.collapse")
                         Spacer()
                         VStack(spacing: 4) { Text("NOW PLAYING").font(.system(size: 9, weight: .bold)).tracking(2.4); Text(engine.current?.album ?? "Odify").font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1) }
                         Spacer()
                         GlassCircle(symbol: "ellipsis", label: "현재 곡 메뉴", action: { options = true })
                             .popover(isPresented: $options, arrowEdge: .top) { trackOptions.presentationCompactAdaptation(.popover) }
-                    }.padding(.top, 8)
+                    }.padding(.top, max(12, geometry.safeAreaInsets.top + 8))
+                        .contentShape(Rectangle()).simultaneousGesture(collapseGesture)
+                        .zIndex(20)
                     ScrollView {
                       VStack(spacing: 24) {
                        if wide {
@@ -152,41 +165,66 @@ struct FullPlayerView: View {
                         }.foregroundStyle(.secondary).padding(.horizontal, 8)
                        }
                       }.frame(maxWidth: .infinity)
-                        .frame(minHeight: max(0, geometry.size.height - 150 - panelHeight), alignment: .center)
+                        .frame(minHeight: max(0, geometry.size.height - 180 - geometry.safeAreaInsets.top - geometry.safeAreaInsets.bottom), alignment: .center)
                         .padding(.vertical, 12)
-                    }.scrollIndicators(.hidden)
+                    }.scrollIndicators(.hidden).scrollBounceBehavior(.basedOnSize)
+                        .simultaneousGesture(collapseGesture)
                     bottomGlass(availableHeight: geometry.size.height)
-                }.padding(.horizontal, wide ? 42 : 26).padding(.bottom, 16)
-                if expanded, panel != nil {
+                }.padding(.horizontal, wide ? 42 : 26).padding(.bottom, max(16, geometry.safeAreaInsets.bottom + 12))
+                if panel != nil {
+                    Color.black.opacity(0.14).ignoresSafeArea().allowsHitTesting(false)
+                        .transition(.opacity).zIndex(5)
                     VStack {
-                        Spacer(minLength: 70)
-                        glassPanel(height: geometry.size.height - 160).padding(.bottom, 80)
-                    }.padding(.horizontal, wide ? 42 : 20)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                        Spacer(minLength: 90)
+                        glassPanel(height: expanded ? max(240, geometry.size.height - 220) : min(420, geometry.size.height * 0.52))
+                            .frame(maxWidth: 760).padding(.bottom, 94 + geometry.safeAreaInsets.bottom)
+                    }.padding(.horizontal, wide ? 42 : 20).zIndex(10)
+                        .transition(.move(edge: .bottom).combined(with: .opacity).combined(with: .scale(scale: 0.95, anchor: .bottom)))
                 }
             }
-            .animation(reduceMotion ? nil : .smooth(duration: 0.4), value: panel)
-            .animation(reduceMotion ? nil : .smooth(duration: 0.4), value: expanded)
+            .animation(reduceMotion ? nil : .spring(response: 0.48, dampingFraction: 0.86), value: panel)
+            .animation(reduceMotion ? nil : .spring(response: 0.48, dampingFraction: 0.86), value: expanded)
+            .offset(y: dragOffset)
+            .sheet(item: $lyricSearchTrack) { LyricsSearchView(track: $0) }
             .sheet(isPresented: $editLyrics) {
                 NavigationStack {
                     TextEditor(text: $lyricText).font(.system(size: 17)).padding(16).scrollContentBackground(.hidden)
                         .navigationTitle("가사 수정")
                         .toolbar {
                             ToolbarItem(placement: .cancellationAction) { Button("취소") { editLyrics = false } }
-                            ToolbarItem(placement: .confirmationAction) { Button("저장") { if let track = engine.current { store.saveLyrics(lyricText, for: track) }; editLyrics = false } }
+                            ToolbarItem(placement: .confirmationAction) { Button("저장") { if let track = lyricEditTrack { store.saveLyrics(lyricText, for: track) }; editLyrics = false } }
                         }
                 }.presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
             }
-        }
+        }.ignoresSafeArea(.container).accessibilityIdentifier("player.full")
+    }
+    private var collapseGesture: some Gesture {
+        DragGesture(minimumDistance: 18)
+            .onChanged { value in
+                guard panel == nil, value.translation.height > 0,
+                      value.translation.height > abs(value.translation.width) * 1.3 else { return }
+                dragOffset = min(300, value.translation.height * 0.75)
+            }
+            .onEnded { value in
+                if panel != nil {
+                    if PlayerDismissal.shouldClose(x: value.translation.width, y: value.translation.height, predictedY: value.predictedEndTranslation.height) { panel = nil; expanded = false }
+                    return
+                }
+                if PlayerDismissal.shouldClose(x: value.translation.width, y: value.translation.height, predictedY: value.predictedEndTranslation.height) {
+                    close()
+                } else { withAnimation(reduceMotion ? nil : .spring(response: 0.35, dampingFraction: 0.86)) { dragOffset = 0 } }
+            }
     }
     private func cover(size: CGFloat) -> some View {
         Artwork(address: engine.current?.artwork, title: engine.current?.album ?? "Odify", size: max(120, size), radius: 28)
             .shadow(color: .black.opacity(0.25), radius: 24, y: 12)
+            .scaleEffect(engine.isPlaying ? 1 : 0.95)
+            .animation(reduceMotion ? nil : .spring(response: 0.65, dampingFraction: 0.78), value: engine.isPlaying)
     }
     private var trackHeading: some View {
         HStack(alignment: .center, spacing: 16) {
             VStack(alignment: .leading, spacing: 9) {
-                Text(engine.current?.title ?? "음악을 선택해 주세요").font(.system(size: 26, weight: .semibold, design: .rounded)).lineLimit(2).minimumScaleFactor(0.7)
+                Text(engine.current?.title ?? "음악을 선택해 주세요").font(.system(size: 26, weight: .semibold, design: .rounded)).lineLimit(2).minimumScaleFactor(0.7).accessibilityIdentifier("player.title")
                 Text(engine.current?.artist ?? "Odify").font(.system(size: 15)).foregroundStyle(.secondary).lineLimit(1)
             }.frame(maxWidth: .infinity, alignment: .leading)
             if let track = engine.current {
@@ -210,9 +248,8 @@ struct FullPlayerView: View {
     private func bottomGlass(availableHeight: CGFloat) -> some View {
         GlassEffectContainer(spacing: 20) {
             VStack(spacing: 12) {
-                if panel != nil && !expanded { glassPanel(height: min(290, availableHeight * 0.34)).glassEffectID("panel", in: glass) }
                 HStack(spacing: 14) {
-                    GlassCircle(symbol: "quote.bubble", label: "가사") { togglePanel(.lyrics) }.glassEffectID("lyrics", in: glass)
+                    GlassCircle(symbol: "quote.bubble", label: "가사") { togglePanel(.lyrics) }.glassEffectID("lyrics", in: glass).accessibilityIdentifier("player.lyrics.button")
                     TabView(selection: $sourcePage) {
                         Text(engine.current?.source.rawValue ?? "Local").tag(0)
                         Text(engine.queue.upcoming.first?.track.title ?? "다음 곡 없음").lineLimit(1).padding(.horizontal, 14).tag(1)
@@ -220,7 +257,7 @@ struct FullPlayerView: View {
                         .tabViewStyle(.page(indexDisplayMode: .never)).frame(height: 46)
                         .glassEffect(.regular, in: .capsule).glassEffectID("source", in: glass)
                         .accessibilityLabel(sourcePage == 0 ? "음원 출처. 옆으로 쓸어 다음 곡 확인" : "다음 곡")
-                    GlassCircle(symbol: "text.line.first.and.arrowtriangle.forward", label: "다음 재생 목록") { togglePanel(.queue) }.glassEffectID("queue", in: glass)
+                    GlassCircle(symbol: "text.line.first.and.arrowtriangle.forward", label: "다음 재생 목록") { togglePanel(.queue) }.glassEffectID("queue", in: glass).accessibilityIdentifier("player.queue.button")
                 }
             }
         }.frame(maxWidth: 760)
@@ -241,18 +278,28 @@ struct FullPlayerView: View {
             HStack {
                 Text(panel == .lyrics ? "가사" : "다음 재생").font(.system(size: 17, weight: .semibold))
                 Spacer()
-                if panel == .lyrics { Button("수정") { beginLyricsEdit() }.font(.system(size: 12)) }
-                Button { expanded = false; panel = nil } label: { Image(systemName: "xmark").font(.system(size: 12)).frame(width: 32, height: 30) }.accessibilityLabel("패널 닫기")
+                if panel == .lyrics {
+                    Button { lyricSearchTrack = engine.current } label: { Image(systemName: "magnifyingglass").frame(width: 40, height: 40) }.accessibilityLabel("가사 검색")
+                    Button("수정") { beginLyricsEdit() }.font(.system(size: 12))
+                }
+                Button { expanded = false; panel = nil } label: { Image(systemName: "xmark").font(.system(size: 12)).frame(width: 40, height: 40) }.accessibilityLabel("패널 닫기").accessibilityIdentifier("player.panel.close")
             }.padding(.horizontal, 20).padding(.bottom, 8)
             if panel == .queue { QueueList() }
             else if let lyrics = engine.current?.lyrics, !lyrics.isEmpty {
-                ScrollView { Text(lyrics).font(.system(size: 19, weight: .medium)).lineSpacing(12).frame(maxWidth: .infinity, alignment: .leading).padding(22) }
+                LyricsBody(text: lyrics, clock: engine.clock, seek: engine.seek).id(engine.current?.id)
             } else {
-                VStack(spacing: 16) { Text("등록된 가사가 없습니다.").font(.system(size: 13)).foregroundStyle(.secondary); Button("가사 추가", systemImage: "square.and.pencil") { beginLyricsEdit() }.buttonStyle(.glass) }.frame(maxWidth: .infinity, maxHeight: .infinity)
+                VStack(spacing: 16) {
+                    Text("등록된 가사가 없습니다.").font(.system(size: 13)).foregroundStyle(.secondary)
+                    Button("가사 검색", systemImage: "magnifyingglass") { lyricSearchTrack = engine.current }.buttonStyle(.glassProminent)
+                    Button("직접 추가", systemImage: "square.and.pencil") { beginLyricsEdit() }.buttonStyle(.glass)
+                }.frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-        }.frame(height: height).glassEffect(.regular.tint(.black.opacity(0.35)), in: .rect(cornerRadius: 28))
+        }.frame(height: height).background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 28))
+            .glassEffect(.regular.tint(Color(uiColor: engine.tint).opacity(0.13)), in: .rect(cornerRadius: 28))
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier(panel == .lyrics ? "player.lyrics.panel" : "player.queue.panel")
     }
-    private func beginLyricsEdit() { lyricText = engine.current?.lyrics ?? ""; editLyrics = true }
+    private func beginLyricsEdit() { lyricEditTrack = engine.current; lyricText = lyricEditTrack?.lyrics ?? ""; editLyrics = true }
     private var trackOptions: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(engine.current?.title ?? "현재 곡").font(.system(size: 15, weight: .semibold)).lineLimit(2).padding(.bottom, 8)
@@ -263,6 +310,7 @@ struct FullPlayerView: View {
                     Button("새 플레이리스트") { let playlist = store.createPlaylist("새 플레이리스트"); store.add(track, to: playlist); options = false }
                 }.padding(.vertical, 10)
                 Button { beginLyricsEdit(); options = false } label: { Label("가사 수정", systemImage: "square.and.pencil").frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 10) }
+                Button { lyricSearchTrack = track; options = false } label: { Label("가사 검색", systemImage: "magnifyingglass").frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 10) }
                 Button { engine.toggleAutoplay() } label: { Label(engine.autoplayEnabled ? "자동 추천 재생 켜짐" : "자동 추천 재생 꺼짐", systemImage: "infinity").frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 10) }
                 if let url = engine.externalYouTubeURL {
                     Link(destination: url) { Label("YouTube에서 열기", systemImage: "arrow.up.right.square").frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 10) }
@@ -270,6 +318,12 @@ struct FullPlayerView: View {
             }
             AirPlayButton().frame(height: 40)
         }.font(.system(size: 14)).buttonStyle(.plain).padding(20).frame(width: 270)
+    }
+}
+
+enum PlayerDismissal {
+    static func shouldClose(x: CGFloat, y: CGFloat, predictedY: CGFloat) -> Bool {
+        y > 35 && y > abs(x) * 1.3 && (y > 90 || predictedY > 180)
     }
 }
 

@@ -133,7 +133,7 @@ struct TrackRow: View {
                     if let number { Text(String(number)).font(.system(size: 12, design: .monospaced)).foregroundStyle(.secondary).frame(width: 20) }
                     Artwork(address: track.artwork, title: track.album.isEmpty ? track.title : track.album, size: 46, radius: 10)
                     VStack(alignment: .leading, spacing: 5) {
-                        Text(track.title).font(.system(size: 14, weight: .medium)).foregroundStyle(engine.current?.id == track.id ? .mint : .white).lineLimit(1)
+                        Text(track.title).font(.system(size: 14, weight: .medium)).foregroundStyle(engine.current?.recordingKey == track.recordingKey ? .mint : .white).lineLimit(1)
                         Text(track.artist).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
                     }.frame(maxWidth: .infinity, alignment: .leading)
                 }.contentShape(Rectangle())
@@ -262,7 +262,7 @@ struct CountryChart: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 12) {
                 Text(country.title + " · Top songs").font(.system(size: 28, weight: .bold, design: .rounded)).padding(.top, 16)
-                Text("Apple Music 국가별 인기곡").font(.system(size: 12)).foregroundStyle(.secondary).padding(.bottom, 12)
+                Text("Apple 국가별 인기곡 · 최대 100곡").font(.system(size: 12)).foregroundStyle(.secondary).padding(.bottom, 12)
                 if loading { ProgressView().frame(maxWidth: .infinity) }
                 if let error { RetryMessage(message: error) { Task { await load() } } }
                 ForEach(Array(songs.enumerated()), id: \.element.id) { index, song in TrackRow(track: song, number: index + 1) { store.play(songs, at: index) } }

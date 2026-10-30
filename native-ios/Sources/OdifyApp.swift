@@ -101,7 +101,15 @@ struct RootView: View {
             }
             .animation(reduceMotion ? nil : .smooth(duration: 0.3), value: sidebar)
             .animation(reduceMotion ? nil : .smooth(duration: 0.22), value: page)
-            .fullScreenCover(isPresented: $fullPlayer) { FullPlayerView() }
+            .overlay {
+                if fullPlayer {
+                    FullPlayerView(close: { fullPlayer = false })
+                        .environmentObject(store).environmentObject(engine)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                        .zIndex(30)
+                }
+            }
+            .animation(reduceMotion ? nil : .spring(response: 0.48, dampingFraction: 0.88), value: fullPlayer)
             .sheet(isPresented: $showAbout) { AboutView() }
             .sheet(isPresented: $showDrive) { DriveBrowser() }
             .fileImporter(isPresented: $importer, allowedContentTypes: [.audio, .mpeg4Movie], allowsMultipleSelection: true) { result in

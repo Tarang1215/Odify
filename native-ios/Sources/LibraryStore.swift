@@ -45,6 +45,7 @@ import UniformTypeIdentifiers
         notice = loadError
         engine.onCheckpoint = { [weak self] in self?.save() }
         engine.onTrackMetadata = { [weak self] track in self?.remember(track) }
+        engine.preferSource = { [weak self] track in self?.preferredTrack(track) ?? track }
         engine.onNeedMore = { [weak self] track in self?.prepareRecommendations(after: track) }
         engine.$queue.dropFirst().sink { [weak self] _ in self?.scheduleSave() }.store(in: &subscriptions)
         if preview { chart = loaded.tracks }
@@ -95,7 +96,11 @@ import UniformTypeIdentifiers
     func play(_ tracks: [Track], at index: Int = 0) {
         recommendationTask?.cancel(); recommendationTask = nil
         recommendationGeneration = UUID()
-        tracks.forEach(remember); engine.play(tracks, at: index)
+        let resolved = tracks.map(preferredTrack)
+        resolved.forEach(remember); engine.play(resolved, at: index)
+    }
+    func preferredTrack(_ track: Track) -> Track {
+        PlaybackSourcePreference.resolve(track, library: tracks, account: DriveAccount.shared.accountHash, documents: documents)
     }
     func toggleLike(_ track: Track) {
         remember(track)

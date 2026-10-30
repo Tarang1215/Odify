@@ -43,6 +43,7 @@ import UIKit
     var onCheckpoint: (() -> Void)?
     var onNeedMore: ((Track) -> Void)?
     var onTrackMetadata: ((Track) -> Void)?
+    var preferSource: ((Track) -> Track)?
     var diagnostics: [String] = []
     private let documents: URL
     private let trace: PlaybackTrace
@@ -64,6 +65,7 @@ import UIKit
     private var startTask: Task<Void, Never>?
     private var prefetchTask: Task<Void, Never>?
     private var artworkTask: Task<Void, Never>?
+    private var artworkIdentity: String?
     private var stallTask: Task<Void, Never>?
     private var generation = UUID()
     private var prefetchGeneration = UUID()
@@ -265,7 +267,7 @@ import UIKit
         onCheckpoint?()
     }
     func enqueue(_ track: Track) {
-        queue.entries.append(QueueEntry(track: track))
+        queue.entries.append(QueueEntry(track: preferSource?(track) ?? track))
         if queue.currentID == nil { queue.currentID = queue.entries.first?.id }
         rebuildUpcoming(); onCheckpoint?()
     }
@@ -286,7 +288,7 @@ import UIKit
     }
     func appendRecommendations(_ tracks: [Track]) {
         guard !tracks.isEmpty else { return }
-        queue.entries.append(contentsOf: tracks.map { QueueEntry(track: $0) })
+        queue.entries.append(contentsOf: tracks.map { QueueEntry(track: preferSource?($0) ?? $0) })
         if waitingForRecommendations, wantsPlayback, let id = queue.currentID,
            let next = queue.successor(after: id, automatic: false) {
             jump(next.id, userInitiated: false); return
@@ -313,6 +315,11 @@ import UIKit
     }
 
     private func startCurrent(resume: Double = 0, refresh: Bool = false) {
+        if let index = queue.currentIndex, let preferSource {
+            let track = queue.entries[index].track
+            let resolved = preferSource(track)
+            if resolved != track { queue.entries[index].track = resolved }
+        }
         startTask?.cancel(); prefetchTask?.cancel(); stallTask?.cancel(); stallTask = nil
         generation = UUID(); let request = generation
         // AVPlayer.Status.failed is terminal for that player instance.
@@ -697,8 +704,9 @@ import UIKit
                 return
             }
             wantsPlayback = intent
-            isPlaying = intent && state == 1
-            isBuffering = intent && [-1, 2, 3].contains(state)
+            let playing = intent && state == 1, buffering = intent && [-1, 2, 3, 5].contains(state)
+            if isPlaying != playing { isPlaying = playing }
+            if isBuffering != buffering { isBuffering = buffering }
             if state == 1 {
                 error = nil
                 if !wasPlaying {
@@ -840,6 +848,8 @@ import UIKit
     }
     private func publishNowPlaying(resetArtwork: Bool = false) {
         guard let track = current else { MPNowPlayingInfoCenter.default().nowPlayingInfo = nil; return }
+        let identity = track.id + "|" + (track.artwork ?? "")
+        let resetArtwork = resetArtwork && artworkIdentity != identity
         var info = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
         info[MPMediaItemPropertyTitle] = track.title
         info[MPMediaItemPropertyArtist] = track.artist
@@ -850,6 +860,7 @@ import UIKit
         info[MPNowPlayingInfoPropertyDefaultPlaybackRate] = 1.0
         info[MPNowPlayingInfoPropertyMediaType] = MPNowPlayingInfoMediaType.audio.rawValue
         if resetArtwork {
+            artworkIdentity = identity
             info.removeValue(forKey: MPMediaItemPropertyArtwork)
             let hue = Double(track.recordingKey.unicodeScalars.reduce(0) { ($0 + Int($1.value)) % 360 }) / 360
             tint = UIColor(hue: hue, saturation: 0.35, brightness: 0.42, alpha: 1)

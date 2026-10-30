@@ -144,4 +144,41 @@ import XCTest
         XCTAssertEqual(context.evaluateScript("video")?.toString(), "lmnopqrstuv")
         XCTAssertNil(context.exception)
     }
+    func testInitialAndDelayedPausedEventsDoNotCancelARequestedStart() throws {
+        let context = try XCTUnwrap(JSContext())
+        context.evaluateScript("""
+        var window=this,messages=[];window.webkit={messageHandlers:{odify:{postMessage:function(v){messages.push(v)}}}};
+        function setInterval(){};var fakeState=2,current=0,options,video='abcdefghijk';
+        var YT={Player:function(id,o){options=o;this.getVideoData=function(){return {video_id:video}};
+        this.getPlayerState=function(){return fakeState};this.getCurrentTime=function(){return current};
+        this.getDuration=function(){return 180};this.playVideo=function(){};this.pauseVideo=function(){};
+        this.seekTo=function(t){current=t};this.loadVideoById=function(v){video=v.videoId};}};
+        """)
+        let html = YouTubeWebPlayback.html(videoID: "abcdefghijk", origin: "https://com.odify.music.ios", request: UUID(), position: 0, visible: true)
+        let script = try XCTUnwrap(html.components(separatedBy: "<script>").last?.components(separatedBy: "</script>").first)
+        context.evaluateScript(script)
+        context.evaluateScript("onYouTubeIframeAPIReady();options.events.onReady();snapshot()")
+        XCTAssertEqual(context.evaluateScript("messages[messages.length-1].intent")?.toBool(), true)
+        context.evaluateScript("odifyPlay();Date.now=function(){return 99999999999999};options.events.onStateChange({data:2});snapshot()")
+        XCTAssertEqual(context.evaluateScript("messages[messages.length-1].intent")?.toBool(), true)
+        context.evaluateScript("fakeState=1;options.events.onStateChange({data:1});odifyPause();fakeState=2;options.events.onStateChange({data:2});snapshot()")
+        XCTAssertEqual(context.evaluateScript("messages[messages.length-1].intent")?.toBool(), false)
+        context.evaluateScript("odifyLoad('lmnopqrstuv','next',0,true);video='abcdefghijk';fakeState=0;var count=messages.length;options.events.onStateChange({data:0});snapshot()")
+        XCTAssertEqual(context.evaluateScript("messages.length===count")?.toBool(), true)
+        XCTAssertNil(context.exception)
+    }
+    func testPreferredOwnedSourceBypassesTheWebPlayerAndStartsNativeAudio() async throws {
+        let root = try directory(), driver = WebDriverFixture()
+        let original = try XCTUnwrap(Bundle(for: YouTubeWebPlaybackTests.self).url(forResource: "silence-320k", withExtension: "mp3"))
+        try FileManager.default.copyItem(at: original, to: root.appendingPathComponent("owned.mp3"))
+        let owned = Track(id: "owned", title: a.title, artist: a.artist, source: .local, localFile: "owned.mp3", duration: 4)
+        let engine = PlaybackEngine(documents: root, autoplay: false, youtubeWebPlayer: driver)
+        defer { engine.shutdown(); try? FileManager.default.removeItem(at: root) }
+        engine.player.volume = 0; engine.preferSource = { _ in owned }; engine.play([a])
+        for _ in 0..<150 {
+            if engine.player.rate > 0 { break }; try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertEqual(engine.current?.id, "owned"); XCTAssertFalse(engine.usingYouTubeWebPlayer)
+        XCTAssertTrue(driver.loads.isEmpty); XCTAssertGreaterThan(engine.player.rate, 0)
+    }
 }
