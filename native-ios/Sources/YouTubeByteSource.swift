@@ -16,8 +16,14 @@ actor YouTubeByteSource {
     let length: Int64
     private let url: URL
     private let session: URLSession
-    private let prefix: Data
+    private var prefix: Data
     private let ownsSession: Bool
+    private let blockSize: Int64 = 131_072
+    private let cacheLimit = 8
+    private var cache: [Int64: Data] = [:]
+    private var recent: [Int64] = []
+    private var pending: [Int64: (UUID, Task<Data, Error>)] = [:]
+    private var closed = false
 
     private init(url: URL, session: URLSession, length: Int64, prefix: Data, ownsSession: Bool) {
         self.url = url; self.session = session; self.length = length; self.prefix = prefix; self.ownsSession = ownsSession
@@ -32,48 +38,102 @@ actor YouTubeByteSource {
         config.timeoutIntervalForRequest = 15; config.timeoutIntervalForResource = 30
         let session = injected ?? URLSession(configuration: config, delegate: AudioRedirects(), delegateQueue: nil)
         do {
-            let (bytes, total) = try await fetch(url, session: session, start: 0, length: 1024, expectedSize: nil)
+            let (bytes, total) = try await fetch(url, session: session, start: 0, length: 32_768, expectedSize: nil)
             return YouTubeByteSource(url: url, session: session, length: total, prefix: bytes, ownsSession: injected == nil)
         } catch { if injected == nil { session.invalidateAndCancel() }; throw error }
     }
-    func close() { if ownsSession { session.invalidateAndCancel() } }
+    func close() {
+        guard !closed else { return }; closed = true
+        pending.values.forEach { $0.1.cancel() }; pending.removeAll()
+        cache.removeAll(); recent.removeAll(); prefix = Data()
+        if ownsSession { session.invalidateAndCancel() }
+    }
+    /// Prepare both decoding metadata and the start of a successor while the
+    /// current song still provides the app's background-audio lifetime.
+    func warmStart() async throws {
+        _ = try await range(start: 0, length: min(blockSize, length))
+        let tail = max(0, length - min(65_536, length))
+        _ = try await range(start: tail, length: length - tail)
+    }
+    var bufferedByteCount: Int { prefix.count + cache.values.reduce(0) { $0 + $1.count } }
     func range(start: Int64, length: Int64) async throws -> Data {
+        try Task.checkCancellation()
+        guard !closed else { throw CancellationError() }
         guard start >= 0, length > 0, length <= 262_144, start < self.length else { throw OdifyError.message("올바른 YouTube 음원 구간이 아닙니다.") }
         let count = min(length, self.length - start)
         if start + count <= Int64(prefix.count) { return prefix.subdata(in: Int(start)..<Int(start + count)) }
-        return try await Self.fetch(url, session: session, start: start, length: count, expectedSize: self.length).0
+        var result = Data(); result.reserveCapacity(Int(count))
+        var cursor = start
+        while cursor < start + count {
+            let offset = cursor / blockSize * blockSize
+            let bytes = try await block(at: offset)
+            try Task.checkCancellation()
+            guard !closed else { throw CancellationError() }
+            let lower = Int(cursor - offset)
+            let take = min(bytes.count - lower, Int(start + count - cursor))
+            guard take > 0 else { throw OdifyError.message("YouTube 음원 구간이 비어 있습니다.") }
+            result.append(bytes.subdata(in: lower..<(lower + take)))
+            cursor += Int64(take)
+        }
+        return result
+    }
+    private func block(at offset: Int64) async throws -> Data {
+        guard !closed else { throw CancellationError() }
+        if let bytes = cache[offset] { touch(offset); return bytes }
+        if let (_, task) = pending[offset] { return try await task.value }
+        // At most two network blocks per source, regardless of overlapping
+        // metadata/seek requests. Shared reads survive one caller's cancellation.
+        while pending.count >= 2 {
+            if let task = pending.values.first?.1 { _ = try? await task.value }
+            try Task.checkCancellation()
+            guard !closed else { throw CancellationError() }
+            if let bytes = cache[offset] { touch(offset); return bytes }
+            if let (_, task) = pending[offset] { return try await task.value }
+            // Let the completed block's owner commit/clear its pending entry.
+            await Task.yield()
+        }
+        let token = UUID(), count = min(blockSize, length - offset)
+        let seed = offset == 0 ? prefix : Data()
+        let url = self.url, session = self.session, total = length
+        let task = Task<Data, Error> {
+            if Int64(seed.count) == count { return seed }
+            let rest = try await Self.fetch(url, session: session, start: offset + Int64(seed.count),
+                                            length: count - Int64(seed.count), expectedSize: total).0
+            var bytes = seed; bytes.append(rest); return bytes
+        }
+        pending[offset] = (token, task)
+        do {
+            let bytes = try await task.value
+            guard !closed else { throw CancellationError() }
+            if pending[offset]?.0 == token { pending.removeValue(forKey: offset) }
+            cache[offset] = bytes; touch(offset)
+            while recent.count > cacheLimit { cache.removeValue(forKey: recent.removeFirst()) }
+            return bytes
+        } catch {
+            if pending[offset]?.0 == token { pending.removeValue(forKey: offset) }
+            throw error
+        }
+    }
+    private func touch(_ offset: Int64) {
+        recent.removeAll { $0 == offset }; recent.append(offset)
     }
     private static func fetch(_ url: URL, session: URLSession, start: Int64, length: Int64, expectedSize: Int64?) async throws -> (Data, Int64) {
         try Task.checkCancellation()
-        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 15)
+        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 8)
         request.httpShouldHandleCookies = false
         request.setValue(YouTubeAudio.userAgent, forHTTPHeaderField: "User-Agent")
         request.setValue("bytes=\(start)-\(start + length - 1)", forHTTPHeaderField: "Range")
         request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
-        let (stream, response) = try await session.bytes(for: request)
-        guard let http = response as? HTTPURLResponse else { throw OdifyError.message("YouTube 음원 응답이 없습니다.") }
-        if [401, 403, 429].contains(http.statusCode) {
-            throw AudioHTTPFailure(statusCode: http.statusCode)
+        for attempt in 0..<2 {
+            do { return try await AudioRangeTransfer(start: start, length: length, expectedSize: expectedSize).receive(request, session: session) }
+            catch {
+                try Task.checkCancellation()
+                guard attempt == 0, let network = error as? URLError,
+                      [.timedOut, .networkConnectionLost, .cannotConnectToHost].contains(network.code) else { throw error }
+                try await Task.sleep(for: .milliseconds(250))
+            }
         }
-        guard http.statusCode == 206,
-              let header = http.value(forHTTPHeaderField: "Content-Range"), let range = DriveByteRange.parse(header),
-              range.start == start, range.end == min(range.total - 1, start + length - 1),
-              expectedSize == nil || range.total == expectedSize else {
-            throw OdifyError.message("YouTube 음원 구간 응답을 확인하지 못했습니다 (HTTP \(http.statusCode)).")
-        }
-        let mime = http.mimeType?.lowercased() ?? ""
-        guard mime == "audio/mp4" || mime == "audio/x-m4a" || mime == "application/octet-stream" else {
-            throw OdifyError.message("YouTube 서버가 오디오 대신 다른 응답을 보냈습니다.")
-        }
-        let count = Int(range.end - range.start + 1)
-        var data = Data(); data.reserveCapacity(count)
-        for try await byte in stream {
-            try Task.checkCancellation()
-            guard data.count < count else { throw OdifyError.message("YouTube 음원 구간 길이가 일치하지 않습니다.") }
-            data.append(byte)
-        }
-        guard data.count == count else { throw OdifyError.message("YouTube 음원 연결이 중단되었습니다.") }
-        return (data, range.total)
+        throw URLError(.timedOut)
     }
 }
 

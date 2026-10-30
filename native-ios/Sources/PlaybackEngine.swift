@@ -48,6 +48,7 @@ import UIKit
     private let youtubeSession: URLSession?
     private let driveClient: DriveClient
     private var itemIDs: [ObjectIdentifier: String] = [:]
+    private var activeItemKey: ObjectIdentifier?
     private var observations: [NSKeyValueObservation] = []
     private var itemObservations: [ObjectIdentifier: NSKeyValueObservation] = [:]
     private var driveLoaders: [ObjectIdentifier: DriveResourceLoader] = [:]
@@ -286,6 +287,7 @@ import UIKit
                 if self.wantsPlayback { try self.activateAudio() }
                 let item = try await self.makeItem(url, entry: entry)
                 guard !Task.isCancelled, self.generation == request else { self.discard(item); return }
+                self.activeItemKey = ObjectIdentifier(item)
                 self.player.insert(item, after: nil)
                 if resume > 0 { await self.player.seek(to: CMTime(seconds: resume, preferredTimescale: 600)) }
                 guard self.generation == request else { return }
@@ -303,7 +305,7 @@ import UIKit
             }
         }
     }
-    private func makeItem(_ url: URL, entry: QueueEntry) async throws -> AVPlayerItem {
+    private func makeItem(_ url: URL, entry: QueueEntry, prepareAhead: Bool = false) async throws -> AVPlayerItem {
         let asset: AVURLAsset
         let loader: DriveResourceLoader?
         if entry.track.driveFileID != nil {
@@ -313,11 +315,24 @@ import UIKit
             loader = delegate
         } else if YouTubeByteSource.trusted(url) {
             let source = try await YouTubeByteSource.open(url, session: youtubeSession)
-            do { try Task.checkCancellation() }
+            do {
+                if prepareAhead {
+                    try await source.warmStart()
+                    trace.record("next-audio-warmed", source: .youtube)
+                }
+                try Task.checkCancellation()
+            }
             catch { await source.close(); throw error }
             asset = AVURLAsset(url: URL(string: "odify-audio://media/\(UUID().uuidString).m4a")!)
-            let delegate = DriveResourceLoader(length: source.length, contentType: "public.mpeg-4-audio", onClose: { Task { await source.close() } }) { start, count in
-                try await source.range(start: start, length: count)
+            let trace = trace
+            let delegate = DriveResourceLoader(length: source.length, contentType: "public.mpeg-4-audio", chunkSize: 131_072, onClose: { Task { await source.close() } }) { start, count in
+                do { return try await source.range(start: start, length: count) }
+                catch {
+                    if !Self.isCancelledRequest(error) {
+                        await trace.record("audio-range-failed", source: .youtube, error: error)
+                    }
+                    throw error
+                }
             }
             asset.resourceLoader.setDelegate(delegate, queue: delegate.queue); loader = delegate
             Self.log.notice("[OdifyPlayback] youtube-audio-range-verified")
@@ -381,7 +396,10 @@ import UIKit
             self.prefetchTask?.cancel()
         }
         prefetchTask = Task { [weak self] in
-            defer { background.end() }
+            defer {
+                background.end()
+                if self?.prefetchGeneration == request { self?.prefetchTask = nil }
+            }
             guard let self else { return }
             var lastItem = lastPrepared
             var count = retained
@@ -390,7 +408,7 @@ import UIKit
                     let url = try await self.resolveSource(entry.track, self.documents, false)
                     try Task.checkCancellation()
                     guard self.prefetchGeneration == request, self.player.items().contains(where: { $0 === lastItem }) else { return }
-                    let item = try await self.makeItem(url, entry: entry)
+                    let item = try await self.makeItem(url, entry: entry, prepareAhead: true)
                     guard !Task.isCancelled, self.prefetchGeneration == request,
                           self.player.items().contains(where: { $0 === lastItem }) else { self.discard(item); return }
                     if self.player.canInsert(item, after: lastItem) {
@@ -415,7 +433,9 @@ import UIKit
     }
     private func currentItemChanged() {
         guard let item = player.currentItem, let id = itemIDs[ObjectIdentifier(item)] else { return }
-        let changed = queue.currentID != id
+        let key = ObjectIdentifier(item)
+        let changed = queue.currentID != id || activeItemKey != key
+        activeItemKey = key
         queue.currentID = id
         // A buffered successor can fail before it becomes current, in which
         // case its status KVO has already fired. Handle that state on arrival.
@@ -573,7 +593,7 @@ import UIKit
         if failure is OdifyError || failure is YouTubeAudioFailure || failure is AudioHTTPFailure { return failure.localizedDescription }
         return "\(source?.rawValue ?? "음원") 재생 오류 · " + errorCodes(failure)
     }
-    static func isCancelledRequest(_ failure: Error) -> Bool {
+    nonisolated static func isCancelledRequest(_ failure: Error) -> Bool {
         if failure is CancellationError { return true }
         var value: NSError? = failure as NSError
         for _ in 0..<4 {
