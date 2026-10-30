@@ -41,6 +41,10 @@ struct RootView: View {
     @State private var importSource: MusicSource = .local
     @State private var showAbout = false
     @State private var showDrive = false
+    @State private var miniBounds = CGRect.zero
+    @State private var launchBounds = CGRect.zero
+    @State private var launchArtwork = "mini.artwork"
+    @Namespace private var playerMotion
 
     var body: some View {
         GeometryReader { geometry in
@@ -51,7 +55,7 @@ struct RootView: View {
                 NavigationStack {
                     Group {
                         switch page {
-                        case .home: HomeView()
+                        case .home: HomeView(onSearch: { page = .search }, onProfile: { showDrive = true })
                         case .explore: ExploreView()
                         case .search: SearchView()
                         case .library: LibraryView(importAction: importMusic)
@@ -74,14 +78,17 @@ struct RootView: View {
                 .id(page)
                 .transition(.opacity)
                 .tint(.white)
+                .toolbarBackground(.hidden, for: .navigationBar)
+                .contentMargins(.bottom, engine.current == nil ? (sidebar ? 24 : 100) : (sidebar ? 112 : 176), for: .scrollContent)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(OdifyPalette.background)
                 if inspector {
-                    NowPlayingPane(openFullPlayer: { fullPlayer = true })
+                    NowPlayingPane(openFullPlayer: { bounds, artwork in openPlayer(bounds: bounds, artwork: artwork) }, transitionNamespace: playerMotion)
                         .frame(width: min(342, geometry.size.width * 0.28))
-                        .padding(.trailing, 16).padding(.top, 14)
                 }
             }
             .background(MusicBackdrop(tint: Color(uiColor: engine.tint)))
-            .safeAreaInset(edge: .bottom, spacing: 10) {
+            .overlay(alignment: .bottom) {
                 VStack(spacing: 10) {
                     if let error = engine.error {
                         HStack(spacing: 12) {
@@ -95,7 +102,11 @@ struct RootView: View {
                             Button { engine.clearError() } label: { Image(systemName: "xmark").frame(width: 30, height: 30) }.accessibilityLabel("안내 닫기")
                         }.padding(14).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18)).padding(.horizontal, 20)
                     }
-                    if engine.current != nil { MiniPlayer(wide: sidebar, open: { fullPlayer = true }).padding(.horizontal, sidebar ? 20 : 12) }
+                    if engine.current != nil {
+                        MiniPlayer(wide: sidebar, open: { openPlayer(bounds: miniBounds, artwork: "mini.artwork") }, transitionNamespace: playerMotion)
+                            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { miniBounds = $0 }
+                            .padding(.horizontal, sidebar ? 20 : 12)
+                    }
                     if !sidebar { compactTabs.padding(.horizontal, 32) }
                 }.padding(.bottom, 8)
             }
@@ -103,9 +114,11 @@ struct RootView: View {
             .animation(reduceMotion ? nil : .smooth(duration: 0.22), value: page)
             .overlay {
                 if fullPlayer {
-                    FullPlayerView(close: { fullPlayer = false })
+                    FullPlayerView(close: { fullPlayer = false }, transitionNamespace: playerMotion, artworkTransitionID: launchArtwork)
                         .environmentObject(store).environmentObject(engine)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                        .transition(reduceMotion ? .opacity : .modifier(
+                            active: PlayerExpansion(source: launchBounds.isEmpty ? CGRect(x: 20, y: geometry.size.height - 90, width: geometry.size.width - 40, height: 72) : launchBounds, bounds: geometry.frame(in: .global), progress: 0),
+                            identity: PlayerExpansion(source: launchBounds, bounds: geometry.frame(in: .global), progress: 1)))
                         .zIndex(30)
                 }
             }
@@ -134,6 +147,7 @@ struct RootView: View {
                 await store.loadHome()
             }
         }
+        .background { KeyboardControls(perform: keyboardAction).frame(width: 0, height: 0) }
         .background(alignment: .topLeading) {
             if engine.usingYouTubeWebPlayer, let renderer = engine.youtubeWebHost {
                 YouTubeWebSurface(player: renderer).frame(width: 240, height: 240)
@@ -141,10 +155,25 @@ struct RootView: View {
             }
         }
     }
+    private func openPlayer(bounds: CGRect, artwork: String) {
+        launchBounds = bounds; launchArtwork = artwork; fullPlayer = true
+    }
+    private func keyboardAction(_ action: MusicKeyAction) {
+        switch action {
+        case .toggle: engine.toggle()
+        case .seek(let seconds): engine.seek(engine.clock.position + seconds)
+        case .next: engine.next()
+        case .previous: engine.previous()
+        case .volume(let delta): engine.adjustVolume(delta)
+        case .close: fullPlayer = false
+        case .search: fullPlayer = false; page = .search
+        case .page(let index): fullPlayer = false; page = MainPage.allCases[index]
+        }
+    }
     private func importMusic(_ source: MusicSource) { importSource = source; importer = true }
     private var navigationSidebar: some View {
         VStack(alignment: .leading, spacing: 28) {
-            HStack(spacing: 10) { Image(systemName: "waveform").foregroundStyle(.mint); Text("odify").font(.system(size: 29, weight: .bold, design: .rounded)) }
+            HStack(spacing: 10) { OdifyMark().fill(OdifyPalette.text).frame(width: 25, height: 30); Text("Odify").font(.system(size: 29, weight: .bold, design: .rounded)) }
                 .padding(.horizontal, 18).padding(.top, 28)
             VStack(spacing: 8) {
                 ForEach(MainPage.allCases) { item in
@@ -192,6 +221,9 @@ struct AboutView: View {
                 Section("재생") {
                     Text("앱 내부 AVQueuePlayer가 Local·Drive 가져온 파일과 연결 가능한 YouTube 오디오를 재생합니다. YouTube 연결은 서비스 변경이나 네트워크 환경에 따라 실패할 수 있습니다.")
                     Text("Google 계정에 연결하면 Drive 폴더를 탐색하고 음원을 바로 스트리밍할 수 있습니다. 선택한 음원 구간만 읽으며 파일을 수정하지 않습니다. Android의 기존 보관함·플레이리스트 자동 이전은 아직 포함되지 않았습니다.")
+                }
+                Section("키보드") {
+                    Text("Space: 재생·일시정지\n← / →: 5초 이동 · Shift: 15초 이동\n⌘← / ⌘→: 이전·다음 곡\n↑ / ↓: 앱 음량 조절\nEsc: 플레이어 접기\n⌘F: 검색 · ⌘1–4: 화면 전환")
                 }
                 Section("문제 확인") {
                     Text("재생 단계와 오류 코드만 기기 안에 최대 80개 기록합니다. 곡 제목·사진·계정·음원 주소·인증 토큰은 기록하지 않습니다.")

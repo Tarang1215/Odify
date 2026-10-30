@@ -18,7 +18,10 @@ enum YouTubeWebEvent {
     func seek(_ seconds: Double)
     func setActive(_ active: Bool)
     func stop()
+    func setVolume(_ volume: Float)
 }
+
+extension YouTubeWebPlaying { func setVolume(_ volume: Float) {} }
 
 struct YouTubeWebFailure: LocalizedError, CustomNSError {
     var code: Int
@@ -56,6 +59,7 @@ struct YouTubeWebFailure: LocalizedError, CustomNSError {
     private var searchNavigation: WKNavigation?
     private var wantsPlayback = false
     private var loaded = false
+    private var volume: Float = 1
     private var timeout: Task<Void, Never>?
 
     override init() {
@@ -121,6 +125,7 @@ struct YouTubeWebFailure: LocalizedError, CustomNSError {
         command("odifyPause()")
     }
     func seek(_ seconds: Double) { if seconds.isFinite { command("odifySeek(\(max(0, seconds)))") } }
+    func setVolume(_ volume: Float) { self.volume = max(0, min(1, volume)); command("odifyVolume(\(self.volume))") }
     func mount(_ mounted: Bool) {
         self.mounted = mounted; attached = mounted
         if mounted { command("odifyMounted(true)") }
@@ -144,6 +149,7 @@ struct YouTubeWebFailure: LocalizedError, CustomNSError {
               data["request"] as? String == request.uuidString, let kind = data["kind"] as? String else { return }
         if kind == "ready", !choosing {
             loaded = true
+            command("odifyVolume(\(volume))")
             command(wantsPlayback ? "odifyPlay()" : "odifyPause()")
         } else if kind == "state", !choosing {
             guard let state = data["state"] as? Int, [-1, 0, 1, 2, 3, 5].contains(state),
@@ -251,6 +257,7 @@ struct YouTubeWebFailure: LocalizedError, CustomNSError {
         function odifyLoad(id,request,t,play){if(!ready)return false;tag=request;activeID=id;started=false;intent=play!==false;pending=intent?1:2;commanded=Date.now();
         if(intent)p.loadVideoById({videoId:id,startSeconds:t});else p.cueVideoById({videoId:id,startSeconds:t});return true}
         function odifySeek(t){if(ready)p.seekTo(t,true)}
+        function odifyVolume(v){if(ready&&p.setVolume)p.setVolume(v*100)}
         function odifyMounted(v){mounted=v;if(ready&&mounted&&intent)p.playVideo()}
         setInterval(snapshot,500);
         </script><script src="https://www.youtube.com/iframe_api"></script></body></html>

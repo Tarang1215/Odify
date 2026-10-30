@@ -135,7 +135,7 @@ struct GlassCircle: View {
 struct MusicBackdrop: View {
     var tint: Color = Color(red: 0.2, green: 0.38, blue: 0.34)
     var body: some View {
-        LinearGradient(colors: [tint.opacity(0.45), Color(red: 0.055, green: 0.065, blue: 0.075), .black], startPoint: .topLeading, endPoint: .bottomTrailing)
+        LinearGradient(colors: [OdifyPalette.surface, OdifyPalette.background], startPoint: .topLeading, endPoint: .bottomTrailing)
             .ignoresSafeArea()
     }
 }

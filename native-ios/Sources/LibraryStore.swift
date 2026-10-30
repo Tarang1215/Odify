@@ -12,6 +12,8 @@ import UniformTypeIdentifiers
     @Published var chart: [Track] = []
     @Published var homeLoading = false
     @Published private(set) var homeError: String?
+    @Published private(set) var listening: [ListenEvent] = []
+    private var listeningMeter = ListeningMeter()
     typealias HomeProvider = @Sendable () async throws -> [Track]
     private let homeProvider: HomeProvider
     private var homeFetchedAt: Date?
@@ -38,16 +40,28 @@ import UniformTypeIdentifiers
                 loadError = "보관함을 읽지 못해 복구 사본을 남겼습니다. 파일 앱의 Odify 폴더를 확인해 주세요."
             }
         }
-        if preview { loaded = PreviewLibrary.snapshot }
+        if preview {
+            loaded = PreviewLibrary.snapshot
+            if let fixture = Bundle.main.url(forResource: "preview-silence", withExtension: "wav") {
+                let folder = root.appendingPathComponent("OdifyPreview", isDirectory: true)
+                try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+                let target = folder.appendingPathComponent("silence.wav")
+                if !FileManager.default.fileExists(atPath: target.path) { try? FileManager.default.copyItem(at: fixture, to: target) }
+            }
+        }
         snapshot = loaded
         engine = PlaybackEngine(documents: root, queue: loaded.queue, position: loaded.position, autoplay: loaded.autoplay,
                                 youtubeWebPlayer: preview ? nil : YouTubeWebPlayback())
+        if !preview, let data = try? Data(contentsOf: root.appendingPathComponent("odify-listening-v1.json")), data.count < 500_000 {
+            listening = (try? JSONDecoder().decode([ListenEvent].self, from: data)) ?? []
+        }
         notice = loadError
         engine.onCheckpoint = { [weak self] in self?.save() }
         engine.onTrackMetadata = { [weak self] track in self?.remember(track) }
         engine.preferSource = { [weak self] track in self?.preferredTrack(track) ?? track }
         engine.onNeedMore = { [weak self] track in self?.prepareRecommendations(after: track) }
         engine.$queue.dropFirst().sink { [weak self] _ in self?.scheduleSave() }.store(in: &subscriptions)
+        engine.clock.$position.dropFirst().sink { [weak self] _ in self?.observeListening() }.store(in: &subscriptions)
         if preview { chart = loaded.tracks }
         else if let data = try? Data(contentsOf: root.appendingPathComponent("odify-home-chart-v1.json")),
                 data.count <= 500_000, let cached = try? JSONDecoder().decode(HomeCache.self, from: data) {
@@ -55,11 +69,29 @@ import UniformTypeIdentifiers
         }
     }
     var tracks: [Track] { snapshot.tracks }
+    var isPreview: Bool { preview }
+    var personalTracks: [Track] {
+        tracks.filter { $0.driveFileID == nil || $0.driveAccountHash == DriveAccount.shared.accountHash }
+    }
+    var mixes: [PersonalMix] { PersonalMixes.build(tracks: personalTracks, liked: snapshot.likedIDs, events: listening) }
+    var recentTracks: [Track] {
+        let byKey = Dictionary(personalTracks.map { ($0.recordingKey, $0) }, uniquingKeysWith: { first, _ in first })
+        return Track.unique(listening.sorted { $0.at > $1.at }.compactMap { byKey[$0.recordingKey] })
+    }
+    private func observeListening() {
+        guard !preview, let track = engine.current else { return }
+        if listeningMeter.sample(occurrence: engine.listeningOccurrence.uuidString, playing: engine.isPlaying, uptime: ProcessInfo.processInfo.systemUptime) {
+            listening = Array((listening.filter { Date().timeIntervalSince($0.at) <= 60 * 86400 } + [ListenEvent(occurrence: engine.listeningOccurrence.uuidString, recordingKey: track.recordingKey, at: Date())]).suffix(1000))
+            if let data = try? JSONEncoder().encode(listening) {
+                try? data.write(to: documents.appendingPathComponent("odify-listening-v1.json"), options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+            }
+        }
+    }
     var playlists: [MusicPlaylist] { snapshot.playlists }
     var liked: [Track] { tracks.filter { snapshot.likedIDs.contains($0.id) } }
     var artists: [Track] {
         var seen = Set<String>()
-        return (tracks + chart).filter { seen.insert(Track.normalized($0.artist)).inserted }
+        return (personalTracks.isEmpty ? chart : personalTracks).filter { seen.insert(Track.normalized($0.artist)).inserted }
     }
     func tracks(in playlist: MusicPlaylist) -> [Track] {
         let byID = Dictionary(tracks.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
@@ -291,10 +323,11 @@ enum PreviewLibrary {
         Track(id: "preview:5", title: "A Little Closer", artist: "Studio Glass", album: "Still / Moving", duration: 206)
     ]
     static var snapshot: LibrarySnapshot {
-        var value = LibrarySnapshot(tracks: tracks,
+        let fixtureTracks = tracks.map { track -> Track in var value = track; value.localFile = "OdifyPreview/silence.wav"; return value }
+        var value = LibrarySnapshot(tracks: fixtureTracks,
                                     playlists: [MusicPlaylist(name: "After hours", trackIDs: tracks.map(\.id)), MusicPlaylist(name: "조용히 집중할 때", trackIDs: tracks.prefix(3).map(\.id))],
                                     likedIDs: Set(tracks.prefix(2).map(\.id)))
-        value.queue.replace(tracks); value.position = 42
+        value.queue.replace(fixtureTracks); value.position = 42
         return value
     }
 }

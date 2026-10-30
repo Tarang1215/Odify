@@ -45,6 +45,7 @@ import UIKit
     var onTrackMetadata: ((Track) -> Void)?
     var preferSource: ((Track) -> Track)?
     var diagnostics: [String] = []
+    private(set) var listeningOccurrence = UUID()
     private let documents: URL
     private let trace: PlaybackTrace
     typealias SourceResolver = @Sendable (Track, URL, Bool) async throws -> URL
@@ -234,6 +235,10 @@ import UIKit
         savedPosition = clock.position; onCheckpoint?(); publishNowPlaying()
     }
     func toggle() { if wantsPlayback { pause() } else { resume() } }
+    func adjustVolume(_ delta: Float) {
+        player.volume = max(0, min(1, player.volume + delta))
+        webPlayback?.setVolume(player.volume)
+    }
     func seek(_ seconds: Double) {
         guard seconds.isFinite else { return }
         let position = max(0, min(clock.duration > 0 ? clock.duration : seconds, seconds))
@@ -315,6 +320,7 @@ import UIKit
     }
 
     private func startCurrent(resume: Double = 0, refresh: Bool = false) {
+        listeningOccurrence = UUID()
         if let index = queue.currentIndex, let preferSource {
             let track = queue.entries[index].track
             let resolved = preferSource(track)
@@ -553,7 +559,7 @@ import UIKit
         itemSourceKeys = itemSourceKeys.filter { currentItems.contains($0.key) }
         for key in itemObservations.keys.filter({ !currentItems.contains($0) }) { itemObservations.removeValue(forKey: key)?.invalidate() }
         for key in driveLoaders.keys.filter({ !currentItems.contains($0) }) { driveLoaders.removeValue(forKey: key)?.cancel() }
-        if changed { clock.position = 0; clock.duration = current?.duration ?? 0; savedPosition = 0 }
+        if changed { listeningOccurrence = UUID(); clock.position = 0; clock.duration = current?.duration ?? 0; savedPosition = 0 }
         if changed {
             diagnostics.append("advanced:\(id)"); if diagnostics.count > 40 { diagnostics.removeFirst() }
             trace.record("queue-advanced", source: current?.source)

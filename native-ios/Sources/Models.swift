@@ -30,8 +30,11 @@ struct Track: Identifiable, Codable, Hashable {
             .unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) }.map(String.init).joined()
     }
     static func unique(_ tracks: [Track]) -> [Track] {
-        var seen = Set<String>()
-        return tracks.filter { seen.insert($0.recordingKey).inserted }
+        var ids = Set<String>(), recordings = Set<String>()
+        return tracks.filter {
+            guard !ids.contains($0.id), !recordings.contains($0.recordingKey) else { return false }
+            ids.insert($0.id); recordings.insert($0.recordingKey); return true
+        }
     }
 }
 

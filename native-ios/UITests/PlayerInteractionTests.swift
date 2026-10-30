@@ -2,6 +2,7 @@ import XCTest
 
 final class PlayerInteractionTests: XCTestCase {
     private func launch() -> XCUIApplication {
+        XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication()
         app.launchArguments = ["--odify-preview", "--odify-player"]
         app.launch()
@@ -49,5 +50,59 @@ final class PlayerInteractionTests: XCTestCase {
         capture("queue-floating-panel", app: app)
         app.buttons["player.collapse"].tap()
         XCTAssertTrue(app.buttons["player.collapse"].waitForNonExistence(timeout: 4))
+    }
+    func testInspectorLaunchAndLandscapePresentation() {
+        XCUIDevice.shared.orientation = .landscapeLeft
+        let app = XCUIApplication(); app.launchArguments = ["--odify-preview", "--odify-landscape"]; app.launch()
+        let expand = app.buttons["player.inspector.expand"]
+        XCTAssertTrue(expand.waitForExistence(timeout: 15)); expand.tap()
+        XCTAssertTrue(app.buttons["player.collapse"].waitForExistence(timeout: 5))
+        capture("inspector-expanded-landscape", app: app)
+        app.buttons["player.collapse"].tap()
+        XCTAssertTrue(expand.waitForExistence(timeout: 5))
+        capture("home-landscape-integrated-inspector", app: app)
+    }
+    func testHomeEndClearsTheFloatingMiniPlayer() {
+        let app = launch(); app.buttons["player.collapse"].tap()
+        let end = app.staticTexts["home.end"]
+        for _ in 0..<8 { if end.isHittable { break }; app.swipeUp() }
+        XCTAssertTrue(end.isHittable)
+        let mini = app.buttons["player.expand"]
+        XCTAssertLessThanOrEqual(end.frame.maxY, mini.frame.minY)
+        capture("home-bottom-clearance", app: app)
+    }
+    func testArtistRowsRemainVisibleAfterScrollingBack() {
+        let app = launch(); app.buttons["player.collapse"].tap()
+        let artist = app.buttons["home.artist.preview:1"]
+        for _ in 0..<4 { if artist.isHittable { break }; app.swipeUp() }
+        XCTAssertTrue(artist.waitForExistence(timeout: 5)); artist.tap()
+        let first = app.buttons["track.play.preview:1"]
+        XCTAssertTrue(first.waitForExistence(timeout: 8)); XCTAssertTrue(first.isHittable)
+        let play = app.buttons["artist.play"]
+        XCTAssertLessThanOrEqual(play.frame.width, 48); XCTAssertLessThanOrEqual(play.frame.height, 48)
+        for _ in 0..<4 { app.swipeUp() }
+        for _ in 0..<7 { if first.isHittable { break }; app.swipeDown() }
+        XCTAssertTrue(first.isHittable)
+        capture("artist-rows-after-scroll", app: app)
+    }
+    func testHardwareKeyboardTransportAndTextEntry() {
+        let app = launch()
+        let seek = app.descendants(matching: .any).matching(identifier: "player.seek").firstMatch
+        app.typeKey(XCUIKeyboardKey.rightArrow, modifierFlags: [])
+        XCTAssertTrue(seek.value as? String == "0:47 / 4:04")
+        app.typeKey(XCUIKeyboardKey.leftArrow, modifierFlags: .shift)
+        XCTAssertTrue(seek.value as? String == "0:32 / 4:04")
+        app.typeKey(" ", modifierFlags: [])
+        let transport = app.buttons["player.transport"]
+        let playing = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@", "일시 정지"), object: transport)
+        XCTAssertEqual(XCTWaiter.wait(for: [playing], timeout: 5), .completed)
+        app.typeKey(" ", modifierFlags: [])
+        let paused = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@", "재생"), object: transport)
+        XCTAssertEqual(XCTWaiter.wait(for: [paused], timeout: 5), .completed)
+        app.buttons["player.lyrics.button"].tap(); app.buttons["가사 검색"].firstMatch.tap()
+        let field = app.textFields["lyrics.title"]
+        XCTAssertTrue(field.waitForExistence(timeout: 5)); field.tap()
+        field.typeText(" test words")
+        XCTAssertTrue((field.value as? String)?.contains("test words") == true)
     }
 }
