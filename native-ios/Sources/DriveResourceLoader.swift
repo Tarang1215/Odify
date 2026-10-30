@@ -37,7 +37,8 @@ final class DriveResourceLoader: NSObject, AVAssetResourceLoaderDelegate {
         let start = max(dataRequest?.requestedOffset ?? 0, dataRequest?.currentOffset ?? 0)
         // requestedLength includes any bytes already supplied. Resuming a
         // partially satisfied request must not add that length to currentOffset.
-        let requestedEnd = (dataRequest?.requestedOffset ?? 0) + Int64(dataRequest?.requestedLength ?? 0)
+        let offset = max(0, dataRequest?.requestedOffset ?? 0)
+        let requestedEnd = offset + min(Int64(max(0, dataRequest?.requestedLength ?? 0)), max(0, total - offset))
         let end = dataRequest?.requestsAllDataToEndOfResource == true ? total : max(start, min(total, requestedEnd))
         pending[key] = Task { [weak self] in
             guard let self else { return }
