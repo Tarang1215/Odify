@@ -132,12 +132,12 @@ struct FullPlayerView: View {
                        if wide {
                         HStack(spacing: 54) {
                             cover(size: coverSize)
-                            VStack(spacing: 24) { trackHeading; SeekBar(clock: engine.clock, seek: engine.seek); transport }.frame(maxWidth: 420)
+                            VStack(spacing: 24) { trackHeading; SeekBar(clock: engine.clock, seek: engine.seek).id(engine.queue.currentID); transport }.frame(maxWidth: 420)
                         }.frame(maxWidth: .infinity)
                        } else {
                         cover(size: coverSize)
                         trackHeading.padding(.top, 8)
-                        SeekBar(clock: engine.clock, seek: engine.seek)
+                        SeekBar(clock: engine.clock, seek: engine.seek).id(engine.queue.currentID)
                         transport
                        }
                        if let error = engine.error {
@@ -291,17 +291,66 @@ struct QueueList: View {
 struct SeekBar: View {
     @ObservedObject var clock: PlaybackClock
     var seek: (Double) -> Void
-    @State private var dragging = false
-    @State private var target: Double = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.layoutDirection) private var layoutDirection
+    @GestureState private var dragging = false
+    @State private var target: Double?
+    private var duration: Double { clock.duration.isFinite ? max(0, clock.duration) : 0 }
+    private var position: Double {
+        let value = dragging ? (target ?? clock.position) : clock.position
+        return value.isFinite ? min(duration, max(0, value)) : 0
+    }
     var body: some View {
-        VStack(spacing: 4) {
-            Slider(value: Binding(get: { dragging ? target : min(clock.position, max(1, clock.duration)) }, set: { target = $0 }), in: 0...max(1, clock.duration)) { editing in
-                dragging = editing
-                if !editing { seek(target) }
-            }.tint(.white.opacity(0.85)).disabled(clock.duration <= 0).accessibilityLabel("재생 위치")
-            HStack { Text(timeText(dragging ? target : clock.position)); Spacer(); Text("−" + timeText(max(0, clock.duration - (dragging ? target : clock.position)))) }
-                .font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary)
+        VStack(spacing: 0) {
+            GeometryReader { geometry in
+                Capsule().fill(.white.opacity(0.18))
+                    .overlay(alignment: .leading) {
+                        Capsule().fill(.white.opacity(dragging ? 0.95 : 0.65))
+                            .frame(width: geometry.size.width * (duration > 0 ? position / duration : 0))
+                    }
+                    .frame(height: dragging ? 8 : 4)
+                    .animation(reduceMotion ? nil : .smooth(duration: 0.18), value: dragging)
+                    .frame(maxHeight: .infinity)
+                    // The visible rail stays small; the complete 44pt region
+                    // remains available for touch and pointer scrubbing.
+                    .frame(maxWidth: .infinity).contentShape(Rectangle())
+                    .gesture(DragGesture(minimumDistance: 0)
+                        .updating($dragging) { _, active, _ in active = true }
+                        .onChanged { change in target = value(at: change.location.x, width: geometry.size.width) }
+                        .onEnded { change in
+                            let destination = value(at: change.location.x, width: geometry.size.width)
+                            target = nil
+                            if duration > 0 { seek(destination) }
+                        })
+            }.frame(height: 44)
+                .allowsHitTesting(duration > 0)
+            HStack {
+                Text(timeText(position))
+                Spacer()
+                Text("−" + timeText(max(0, duration - position)))
+            }.font(.caption2).monospacedDigit().foregroundStyle(.secondary)
+                .accessibilityHidden(true)
         }
+        .opacity(duration > 0 ? 1 : 0.5)
+        .onChange(of: dragging) { _, active in if !active { target = nil } }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("재생 위치")
+        .accessibilityValue("\(timeText(position)) / \(timeText(duration))")
+        .accessibilityHint("위아래로 쓸어 5초씩 이동합니다")
+        .accessibilityAdjustableAction { direction in
+            guard duration > 0 else { return }
+            switch direction {
+            case .increment: seek(min(duration, position + 5))
+            case .decrement: seek(max(0, position - 5))
+            @unknown default: break
+            }
+        }
+        .accessibilityIdentifier("player.seek")
+    }
+    private func value(at x: CGFloat, width: CGFloat) -> Double {
+        guard width > 0, duration > 0 else { return 0 }
+        let fraction = min(1, max(0, x / width))
+        return duration * Double(layoutDirection == .rightToLeft ? 1 - fraction : fraction)
     }
 }
 
