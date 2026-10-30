@@ -133,6 +133,7 @@ import UIKit
                 guard let self else { return }
                 self.isPlaying = self.player.timeControlStatus == .playing
                 self.isBuffering = self.player.timeControlStatus == .waitingToPlayAtSpecifiedRate
+                if self.isPlaying { self.trace.record("playing", source: self.current?.source) }
                 if self.isBuffering { self.monitorStall() }
                 else { self.stallTask?.cancel(); self.stallTask = nil }
                 self.publishNowPlaying()
@@ -424,8 +425,17 @@ import UIKit
         for key in itemObservations.keys.filter({ !currentItems.contains($0) }) { itemObservations.removeValue(forKey: key)?.invalidate() }
         for key in driveLoaders.keys.filter({ !currentItems.contains($0) }) { driveLoaders.removeValue(forKey: key)?.cancel() }
         if changed { clock.position = 0; clock.duration = current?.duration ?? 0; savedPosition = 0 }
-        if changed { diagnostics.append("advanced:\(id)"); if diagnostics.count > 40 { diagnostics.removeFirst() } }
-        publishNowPlaying(resetArtwork: true); rebuildUpcoming(); onCheckpoint?()
+        if changed {
+            diagnostics.append("advanced:\(id)"); if diagnostics.count > 40 { diagnostics.removeFirst() }
+            trace.record("queue-advanced", source: current?.source)
+        }
+        publishNowPlaying(resetArtwork: true)
+        // startCurrent already builds the successors after inserting/seeking
+        // the selected item. Its deferred KVO notification must not cancel
+        // and resolve those same network requests again. A real automatic
+        // transition does need to refill the prepared successors.
+        if changed { rebuildUpcoming() }
+        onCheckpoint?()
         if item.status == .readyToPlay { readDriveMetadata(item) }
         if autoplayEnabled, queue.repeatMode == .off, queue.upcoming.count < 3, let track = current { onNeedMore?(track) }
     }
