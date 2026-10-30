@@ -53,6 +53,7 @@ struct YouTubeWebFailure: LocalizedError, CustomNSError {
     private var searchTrack: Track?
     private var searchIndex = 0
     private var searchRead: Task<Void, Never>?
+    private var searchNavigation: WKNavigation?
     private var wantsPlayback = false
     private var loaded = false
     private var timeout: Task<Void, Never>?
@@ -162,10 +163,14 @@ struct YouTubeWebFailure: LocalizedError, CustomNSError {
     }
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) { navigationFailed(error) }
     private func navigationFailed(_ error: Error) {
+        guard (error as NSError).code != URLError.cancelled.rawValue else { return }
         if choosing { finishSearch(.failed((error as NSError).code)) }
         else { timeout?.cancel(); onEvent?(request, .failed((error as NSError).code)) }
     }
-    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) { timeout?.cancel(); onEvent?(request, .failed(-1)) }
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        if choosing { finishSearch(.failed(-1)) }
+        else { timeout?.cancel(); onEvent?(request, .failed(-1)) }
+    }
     private func scheduleTimeout(_ request: UUID) {
         guard timeout == nil else { return }
         timeout = Task { [weak self] in
@@ -175,7 +180,7 @@ struct YouTubeWebFailure: LocalizedError, CustomNSError {
         }
     }
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        guard choosing, let track = searchTrack else { return }
+        guard choosing, navigation === searchNavigation, let track = searchTrack else { return }
         guard ["www.youtube.com", "m.youtube.com"].contains(webView.url?.host ?? ""), webView.url?.path == "/results" else {
             finishSearch(.failed(-4)); return
         }
@@ -210,11 +215,11 @@ struct YouTubeWebFailure: LocalizedError, CustomNSError {
     private func loadSearchPage() {
         guard let track = searchTrack else { return }
         let query = YouTubeSearchParser.queries(for: track)[searchIndex]
-        view.load(URLRequest(url: MusicHTTP.url("https://www.youtube.com/results", ["search_query": query, "hl": "en"])))
+        searchNavigation = view.load(URLRequest(url: MusicHTTP.url("https://www.youtube.com/results", ["search_query": query, "hl": "en"])))
     }
     private func finishSearch(_ event: YouTubeWebEvent) {
         guard choosing else { return }
-        choosing = false; timeout?.cancel(); timeout = nil; searchRead?.cancel(); searchRead = nil
+        choosing = false; searchNavigation = nil; timeout?.cancel(); timeout = nil; searchRead?.cancel(); searchRead = nil
         onEvent?(request, event)
     }
     // YouTube mobile sometimes assigns JSON as a JavaScript string, whereas
