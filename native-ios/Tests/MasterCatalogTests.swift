@@ -22,6 +22,18 @@ private final class MasterSheetProtocol: URLProtocol {
 }
 
 final class MasterCatalogTests: XCTestCase {
+    func testMeomuruUserExamplePrefersODFDriveAudioAfterMasterMapping() throws {
+        let csv = "Track ID,곡명,아티스트,앨범\nODF999999,꿈꾸던 어른이 되었나요?,머무르,꿈꾸던 어른이 되었나요?\n"
+        let rows = try MasterCatalog.parse(Data(csv.utf8))
+        let file = Track(id: "drive:fixture", title: "ODF999999", artist: "Google Drive", source: .drive,
+                         driveFileID: "fixtureMeomuru", driveAccountHash: "fixture", fileSize: 100000,
+                         originalFilename: "ODF999999.mp3")
+        let library = MasterCatalog.apply(rows, to: [file], account: "fixture")
+        let requested = Track(id: "catalog:fixture", title: "꿈꾸던 어른이 되었나요", artist: "머무르")
+        let selected = PlaybackSourcePreference.resolve(requested, library: library, account: "fixture", documents: FileManager.default.temporaryDirectory)
+        XCTAssertEqual(selected.id, file.id); XCTAssertEqual(selected.source, .drive)
+        XCTAssertEqual(selected.driveFileID, file.driveFileID)
+    }
     func testCSVHandlesBOMQuotedCommasEscapedQuotesAndNewlines() throws {
         let csv = "\u{FEFF}Track ID,곡명,아티스트,앨범,Drive 파일 URL\r\nODF000001,\"Song, \"\"Two\"\"\nAgain\",Artist,Album,https://drive.google.com/file/d/file123/view\r\n"
         let rows = try MasterCatalog.parse(Data(csv.utf8))
