@@ -54,7 +54,7 @@ struct RootView: View {
                 NavigationStack {
                     Group {
                         switch page {
-                        case .home: HomeView(onSearch: { page = .search }, onProfile: { showDrive = true })
+                        case .home: HomeView(onSearch: { page = .search }, onProfile: { showDrive = true }, bottomClearance: engine.current == nil ? (sidebar ? 24 : 100) : (sidebar ? 112 : 176))
                         case .explore: ExploreView()
                         case .search: SearchView()
                         case .library: LibraryView(importAction: importMusic)
@@ -72,7 +72,7 @@ struct RootView: View {
                         }
                     }
                     .navigationDestination(for: MusicPlaylist.self) { PlaylistView(playlistID: $0.id) }
-                    .navigationDestination(for: Track.self) { ArtistView(artist: $0) }
+                    .navigationDestination(for: Track.self) { ArtistView(artist: $0, bottomClearance: engine.current == nil ? (sidebar ? 24 : 100) : (sidebar ? 112 : 176)) }
                 }
                 .id(page)
                 .transition(.opacity)

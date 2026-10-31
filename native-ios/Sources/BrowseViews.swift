@@ -3,6 +3,7 @@ import SwiftUI
 struct HomeView: View {
     var onSearch: () -> Void = {}
     var onProfile: () -> Void = {}
+    var bottomClearance: CGFloat = 112
     @EnvironmentObject private var store: LibraryStore
     @ObservedObject private var account = DriveAccount.shared
     @State private var category = "daily"
@@ -126,7 +127,8 @@ struct HomeView: View {
                 }
                 Text("Your music. Your rhythm.").font(.caption).foregroundStyle(OdifyPalette.muted).padding(.vertical, 14).accessibilityIdentifier("home.end")
             }.padding(24)
-        }.background(OdifyPalette.background).navigationTitle("").toolbarTitleDisplayMode(.inline)
+        }.contentMargins(.bottom, bottomClearance, for: .scrollContent)
+            .background(OdifyPalette.background).navigationTitle("").toolbarTitleDisplayMode(.inline)
             .refreshable { await store.loadHome(refresh: true) }
     }
 }
@@ -227,6 +229,7 @@ struct TrackCollectionView: View {
 
 struct ArtistView: View {
     let artist: Track
+    var bottomClearance: CGFloat = 112
     @EnvironmentObject private var store: LibraryStore
     @State private var songs: [Track] = []
     @State private var loading = true
@@ -256,6 +259,7 @@ struct ArtistView: View {
                     .frame(minHeight: 58).listRowBackground(Color.clear).listRowSeparator(.hidden)
             }
         }.listStyle(.plain).scrollContentBackground(.hidden).background(OdifyPalette.background)
+            .contentMargins(.bottom, bottomClearance, for: .scrollContent)
             .navigationTitle(artist.artist).toolbarTitleDisplayMode(.inline).task(id: artist.artist) { await load() }
     }
     private func ordered(_ tracks: [Track]) -> [Track] {
