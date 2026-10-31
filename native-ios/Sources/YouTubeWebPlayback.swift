@@ -158,6 +158,7 @@ struct YouTubeWebFailure: LocalizedError, CustomNSError {
               data["request"] as? String == request.uuidString, let kind = data["kind"] as? String else { return }
         if kind == "ready", !choosing {
             loaded = true
+            if state == 2, active, wantsPlayback { command("odifyRecoverStart()") }
             command("odifyVolume(\(volume))")
             command(wantsPlayback ? "odifyPlay()" : "odifyPause()")
         } else if kind == "state", !choosing {
@@ -170,8 +171,8 @@ struct YouTubeWebFailure: LocalizedError, CustomNSError {
             else if [-1, 2, 3].contains(state) { scheduleTimeout(request) }
             onEvent?(request, .state(state, position, duration, wantsPlayback))
         } else if kind == "error", let code = data["code"] as? Int {
-            timeout?.cancel(); onEvent?(request, .failed(code))
-        } else if kind == "blocked" { timeout?.cancel(); onEvent?(request, .needsTap) }
+            wantsPlayback = false; timeout?.cancel(); onEvent?(request, .failed(code))
+        } else if kind == "blocked" { wantsPlayback = false; timeout?.cancel(); onEvent?(request, .needsTap) }
     }
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
         if (error as NSError).code != URLError.cancelled.rawValue { navigationFailed(error) }
@@ -252,7 +253,7 @@ struct YouTubeWebFailure: LocalizedError, CustomNSError {
         <style>html,body{margin:0;width:100%;height:100%;background:#000}#player{width:100%;height:100%;position:absolute;inset:0}</style></head>
         <body><div id="player"></div><script>
         try{if(navigator.audioSession)navigator.audioSession.type='playback'}catch(e){}
-        var p,ready=false,mounted=\(visible ? "true" : "false"),intent=\(autoplay ? "true" : "false"),pending=\(autoplay ? "1" : "2"),started=false,activeID='\(videoID)',commanded=Date.now(),tag='\(request.uuidString)';
+        var p,ready=false,mounted=\(visible ? "true" : "false"),intent=\(autoplay ? "true" : "false"),pending=\(autoplay ? "1" : "2"),started=false,recovered=false,activeID='\(videoID)',commanded=Date.now(),tag='\(request.uuidString)';
         function send(kind,extra){window.webkit.messageHandlers.odify.postMessage(Object.assign({request:tag,kind:kind},extra||{}))}
         function currentVideo(){return !p.getVideoData||(p.getVideoData()||{}).video_id===activeID}
         function snapshot(){if(!ready||!currentVideo())return;var s=p.getPlayerState();if(s===0&&!started)return;send('state',{state:s,position:p.getCurrentTime()||0,duration:p.getDuration()||0,intent:intent})}
@@ -262,9 +263,10 @@ struct YouTubeWebFailure: LocalizedError, CustomNSError {
         onStateChange:function(e){if(!currentVideo())return;if(e.data===1){if(pending===2){p.pauseVideo();return}started=true;intent=true;pending=0}
         if(e.data===2&&pending===1&&!started)return;snapshot()},
         onError:function(e){intent=false;pending=0;send('error',{code:e.data})},onAutoplayBlocked:function(){intent=false;pending=0;send('blocked')}}})}
-        function odifyPlay(){intent=true;pending=1;commanded=Date.now();if(ready&&mounted)p.playVideo()}
+        function odifyPlay(){intent=true;pending=1;recovered=false;commanded=Date.now();if(ready&&mounted)p.playVideo()}
+        function odifyRecoverStart(){if(ready&&mounted&&intent&&!recovered){recovered=true;p.playVideo()}}
         function odifyPause(){intent=false;pending=2;commanded=Date.now();if(ready)p.pauseVideo()}
-        function odifyLoad(id,request,t,play){if(!ready)return false;tag=request;activeID=id;started=false;intent=play!==false;pending=intent?1:2;commanded=Date.now();
+        function odifyLoad(id,request,t,play){if(!ready)return false;tag=request;activeID=id;started=false;recovered=false;intent=play!==false;pending=intent?1:2;commanded=Date.now();
         if(intent)p.loadVideoById({videoId:id,startSeconds:t});else p.cueVideoById({videoId:id,startSeconds:t});return true}
         function odifySeek(t){if(ready)p.seekTo(t,true)}
         function odifyVolume(v){if(ready&&p.setVolume)p.setVolume(v*100)}
