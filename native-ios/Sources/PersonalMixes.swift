@@ -30,6 +30,7 @@ struct PersonalMix: Identifiable {
 }
 
 enum PersonalMixes {
+    private struct ScoredTrack { var track: Track; var score: Double }
     static func build(tracks: [Track], liked: Set<String>, events: [ListenEvent], now: Date = Date()) -> [PersonalMix] {
         let catalog = Track.unique(tracks).sorted { $0.id < $1.id }
         let likedKeys = Set(tracks.filter { liked.contains($0.id) }.map(\.recordingKey))
@@ -42,19 +43,32 @@ enum PersonalMixes {
             let weight = (likedKeys.contains(track.recordingKey) ? 3.0 : 0) + log(1 + Double(plays.count)) * exp(-max(0, age) / 21)
             artists[Track.normalized(track.artist), default: 0] += weight
         }
-        let scored = catalog.map { track -> (Track, Double) in
-            let score = artists[Track.normalized(track.artist), default: 0] * 2 + (likedKeys.contains(track.recordingKey) ? 1.0 : 0)
-            return (track, score / (1 + Double(grouped[track.recordingKey]?.count ?? 0) * 0.15))
-        }.filter { $0.1 > 0 }.sorted { $0.1 == $1.1 ? $0.0.id < $1.0.id : $0.1 > $1.1 }
+        var scored: [ScoredTrack] = []
+        for track in catalog {
+            let artistWeight: Double = artists[Track.normalized(track.artist), default: 0]
+            let likeWeight: Double = likedKeys.contains(track.recordingKey) ? 1 : 0
+            let playCount: Int = grouped[track.recordingKey]?.count ?? 0
+            let repetitionPenalty: Double = 1.0 + Double(playCount) * 0.15
+            let score: Double = (artistWeight * 2.0 + likeWeight) / repetitionPenalty
+            if score > 0 { scored.append(ScoredTrack(track: track, score: score)) }
+        }
+        scored.sort { a, b in
+            if a.score == b.score { return a.track.id < b.track.id }
+            return a.score > b.score
+        }
         var counts: [String: Int] = [:]
         let daily = scored.compactMap { pair -> Track? in
-            let artist = Track.normalized(pair.0.artist)
+            let artist = Track.normalized(pair.track.artist)
             guard counts[artist, default: 0] < 3 else { return nil }
-            counts[artist, default: 0] += 1; return pair.0
+            counts[artist, default: 0] += 1; return pair.track
         }
         let repeats = catalog.filter { grouped[$0.recordingKey] != nil }.sorted { a, b in
             let x = grouped[a.recordingKey] ?? [], y = grouped[b.recordingKey] ?? []
-            return x.count == y.count ? (x.map(\.at).max() ?? .distantPast) > (y.map(\.at).max() ?? .distantPast) : x.count > y.count
+            if x.count != y.count { return x.count > y.count }
+            let lastA: Date = x.map(\.at).max() ?? .distantPast
+            let lastB: Date = y.map(\.at).max() ?? .distantPast
+            if lastA == lastB { return a.id < b.id }
+            return lastA > lastB
         }
         let short = catalog.filter { $0.duration <= 0 || (45...900).contains($0.duration) }
         let day = Int(now.timeIntervalSince1970 / 86400)
