@@ -288,6 +288,17 @@ import UIKit
         for index in queue.entries.indices where queue.entries[index].track.id == track.id { queue.entries[index].track = track }
         publishNowPlaying(resetArtwork: current?.id == track.id); onCheckpoint?()
     }
+    func updateMetadata(_ tracks: [Track]) {
+        let values = Dictionary(tracks.map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })
+        var updated = queue
+        for index in updated.entries.indices {
+            if let track = values[updated.entries[index].track.id] { updated.entries[index].track = track }
+        }
+        guard updated != queue else { return }
+        let artworkChanged = current?.artwork != updated.current?.track.artwork
+        queue = updated
+        publishNowPlaying(resetArtwork: artworkChanged); onCheckpoint?()
+    }
     func clearError() { error = nil }
     func recordHomeFailure(_ failure: Error) { trace.record("home-catalog-failed", source: nil, error: failure) }
     func toggleAutoplay() {

@@ -217,4 +217,20 @@ import XCTest
         engine.next(); try await waitForLoads(2, driver)
         XCTAssertEqual(driver.loadIntents.last, true)
     }
+    func testBulkMasterMetadataKeepsPlaybackAndOccurrenceIDsWithOneCheckpoint() async throws {
+        let root = try directory(), driver = WebDriverFixture()
+        let tracks = (0..<1000).map { Track(id: "row:\($0)", title: "ODF \($0)", artist: "Artist", videoID: "abcdefghijk") }
+        let engine = PlaybackEngine(documents: root, autoplay: false, youtubeWebPlayer: driver)
+        defer { engine.shutdown(); try? FileManager.default.removeItem(at: root) }
+        engine.play(tracks); try await waitForLoads(1, driver)
+        driver.event(.state(1, 12, 180, true))
+        let ids = engine.queue.entries.map(\.id), currentID = engine.queue.currentID
+        let renamed = tracks.map { original -> Track in var value = original; value.title = "Corrected " + original.id; value.metadataOrigin = "master"; return value }
+        var checkpoints = 0; engine.onCheckpoint = { checkpoints += 1 }
+        engine.updateMetadata(renamed)
+        XCTAssertEqual(checkpoints, 1); XCTAssertEqual(engine.queue.entries.map(\.id), ids)
+        XCTAssertEqual(engine.queue.currentID, currentID); XCTAssertEqual(engine.clock.position, 12)
+        XCTAssertTrue(engine.isPlaying); XCTAssertEqual(driver.loads.count, 1)
+        XCTAssertTrue(engine.queue.entries.allSatisfy { $0.track.metadataOrigin == "master" })
+    }
 }

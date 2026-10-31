@@ -147,7 +147,7 @@ import UniformTypeIdentifiers
             let corrected = MasterCatalog.apply(rows, to: snapshot.tracks, account: account)
             let changed = zip(snapshot.tracks, corrected).filter { $0.0 != $0.1 }.map { $0.1 }
             snapshot.tracks = corrected
-            for track in changed { engine.update(track) }
+            engine.updateMetadata(changed)
             if !changed.isEmpty { save() }
             return "MASTER 곡 정보 \(changed.count)곡을 연결했습니다."
         } catch is CancellationError { return nil }
