@@ -86,6 +86,7 @@ struct RootView: View {
                         .frame(width: min(342, geometry.size.width * 0.28))
                 }
             }
+            .accessibilityHidden(fullPlayer).allowsHitTesting(!fullPlayer)
             .background(MusicBackdrop(tint: Color(uiColor: engine.tint)))
             .overlay(alignment: .bottom) {
                 VStack(spacing: 10) {
@@ -108,7 +109,7 @@ struct RootView: View {
                             .opacity(fullPlayer ? 0 : 1).accessibilityHidden(fullPlayer)
                     }
                     if !sidebar { compactTabs.padding(.horizontal, 32) }
-                }.padding(.bottom, 8)
+                }.padding(.bottom, 8).accessibilityHidden(fullPlayer).allowsHitTesting(!fullPlayer)
             }
             .animation(reduceMotion ? nil : .smooth(duration: 0.3), value: sidebar)
             .animation(reduceMotion ? nil : .smooth(duration: 0.22), value: page)
