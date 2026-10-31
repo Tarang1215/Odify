@@ -19,7 +19,7 @@ settings:
     TARGETED_DEVICE_FAMILY: '1,2'
     CODE_SIGNING_ALLOWED: NO
     MARKETING_VERSION: '1.1.0'
-    CURRENT_PROJECT_VERSION: '16'
+    CURRENT_PROJECT_VERSION: '19'
 targets:
   Odify:
     type: application
@@ -37,7 +37,7 @@ targets:
         INFOPLIST_FILE: Info.plist
         GENERATE_INFOPLIST_FILE: NO
     scheme:
-      testTargets: [OdifyTests]
+      testTargets: [OdifyTests, OdifyUITests]
   OdifyTests:
     type: bundle.unit-test
     platform: iOS
@@ -48,3 +48,13 @@ targets:
     dependencies:
       - target: Odify
       - package: OdifyStreaming
+  OdifyUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [UITests]
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: Odify
+    dependencies:
+      - target: Odify

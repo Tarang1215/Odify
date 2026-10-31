@@ -6,6 +6,7 @@ from pathlib import Path
 import re
 import urllib.request
 import xml.etree.ElementTree as ET
+import wave
 from PIL import Image, ImageDraw
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -18,6 +19,12 @@ def main():
     args = parser.parse_args()
     resources = ROOT / 'native-ios/Resources'
     resources.mkdir(parents=True, exist_ok=True)
+    # Finite, opt-in presentation/keyboard-test audio. Never used by normal
+    # playback or to extend a background lifetime.
+    if not args.dependency_notices:
+        with wave.open(str(resources / 'preview-silence.wav'), 'wb') as preview:
+            preview.setnchannels(1); preview.setsampwidth(2); preview.setframerate(8000)
+            preview.writeframes(b'\0' * 8000 * 2 * 90)
     if args.dependency_notices:
         sections = []
         for dependency in sorted(args.dependency_notices.iterdir()):

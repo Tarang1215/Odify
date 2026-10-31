@@ -46,19 +46,33 @@ actor ArtworkLoader {
 
 extension UIImage {
     var odifyTint: UIColor {
-        guard let image = cgImage else { return .systemTeal }
-        var pixel = [UInt8](repeating: 0, count: 4)
-        let color: UIColor = pixel.withUnsafeMutableBytes { bytes in
-            guard let context = CGContext(data: bytes.baseAddress, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
-                                          space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return .systemTeal }
+        let neutral = UIColor(red: 140.0 / 255, green: 150.0 / 255, blue: 163.0 / 255, alpha: 1)
+        guard let image = cgImage else { return neutral }
+        let side = 20
+        var pixels = [UInt8](repeating: 0, count: side * side * 4)
+        let drawn = pixels.withUnsafeMutableBytes { bytes -> Bool in
+            guard let context = CGContext(data: bytes.baseAddress, width: side, height: side, bitsPerComponent: 8, bytesPerRow: side * 4,
+                space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
             context.interpolationQuality = .medium
-            context.draw(image, in: CGRect(x: 0, y: 0, width: 1, height: 1))
-            let values = bytes.bindMemory(to: UInt8.self)
-            return UIColor(red: max(0.18, min(0.72, Double(values[0]) / 255)),
-                           green: max(0.18, min(0.72, Double(values[1]) / 255)),
-                           blue: max(0.18, min(0.72, Double(values[2]) / 255)), alpha: 1)
+            context.draw(image, in: CGRect(x: 0, y: 0, width: side, height: side))
+            return true
         }
-        return color
+        guard drawn else { return neutral }
+        var bins = [(weight: CGFloat, r: CGFloat, g: CGFloat, b: CGFloat)](repeating: (0, 0, 0, 0), count: 12)
+        for index in stride(from: 0, to: pixels.count, by: 4) {
+            guard pixels[index + 3] > 200 else { continue }
+            let r = CGFloat(pixels[index]) / 255, g = CGFloat(pixels[index + 1]) / 255, b = CGFloat(pixels[index + 2]) / 255
+            var hue: CGFloat = 0, saturation: CGFloat = 0, brightness: CGFloat = 0
+            UIColor(red: r, green: g, blue: b, alpha: 1).getHue(&hue, saturation: &saturation, brightness: &brightness, alpha: nil)
+            guard saturation > 0.18, brightness > 0.16 else { continue }
+            let bin = min(11, Int(hue * 12)), weight = saturation * brightness
+            bins[bin].weight += weight; bins[bin].r += r * weight; bins[bin].g += g * weight; bins[bin].b += b * weight
+        }
+        guard let dominant = bins.max(by: { $0.weight < $1.weight }), dominant.weight > 0 else { return neutral }
+        let color = UIColor(red: dominant.r / dominant.weight, green: dominant.g / dominant.weight, blue: dominant.b / dominant.weight, alpha: 1)
+        var hue: CGFloat = 0, saturation: CGFloat = 0, brightness: CGFloat = 0
+        color.getHue(&hue, saturation: &saturation, brightness: &brightness, alpha: nil)
+        return UIColor(hue: hue, saturation: min(0.68, max(0.3, saturation)), brightness: min(0.82, max(0.55, brightness)), alpha: 1)
     }
 }
 
@@ -122,7 +136,24 @@ struct GlassCircle: View {
 struct MusicBackdrop: View {
     var tint: Color = Color(red: 0.2, green: 0.38, blue: 0.34)
     var body: some View {
-        LinearGradient(colors: [tint.opacity(0.45), Color(red: 0.055, green: 0.065, blue: 0.075), .black], startPoint: .topLeading, endPoint: .bottomTrailing)
+        LinearGradient(colors: [OdifyPalette.surface, OdifyPalette.background], startPoint: .topLeading, endPoint: .bottomTrailing)
             .ignoresSafeArea()
+    }
+}
+
+struct PlayerGlassBackdrop: View {
+    var tint: Color
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    var body: some View {
+        GeometryReader { geometry in
+            ZStack {
+                Rectangle().fill(.ultraThinMaterial)
+                RadialGradient(colors: [tint.opacity(0.55), tint.opacity(0.13), .clear],
+                               center: .topLeading, startRadius: 0, endRadius: max(geometry.size.width, geometry.size.height) * 0.9)
+                RadialGradient(colors: [tint.opacity(0.3), .clear], center: .bottomTrailing,
+                               startRadius: 0, endRadius: geometry.size.width * 0.8)
+            }
+        }.ignoresSafeArea().allowsHitTesting(false)
+            .animation(reduceMotion ? nil : .easeInOut(duration: 1.2), value: tint)
     }
 }

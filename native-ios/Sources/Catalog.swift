@@ -45,7 +45,7 @@ enum MusicHTTP {
         return try await response(request, session: session)
     }
     static func chartData(_ url: URL, using session: URLSession? = nil) async throws -> Data {
-        var request = URLRequest(url: url, cachePolicy: .useProtocolCachePolicy, timeoutInterval: 15)
+        var request = URLRequest(url: url, cachePolicy: .useProtocolCachePolicy, timeoutInterval: 8)
         request.httpShouldHandleCookies = false
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("Odify/1.1 (iOS)", forHTTPHeaderField: "User-Agent")
@@ -75,6 +75,10 @@ actor MusicCatalog {
     static let shared = MusicCatalog()
     private var cache: [String: (Date, [Track])] = [:]
     private var portraits: [String: String] = [:]
+    private let fetchChart: @Sendable (URL) async throws -> Data
+    init(chartProvider: @escaping @Sendable (URL) async throws -> Data = { try await MusicHTTP.chartData($0) }) {
+        fetchChart = chartProvider
+    }
 
     func search(_ query: String, country: MusicCountry = .korea) async throws -> [Track] {
         try await songs(MusicHTTP.url("https://itunes.apple.com/search", [
@@ -103,17 +107,47 @@ actor MusicCatalog {
     func chart(_ country: MusicCountry) async throws -> [Track] {
         let key = "chart:" + country.rawValue
         if let (date, value) = cache[key], Date().timeIntervalSince(date) < 3600 { return value }
-        let data = try await MusicHTTP.chartData(MusicHTTP.url("https://rss.marketingtools.apple.com/api/v2/\(country.rawValue)/music/most-played/50/songs.json"))
+        let value: [Track]
+        do {
+            let data = try await fetchChart(MusicHTTP.url("https://rss.marketingtools.apple.com/api/v2/\(country.rawValue)/music/most-played/100/songs.json"))
+            value = try Self.chartTracks(data)
+        } catch {
+            try Task.checkCancellation()
+            if PlaybackEngine.isCancelledRequest(error) { throw CancellationError() }
+            // The US marketing feed can time out while KR/JP still work.
+            // Keep the selected country and use Apple's other public chart feed.
+            let data = try await fetchChart(MusicHTTP.url("https://itunes.apple.com/\(country.rawValue)/rss/topsongs/limit=100/json"))
+            value = try Self.chartTracks(data)
+        }
+        cache[key] = (Date(), value)
+        return value
+    }
+    static func chartTracks(_ data: Data) throws -> [Track] {
         let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
         let feed = json?["feed"] as? [String: Any]
         let rows = feed?["results"] as? [[String: Any]] ?? []
-        let value = Track.unique(rows.compactMap { row -> Track? in
+        var value = rows.compactMap { row -> Track? in
             guard let id = row["id"] as? String, let title = row["name"] as? String, let artist = row["artistName"] as? String else { return nil }
             return Track(id: "catalog:" + id, title: title, artist: artist,
                          artwork: Self.largeArtwork(row["artworkUrl100"] as? String), artistID: row["artistId"] as? String, artistURL: row["artistUrl"] as? String)
-        })
+        }
+        if value.isEmpty {
+            func label(_ node: Any?) -> String { (node as? [String: Any])?["label"] as? String ?? "" }
+            value = (feed?["entry"] as? [[String: Any]] ?? []).compactMap { row in
+                guard let idNode = row["id"] as? [String: Any], let attributes = idNode["attributes"] as? [String: Any],
+                      let id = attributes["im:id"] as? String else { return nil }
+                let title = label(row["im:name"]), artist = label(row["im:artist"])
+                guard !title.isEmpty, !artist.isEmpty else { return nil }
+                let images = row["im:image"] as? [[String: Any]] ?? []
+                let artistInfo = (row["im:artist"] as? [String: Any])?["attributes"] as? [String: Any]
+                let collection = row["im:collection"] as? [String: Any]
+                return Track(id: "catalog:" + id, title: title, artist: artist, album: label(collection?["im:name"]),
+                             artwork: largeArtwork(images.last?["label"] as? String), artistURL: artistInfo?["href"] as? String)
+            }
+        }
+        var ids = Set<String>()
+        value = value.filter { ids.insert($0.id).inserted }
         guard !value.isEmpty else { throw OdifyError.message("차트를 불러오지 못했습니다.") }
-        cache[key] = (Date(), value)
         return value
     }
     private func songs(_ url: URL) async throws -> [Track] {
@@ -240,6 +274,9 @@ actor StreamResolver {
             components.path = "/" + file + "." + (track.fileExtension ?? "mp3")
             guard let url = components.url else { throw OdifyError.message("Drive 음원 주소를 만들지 못했습니다.") }
             return url
+        }
+        guard track.source == .youtube else {
+            throw OdifyError.message("원본 음원이 연결되어 있지 않습니다. 파일 또는 Drive에서 다시 선택해 주세요.")
         }
         let id: String
         if let videoID = track.videoID { id = videoID } else { id = try await YouTubeCatalog.shared.match(track).id }

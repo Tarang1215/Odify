@@ -43,7 +43,9 @@ import UIKit
     var onCheckpoint: (() -> Void)?
     var onNeedMore: ((Track) -> Void)?
     var onTrackMetadata: ((Track) -> Void)?
+    var preferSource: ((Track) -> Track)?
     var diagnostics: [String] = []
+    private(set) var listeningOccurrence = UUID()
     private let documents: URL
     private let trace: PlaybackTrace
     typealias SourceResolver = @Sendable (Track, URL, Bool) async throws -> URL
@@ -64,6 +66,7 @@ import UIKit
     private var startTask: Task<Void, Never>?
     private var prefetchTask: Task<Void, Never>?
     private var artworkTask: Task<Void, Never>?
+    private var artworkIdentity: String?
     private var stallTask: Task<Void, Never>?
     private var generation = UUID()
     private var prefetchGeneration = UUID()
@@ -103,7 +106,9 @@ import UIKit
              throw OdifyError.message("웹 플레이어에서 영상을 연결합니다.")
          },
          sourceResolver: @escaping SourceResolver = { try await StreamResolver.shared.url(for: $0, documents: $1, refresh: $2) }) {
-        self.documents = documents; self.queue = queue; savedPosition = position
+        var restored = queue
+        for index in restored.entries.indices { restored.entries[index].track = restored.entries[index].track.routedForPlayback }
+        self.documents = documents; self.queue = restored; savedPosition = position
         trace = PlaybackTrace(documents: documents)
         resolveSource = sourceResolver; self.youtubeSession = youtubeSession
         webPlayback = youtubeWebPlayer; resolveWebVideo = webVideoResolver
@@ -161,6 +166,7 @@ import UIKit
     }
 
     private func configurePlayer() {
+        player.audiovisualBackgroundPlaybackPolicy = .continuesIfPossible
         player.automaticallyWaitsToMinimizeStalling = true
         player.actionAtItemEnd = .advance
         observations.append(player.observe(\.currentItem, options: [.new]) { [weak self] _, _ in
@@ -205,7 +211,7 @@ import UIKit
     func play(_ tracks: [Track], at index: Int = 0) {
         guard !tracks.isEmpty else { return }
         prefetchDenied = false; deniedEntries.removeAll(); playbackRestricted = false
-        queue.replace(tracks, at: index); failedIDs.removeAll(); retries.removeAll()
+        queue.replace(tracks.map(\.routedForPlayback), at: index); failedIDs.removeAll(); retries.removeAll()
         waitingForRecommendations = false; savedPosition = 0; startCurrent()
     }
     func resume() {
@@ -232,6 +238,10 @@ import UIKit
         savedPosition = clock.position; onCheckpoint?(); publishNowPlaying()
     }
     func toggle() { if wantsPlayback { pause() } else { resume() } }
+    func adjustVolume(_ delta: Float) {
+        player.volume = max(0, min(1, player.volume + delta))
+        webPlayback?.setVolume(player.volume)
+    }
     func seek(_ seconds: Double) {
         guard seconds.isFinite else { return }
         let position = max(0, min(clock.duration > 0 ? clock.duration : seconds, seconds))
@@ -265,7 +275,7 @@ import UIKit
         onCheckpoint?()
     }
     func enqueue(_ track: Track) {
-        queue.entries.append(QueueEntry(track: track))
+        queue.entries.append(QueueEntry(track: (preferSource?(track) ?? track).routedForPlayback))
         if queue.currentID == nil { queue.currentID = queue.entries.first?.id }
         rebuildUpcoming(); onCheckpoint?()
     }
@@ -278,6 +288,17 @@ import UIKit
         for index in queue.entries.indices where queue.entries[index].track.id == track.id { queue.entries[index].track = track }
         publishNowPlaying(resetArtwork: current?.id == track.id); onCheckpoint?()
     }
+    func updateMetadata(_ tracks: [Track]) {
+        let values = Dictionary(tracks.map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })
+        var updated = queue
+        for index in updated.entries.indices {
+            if let track = values[updated.entries[index].track.id] { updated.entries[index].track = track }
+        }
+        guard updated != queue else { return }
+        let artworkChanged = current?.artwork != updated.current?.track.artwork
+        queue = updated
+        publishNowPlaying(resetArtwork: artworkChanged); onCheckpoint?()
+    }
     func clearError() { error = nil }
     func recordHomeFailure(_ failure: Error) { trace.record("home-catalog-failed", source: nil, error: failure) }
     func toggleAutoplay() {
@@ -286,7 +307,7 @@ import UIKit
     }
     func appendRecommendations(_ tracks: [Track]) {
         guard !tracks.isEmpty else { return }
-        queue.entries.append(contentsOf: tracks.map { QueueEntry(track: $0) })
+        queue.entries.append(contentsOf: tracks.map { QueueEntry(track: (preferSource?($0) ?? $0).routedForPlayback) })
         if waitingForRecommendations, wantsPlayback, let id = queue.currentID,
            let next = queue.successor(after: id, automatic: false) {
             jump(next.id, userInitiated: false); return
@@ -313,6 +334,13 @@ import UIKit
     }
 
     private func startCurrent(resume: Double = 0, refresh: Bool = false) {
+        listeningOccurrence = UUID()
+        if let index = queue.currentIndex, let preferSource {
+            let track = queue.entries[index].track
+            let resolved = preferSource(track)
+            if resolved != track { queue.entries[index].track = resolved }
+        }
+        if let index = queue.currentIndex { queue.entries[index].track = queue.entries[index].track.routedForPlayback }
         startTask?.cancel(); prefetchTask?.cancel(); stallTask?.cancel(); stallTask = nil
         generation = UUID(); let request = generation
         // AVPlayer.Status.failed is terminal for that player instance.
@@ -398,7 +426,7 @@ import UIKit
         let asset: AVURLAsset
         let loader: DriveResourceLoader?
         var sourceKey: UUID?
-        if entry.track.driveFileID != nil {
+        if !url.isFileURL, entry.track.driveFileID != nil {
             asset = AVURLAsset(url: url)
             let delegate = DriveResourceLoader(track: entry.track, client: driveClient)
             asset.resourceLoader.setDelegate(delegate, queue: delegate.queue)
@@ -466,7 +494,7 @@ import UIKit
         // actually been inserted, rather than examining only two queue slots.
         for _ in 0..<max(2, queue.entries.count) {
             guard let entry = queue.successor(after: cursor, automatic: true) else { break }
-            if webPlayback != nil, entry.track.source == .youtube { break }
+            if webPlayback != nil, entry.track.playbackSource == .youtube { break }
             if !failedIDs.contains(entry.id) { prepared.append(entry) }
             cursor = entry.id
         }
@@ -546,7 +574,7 @@ import UIKit
         itemSourceKeys = itemSourceKeys.filter { currentItems.contains($0.key) }
         for key in itemObservations.keys.filter({ !currentItems.contains($0) }) { itemObservations.removeValue(forKey: key)?.invalidate() }
         for key in driveLoaders.keys.filter({ !currentItems.contains($0) }) { driveLoaders.removeValue(forKey: key)?.cancel() }
-        if changed { clock.position = 0; clock.duration = current?.duration ?? 0; savedPosition = 0 }
+        if changed { listeningOccurrence = UUID(); clock.position = 0; clock.duration = current?.duration ?? 0; savedPosition = 0 }
         if changed {
             diagnostics.append("advanced:\(id)"); if diagnostics.count > 40 { diagnostics.removeFirst() }
             trace.record("queue-advanced", source: current?.source)
@@ -696,9 +724,11 @@ import UIKit
                 if wantsPlayback && intent { advanceWebQueue() }
                 return
             }
-            wantsPlayback = intent
-            isPlaying = intent && state == 1
-            isBuffering = intent && [-1, 2, 3].contains(state)
+            // Native controls own playback intent. Preparation or background
+            // pause snapshots are observations, not a user pause command.
+            let playing = wantsPlayback && state == 1, buffering = wantsPlayback && [-1, 2, 3, 5].contains(state)
+            if isPlaying != playing { isPlaying = playing }
+            if isBuffering != buffering { isBuffering = buffering }
             if state == 1 {
                 error = nil
                 if !wasPlaying {
@@ -768,6 +798,10 @@ import UIKit
                 if let duration = try? await item.asset.load(.duration), duration.seconds.isFinite { track.duration = duration.seconds }
                 try Task.checkCancellation()
                 guard self.current?.id == track.id else { return }
+                if let current = self.current, current.metadataOrigin == "master" {
+                    track.title = current.title; track.artist = current.artist; track.album = current.album
+                    track.metadataOrigin = "master"; track.originalFilename = current.originalFilename
+                }
                 self.update(track); self.onTrackMetadata?(track)
                 completed = true
             } catch { /* Tag lookup is optional; a playable Drive stream keeps playing. */ }
@@ -840,6 +874,8 @@ import UIKit
     }
     private func publishNowPlaying(resetArtwork: Bool = false) {
         guard let track = current else { MPNowPlayingInfoCenter.default().nowPlayingInfo = nil; return }
+        let identity = track.id + "|" + (track.artwork ?? "")
+        let resetArtwork = resetArtwork && artworkIdentity != identity
         var info = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
         info[MPMediaItemPropertyTitle] = track.title
         info[MPMediaItemPropertyArtist] = track.artist
@@ -850,6 +886,7 @@ import UIKit
         info[MPNowPlayingInfoPropertyDefaultPlaybackRate] = 1.0
         info[MPNowPlayingInfoPropertyMediaType] = MPNowPlayingInfoMediaType.audio.rawValue
         if resetArtwork {
+            artworkIdentity = identity
             info.removeValue(forKey: MPMediaItemPropertyArtwork)
             let hue = Double(track.recordingKey.unicodeScalars.reduce(0) { ($0 + Int($1.value)) % 360 }) / 360
             tint = UIColor(hue: hue, saturation: 0.35, brightness: 0.42, alpha: 1)

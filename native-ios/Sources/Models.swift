@@ -23,6 +23,17 @@ struct Track: Identifiable, Codable, Hashable {
     var mimeType: String? = nil
     var fileExtension: String? = nil
     var driveModifiedTime: String? = nil
+    var originalFilename: String? = nil
+    var metadataOrigin: String? = nil
+
+    // Stored source labels can be stale after metadata/import updates. An
+    // attached file is authoritative and must never enter YouTube lookup.
+    var playbackSource: MusicSource {
+        if localFile != nil { return .local }
+        if driveFileID != nil { return .drive }
+        return source
+    }
+    var routedForPlayback: Track { var value = self; value.source = playbackSource; return value }
 
     var recordingKey: String { Self.normalized(artist) + "|" + Self.normalized(title) }
     static func normalized(_ value: String) -> String {
@@ -30,8 +41,11 @@ struct Track: Identifiable, Codable, Hashable {
             .unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) }.map(String.init).joined()
     }
     static func unique(_ tracks: [Track]) -> [Track] {
-        var seen = Set<String>()
-        return tracks.filter { seen.insert($0.recordingKey).inserted }
+        var ids = Set<String>(), recordings = Set<String>()
+        return tracks.filter {
+            guard !ids.contains($0.id), !recordings.contains($0.recordingKey) else { return false }
+            ids.insert($0.id); recordings.insert($0.recordingKey); return true
+        }
     }
 }
 
