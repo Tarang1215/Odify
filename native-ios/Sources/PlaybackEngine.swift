@@ -106,7 +106,9 @@ import UIKit
              throw OdifyError.message("웹 플레이어에서 영상을 연결합니다.")
          },
          sourceResolver: @escaping SourceResolver = { try await StreamResolver.shared.url(for: $0, documents: $1, refresh: $2) }) {
-        self.documents = documents; self.queue = queue; savedPosition = position
+        var restored = queue
+        for index in restored.entries.indices { restored.entries[index].track = restored.entries[index].track.routedForPlayback }
+        self.documents = documents; self.queue = restored; savedPosition = position
         trace = PlaybackTrace(documents: documents)
         resolveSource = sourceResolver; self.youtubeSession = youtubeSession
         webPlayback = youtubeWebPlayer; resolveWebVideo = webVideoResolver

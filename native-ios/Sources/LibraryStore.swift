@@ -49,6 +49,8 @@ import UniformTypeIdentifiers
                 if !FileManager.default.fileExists(atPath: target.path) { try? FileManager.default.copyItem(at: fixture, to: target) }
             }
         }
+        loaded.tracks = loaded.tracks.map(\.routedForPlayback)
+        for index in loaded.queue.entries.indices { loaded.queue.entries[index].track = loaded.queue.entries[index].track.routedForPlayback }
         snapshot = loaded
         engine = PlaybackEngine(documents: root, queue: loaded.queue, position: loaded.position, autoplay: loaded.autoplay,
                                 youtubeWebPlayer: preview ? nil : YouTubeWebPlayback())

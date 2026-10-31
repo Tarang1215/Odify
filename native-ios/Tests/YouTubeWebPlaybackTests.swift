@@ -188,9 +188,10 @@ import XCTest
         let original = try XCTUnwrap(Bundle(for: YouTubeWebPlaybackTests.self).url(forResource: "silence-320k", withExtension: "mp3"))
         try FileManager.default.copyItem(at: original, to: root.appendingPathComponent("owned.mp3"))
         var track = a; track.localFile = "owned.mp3"; track.driveFileID = "staleDriveID"
-        let engine = PlaybackEngine(documents: root, autoplay: false, youtubeWebPlayer: driver)
+        var restored = PlaybackQueue(); restored.replace([track])
+        let engine = PlaybackEngine(documents: root, queue: restored, autoplay: false, youtubeWebPlayer: driver)
         defer { engine.shutdown(); try? FileManager.default.removeItem(at: root) }
-        engine.player.volume = 0; engine.play([track])
+        engine.player.volume = 0; engine.resume()
         for _ in 0..<150 {
             if engine.player.rate > 0 { break }; try await Task.sleep(for: .milliseconds(20))
         }
