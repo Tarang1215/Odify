@@ -135,7 +135,7 @@ struct YouTubeWebFailure: LocalizedError, CustomNSError {
     // The ordinary WebKit/media lifecycle remains in charge.
     func setActive(_ active: Bool) {
         self.active = active
-        if !active { timeout?.cancel(); timeout = nil }
+        if !active, !choosing { timeout?.cancel(); timeout = nil }
         // Reconcile a system pause only after returning to the foreground.
         // Never invent page visibility or loop play commands on screen lock.
         if active, wantsPlayback, loaded, !choosing {
