@@ -46,7 +46,8 @@ actor ArtworkLoader {
 
 extension UIImage {
     var odifyTint: UIColor {
-        guard let image = cgImage else { return .systemTeal }
+        let neutral = UIColor(red: 140.0 / 255, green: 150.0 / 255, blue: 163.0 / 255, alpha: 1)
+        guard let image = cgImage else { return neutral }
         let side = 20
         var pixels = [UInt8](repeating: 0, count: side * side * 4)
         let drawn = pixels.withUnsafeMutableBytes { bytes -> Bool in
@@ -56,7 +57,7 @@ extension UIImage {
             context.draw(image, in: CGRect(x: 0, y: 0, width: side, height: side))
             return true
         }
-        guard drawn else { return .systemTeal }
+        guard drawn else { return neutral }
         var bins = [(weight: CGFloat, r: CGFloat, g: CGFloat, b: CGFloat)](repeating: (0, 0, 0, 0), count: 12)
         for index in stride(from: 0, to: pixels.count, by: 4) {
             guard pixels[index + 3] > 200 else { continue }
@@ -67,7 +68,7 @@ extension UIImage {
             let bin = min(11, Int(hue * 12)), weight = saturation * brightness
             bins[bin].weight += weight; bins[bin].r += r * weight; bins[bin].g += g * weight; bins[bin].b += b * weight
         }
-        guard let dominant = bins.max(by: { $0.weight < $1.weight }), dominant.weight > 0 else { return .systemTeal }
+        guard let dominant = bins.max(by: { $0.weight < $1.weight }), dominant.weight > 0 else { return neutral }
         let color = UIColor(red: dominant.r / dominant.weight, green: dominant.g / dominant.weight, blue: dominant.b / dominant.weight, alpha: 1)
         var hue: CGFloat = 0, saturation: CGFloat = 0, brightness: CGFloat = 0
         color.getHue(&hue, saturation: &saturation, brightness: &brightness, alpha: nil)

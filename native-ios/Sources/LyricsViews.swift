@@ -31,7 +31,7 @@ struct LyricsSearchView: View {
                                     Text(candidate.artist + " · " + candidate.album).foregroundStyle(.secondary)
                                     Button("이 가사 사용", systemImage: "checkmark.circle") {
                                         store.saveLyrics(candidate.text, for: track); dismiss()
-                                    }.buttonStyle(.glassProminent).accessibilityIdentifier("lyrics.apply")
+                                    }.buttonStyle(.glassProminent).foregroundStyle(OdifyPalette.background).accessibilityIdentifier("lyrics.apply")
                                     Text(candidate.plain.isEmpty ? LRCParser.lines(candidate.synced).map(\.text).joined(separator: "\n") : candidate.plain)
                                         .font(.body).lineSpacing(9).textSelection(.enabled)
                                 }.padding(24).frame(maxWidth: .infinity, alignment: .leading)
@@ -56,7 +56,7 @@ struct LyricsSearchView: View {
                         try Task.checkCancellation(); results = found
                     } catch { if !Task.isCancelled { self.error = error.localizedDescription; results = [] } }
                 }
-        }.presentationDetents([.large]).presentationDragIndicator(.visible)
+        }.tint(OdifyPalette.text).presentationDetents([.large]).presentationDragIndicator(.visible)
     }
 }
 

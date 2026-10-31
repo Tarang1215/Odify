@@ -5,6 +5,7 @@ struct MiniPlayer: View {
     var wide: Bool
     var open: () -> Void
     var transitionNamespace: Namespace.ID? = nil
+    var artworkVisible = true
     @EnvironmentObject private var engine: PlaybackEngine
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
@@ -12,10 +13,13 @@ struct MiniPlayer: View {
             HStack(spacing: 14) {
                 Button(action: open) {
                     HStack(spacing: 12) {
-                        Artwork(address: track.artwork, title: track.album.isEmpty ? track.title : track.album, size: 48, radius: 12)
-                            .playerArtworkTransition("mini.artwork", namespace: transitionNamespace, source: true)
-                            .scaleEffect(engine.isPlaying ? 1 : 0.92)
-                            .animation(reduceMotion ? nil : .spring(response: 0.55, dampingFraction: 0.7), value: engine.isPlaying)
+                        Group {
+                            if artworkVisible {
+                                Artwork(address: track.artwork, title: track.album.isEmpty ? track.title : track.album, size: 48, radius: 12)
+                                    .playerArtworkTransition("mini.artwork", namespace: transitionNamespace, source: true)
+                                    .scaleEffect(engine.isPlaying ? 1 : 0.92)
+                            } else { Color.clear.frame(width: 48, height: 48) }
+                        }.animation(reduceMotion ? nil : .spring(response: 0.55, dampingFraction: 0.7), value: engine.isPlaying)
                         VStack(alignment: .leading, spacing: 5) {
                             Text(track.title).font(.system(size: 14, weight: .semibold)).lineLimit(1)
                             Text(track.artist).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
@@ -70,6 +74,7 @@ struct TimelineViewCompact: View {
 struct NowPlayingPane: View {
     var openFullPlayer: (CGRect, String) -> Void
     var transitionNamespace: Namespace.ID? = nil
+    var activeArtwork: String?
     @State private var coverBounds = CGRect.zero
     @State private var rowBounds: [String: CGRect] = [:]
     @EnvironmentObject private var engine: PlaybackEngine
@@ -83,8 +88,12 @@ struct NowPlayingPane: View {
             if let track = engine.current {
                 GeometryReader { geometry in
                     Button { openFullPlayer(coverBounds, "inspector.artwork") } label: {
-                        Artwork(address: track.artwork, title: track.album.isEmpty ? track.title : track.album, size: geometry.size.width, radius: 24)
-                            .playerArtworkTransition("inspector.artwork", namespace: transitionNamespace, source: true)
+                        if activeArtwork == "inspector.artwork" {
+                            Color.clear.frame(width: geometry.size.width, height: geometry.size.width)
+                        } else {
+                            Artwork(address: track.artwork, title: track.album.isEmpty ? track.title : track.album, size: geometry.size.width, radius: 24)
+                                .playerArtworkTransition("inspector.artwork", namespace: transitionNamespace, source: true)
+                        }
                     }.buttonStyle(.plain).accessibilityLabel("전체 플레이어").accessibilityIdentifier("player.inspector.expand")
                         .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { coverBounds = $0 }
                 }.aspectRatio(1, contentMode: .fit)
@@ -103,8 +112,11 @@ struct NowPlayingPane: View {
                                 engine.jump(entry.id); openFullPlayer(bounds, "queue.artwork." + entry.id)
                             } label: {
                                 HStack(spacing: 10) {
-                                    Artwork(address: entry.track.artwork, title: entry.track.title, size: 38, radius: 9)
-                                        .playerArtworkTransition("queue.artwork." + entry.id, namespace: transitionNamespace, source: true)
+                                    if activeArtwork == "queue.artwork." + entry.id { Color.clear.frame(width: 38, height: 38) }
+                                    else {
+                                        Artwork(address: entry.track.artwork, title: entry.track.title, size: 38, radius: 9)
+                                            .playerArtworkTransition("queue.artwork." + entry.id, namespace: transitionNamespace, source: true)
+                                    }
                                     VStack(alignment: .leading, spacing: 4) { Text(entry.track.title).font(.system(size: 12, weight: .medium)).lineLimit(1); Text(entry.track.artist).font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1) }
                                     Spacer(minLength: 0)
                                 }
@@ -184,7 +196,7 @@ struct FullPlayerView: View {
                             }
                         }.foregroundStyle(.secondary).padding(.horizontal, 8)
                        }
-                      }.frame(maxWidth: .infinity)
+                      }.frame(maxWidth: wide ? nil : 640).frame(maxWidth: .infinity)
                         .frame(minHeight: max(0, geometry.size.height - 180 - geometry.safeAreaInsets.top - geometry.safeAreaInsets.bottom), alignment: .center)
                         .padding(.vertical, 12)
                     }.scrollIndicators(.hidden).scrollBounceBehavior(.basedOnSize)
@@ -216,7 +228,7 @@ struct FullPlayerView: View {
                         }
                 }.presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
             }
-        }.ignoresSafeArea(.container).accessibilityElement(children: .contain).accessibilityIdentifier("player.full")
+        }.tint(OdifyPalette.text).accessibilityElement(children: .contain).accessibilityIdentifier("player.full")
     }
     private var collapseGesture: some Gesture {
         DragGesture(minimumDistance: 18)
@@ -237,7 +249,7 @@ struct FullPlayerView: View {
     }
     private func cover(size: CGFloat) -> some View {
         Artwork(address: engine.current?.artwork, title: engine.current?.album ?? "Odify", size: max(120, size), radius: 28)
-            .playerArtworkTransition(artworkTransitionID, namespace: transitionNamespace, source: false)
+            .playerArtworkTransition(artworkTransitionID, namespace: transitionNamespace, source: true)
             .shadow(color: .black.opacity(0.25), radius: 24, y: 12)
             .scaleEffect(engine.isPlaying ? 1 : 0.95)
             .animation(reduceMotion ? nil : .spring(response: 0.65, dampingFraction: 0.78), value: engine.isPlaying)
@@ -311,7 +323,7 @@ struct FullPlayerView: View {
             } else {
                 VStack(spacing: 16) {
                     Text("등록된 가사가 없습니다.").font(.system(size: 13)).foregroundStyle(.secondary)
-                    Button("가사 검색", systemImage: "magnifyingglass") { lyricSearchTrack = engine.current }.buttonStyle(.glassProminent)
+                    Button("가사 검색", systemImage: "magnifyingglass") { lyricSearchTrack = engine.current }.buttonStyle(.glassProminent).foregroundStyle(OdifyPalette.background)
                     Button("직접 추가", systemImage: "square.and.pencil") { beginLyricsEdit() }.buttonStyle(.glass)
                 }.frame(maxWidth: .infinity, maxHeight: .infinity)
             }

@@ -116,6 +116,14 @@ final class SourcePreferenceTests: XCTestCase {
         image.odifyTint.getHue(&hue, saturation: &saturation, brightness: &brightness, alpha: nil)
         XCTAssertEqual(hue, 2.0 / 3, accuracy: 0.05); XCTAssertGreaterThan(saturation, 0.5); XCTAssertGreaterThanOrEqual(brightness, 0.55)
     }
+    @MainActor func testGrayscaleArtworkKeepsANeutralGlow() {
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 40, height: 40)).image { context in
+            UIColor.gray.setFill(); context.fill(CGRect(x: 0, y: 0, width: 40, height: 40))
+        }
+        var saturation: CGFloat = 0, brightness: CGFloat = 0
+        image.odifyTint.getHue(nil, saturation: &saturation, brightness: &brightness, alpha: nil)
+        XCTAssertLessThan(saturation, 0.2); XCTAssertGreaterThan(brightness, 0.4)
+    }
 }
 
 final class CountryChartFallbackTests: XCTestCase {

@@ -96,14 +96,20 @@ jobs:
           xcrun simctl launch "$IPAD_SIM" com.odify.music.ios --odify-preview --odify-player
           sleep 3
           xcrun simctl io "$IPAD_SIM" screenshot dist/ios-checks/ipad-player-portrait.png
-          xcrun simctl terminate "$IPAD_SIM" com.odify.music.ios
-          xcrun simctl launch "$IPAD_SIM" com.odify.music.ios --odify-preview --odify-landscape
-          sleep 3
-          xcrun simctl io "$IPAD_SIM" screenshot dist/ios-checks/ipad-landscape.png
-          xcrun simctl terminate "$IPAD_SIM" com.odify.music.ios
-          xcrun simctl launch "$IPAD_SIM" com.odify.music.ios --odify-preview --odify-landscape --odify-player
-          sleep 3
-          xcrun simctl io "$IPAD_SIM" screenshot dist/ios-checks/ipad-player.png
+          python3 - <<'PY'
+          import json, shutil
+          from pathlib import Path
+          root = Path('dist/ios-checks/ui-attachments')
+          manifest = root / 'manifest.json'
+          if manifest.exists():
+              names = {'home-landscape-integrated-inspector': 'ipad-landscape.png', 'inspector-expanded-landscape': 'ipad-player.png'}
+              for group in json.loads(manifest.read_text()):
+                  for attachment in group.get('attachments', []):
+                      label = attachment.get('suggestedHumanReadableName', '')
+                      for prefix, destination in names.items():
+                          if label.startswith(prefix) and attachment['exportedFileName'].endswith('.png'):
+                              shutil.copyfile(root / attachment['exportedFileName'], Path('dist/ios-checks') / destination)
+          PY
       - name: Upload verified IPA approved by repository owner
         uses: actions/upload-artifact@v4
         with:

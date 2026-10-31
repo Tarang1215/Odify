@@ -53,7 +53,8 @@ final class PlayerInteractionTests: XCTestCase {
     }
     func testInspectorLaunchAndLandscapePresentation() {
         XCUIDevice.shared.orientation = .landscapeLeft
-        let app = XCUIApplication(); app.launchArguments = ["--odify-preview", "--odify-landscape"]; app.launch()
+        let app = XCUIApplication(); app.launchArguments = ["--odify-preview"]; app.launch()
+        XCUIDevice.shared.orientation = .landscapeLeft
         let expand = app.buttons["player.inspector.expand"]
         XCTAssertTrue(expand.waitForExistence(timeout: 15)); expand.tap()
         XCTAssertTrue(app.buttons["player.collapse"].waitForExistence(timeout: 5))
@@ -65,9 +66,12 @@ final class PlayerInteractionTests: XCTestCase {
     func testHomeEndClearsTheFloatingMiniPlayer() {
         let app = launch(); app.buttons["player.collapse"].tap()
         let end = app.staticTexts["home.end"]
-        for _ in 0..<8 { if end.isHittable { break }; app.swipeUp() }
-        XCTAssertTrue(end.isHittable)
         let mini = app.buttons["player.expand"]
+        for _ in 0..<8 {
+            if end.isHittable && end.frame.maxY <= mini.frame.minY - 8 { break }
+            app.swipeUp()
+        }
+        XCTAssertTrue(end.isHittable)
         XCTAssertLessThanOrEqual(end.frame.maxY, mini.frame.minY)
         capture("home-bottom-clearance", app: app)
     }

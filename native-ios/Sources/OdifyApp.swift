@@ -4,7 +4,6 @@ import GoogleSignIn
 
 final class OdifyOrientationDelegate: NSObject, UIApplicationDelegate {
     func application(_ application: UIApplication, supportedInterfaceOrientationsFor window: UIWindow?) -> UIInterfaceOrientationMask {
-        if ProcessInfo.processInfo.arguments.contains("--odify-landscape") { return .landscape }
         return UIDevice.current.userInterfaceIdiom == .pad ? .all : .allButUpsideDown
     }
 }
@@ -83,7 +82,7 @@ struct RootView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(OdifyPalette.background)
                 if inspector {
-                    NowPlayingPane(openFullPlayer: { bounds, artwork in openPlayer(bounds: bounds, artwork: artwork) }, transitionNamespace: playerMotion)
+                    NowPlayingPane(openFullPlayer: { bounds, artwork in openPlayer(bounds: bounds, artwork: artwork) }, transitionNamespace: playerMotion, activeArtwork: fullPlayer ? launchArtwork : nil)
                         .frame(width: min(342, geometry.size.width * 0.28))
                 }
             }
@@ -103,9 +102,10 @@ struct RootView: View {
                         }.padding(14).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18)).padding(.horizontal, 20)
                     }
                     if engine.current != nil {
-                        MiniPlayer(wide: sidebar, open: { openPlayer(bounds: miniBounds, artwork: "mini.artwork") }, transitionNamespace: playerMotion)
+                        MiniPlayer(wide: sidebar, open: { openPlayer(bounds: miniBounds, artwork: "mini.artwork") }, transitionNamespace: playerMotion, artworkVisible: !fullPlayer)
                             .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { miniBounds = $0 }
                             .padding(.horizontal, sidebar ? 20 : 12)
+                            .opacity(fullPlayer ? 0 : 1).accessibilityHidden(fullPlayer)
                     }
                     if !sidebar { compactTabs.padding(.horizontal, 32) }
                 }.padding(.bottom, 8)
@@ -138,12 +138,6 @@ struct RootView: View {
                 Button("확인") { store.notice = nil }
             } message: { Text(store.notice ?? "") }
             .task {
-                if ProcessInfo.processInfo.arguments.contains("--odify-landscape") {
-                    try? await Task.sleep(for: .milliseconds(200))
-                    if let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene {
-                        scene.requestGeometryUpdate(.iOS(interfaceOrientations: .landscapeLeft))
-                    }
-                }
                 await store.loadHome()
             }
         }
