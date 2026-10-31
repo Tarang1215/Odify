@@ -93,6 +93,7 @@ struct NowPlayingPane: View {
     var activeArtwork: String?
     @State private var coverBounds = CGRect.zero
     @State private var rowBounds: [String: CGRect] = [:]
+    @State private var presentedQueue: [QueueEntry]?
     @EnvironmentObject private var engine: PlaybackEngine
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
@@ -104,12 +105,8 @@ struct NowPlayingPane: View {
             if let track = engine.current {
                 GeometryReader { geometry in
                     Button { openFullPlayer(coverBounds, "inspector.artwork") } label: {
-                        if activeArtwork == "inspector.artwork" {
-                            Color.clear.frame(width: geometry.size.width, height: geometry.size.width)
-                        } else {
-                            Artwork(address: track.artwork, title: track.album.isEmpty ? track.title : track.album, size: geometry.size.width, radius: 24)
-                                .playerArtworkTransition("inspector.artwork", namespace: transitionNamespace, source: true)
-                        }
+                        Artwork(address: track.artwork, title: track.album.isEmpty ? track.title : track.album, size: geometry.size.width, radius: 24)
+                            .playerArtworkTransition("inspector.artwork", namespace: transitionNamespace, source: true)
                     }.buttonStyle(.plain).accessibilityLabel("전체 플레이어").accessibilityIdentifier("player.inspector.expand")
                         .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { coverBounds = $0 }
                 }.aspectRatio(1, contentMode: .fit)
@@ -122,21 +119,19 @@ struct NowPlayingPane: View {
                 HStack { Text("Up next").font(.system(size: 15, weight: .semibold)); Spacer(); Text("\(engine.queue.upcoming.count)곡").font(.system(size: 10)).foregroundStyle(.secondary) }
                 ScrollView {
                     LazyVStack(spacing: 16) {
-                        ForEach(engine.queue.upcoming) { entry in
+                        ForEach(presentedQueue ?? engine.queue.upcoming) { entry in
                             Button {
                                 let bounds = rowBounds[entry.id] ?? coverBounds
+                                presentedQueue = engine.queue.upcoming
                                 engine.jump(entry.id); openFullPlayer(bounds, "queue.artwork." + entry.id)
                             } label: {
                                 HStack(spacing: 10) {
-                                    if activeArtwork == "queue.artwork." + entry.id { Color.clear.frame(width: 38, height: 38) }
-                                    else {
-                                        Artwork(address: entry.track.artwork, title: entry.track.title, size: 38, radius: 9)
-                                            .playerArtworkTransition("queue.artwork." + entry.id, namespace: transitionNamespace, source: true)
-                                    }
+                                    Artwork(address: entry.track.artwork, title: entry.track.title, size: 38, radius: 9)
+                                        .playerArtworkTransition("queue.artwork." + entry.id, namespace: transitionNamespace, source: true)
                                     VStack(alignment: .leading, spacing: 4) { Text(entry.track.title).font(.system(size: 12, weight: .medium)).lineLimit(1); Text(entry.track.artist).font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1) }
                                     Spacer(minLength: 0)
                                 }
-                            }.buttonStyle(.plain)
+                            }.buttonStyle(.plain).accessibilityIdentifier("player.inspector.queue." + entry.id)
                                 .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { rowBounds[entry.id] = $0 }
                         }
                     }
@@ -146,6 +141,11 @@ struct NowPlayingPane: View {
                 Spacer()
             }
         }.padding(22).padding(.bottom, 88).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .task(id: activeArtwork) {
+                guard activeArtwork == nil, presentedQueue != nil else { return }
+                do { try await Task.sleep(for: .milliseconds(650)) } catch { return }
+                presentedQueue = nil
+            }
             .background(OdifyPalette.surface.opacity(0.32))
             .overlay(alignment: .leading) { Rectangle().fill(.white.opacity(0.06)).frame(width: 1).allowsHitTesting(false) }
     }

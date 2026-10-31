@@ -82,7 +82,7 @@ struct RootView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(OdifyPalette.background)
                 if inspector {
-                    NowPlayingPane(openFullPlayer: { bounds, artwork in openPlayer(bounds: bounds, artwork: artwork) }, transitionNamespace: playerMotion, activeArtwork: nil)
+                    NowPlayingPane(openFullPlayer: { bounds, artwork in openPlayer(bounds: bounds, artwork: artwork) }, transitionNamespace: playerMotion, activeArtwork: fullPlayer ? launchArtwork : nil)
                         .frame(width: min(342, geometry.size.width * 0.28))
                 }
             }

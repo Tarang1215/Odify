@@ -73,6 +73,12 @@ final class PlayerInteractionTests: XCTestCase {
         app.buttons["player.collapse"].tap()
         XCTAssertTrue(expand.waitForExistence(timeout: 5))
         capture("home-landscape-integrated-inspector", app: app)
+        let row = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "player.inspector.queue.")).firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 5)); row.tap()
+        XCTAssertTrue(app.buttons["player.collapse"].waitForExistence(timeout: 5))
+        XCTAssertEqual(app.staticTexts["player.title"].label, "Soft Focus")
+        capture("inspector-queue-expanded-landscape", app: app)
+        app.buttons["player.collapse"].tap()
     }
     func testHomeEndClearsTheFloatingMiniPlayer() {
         let app = launch(); app.buttons["player.collapse"].tap()
