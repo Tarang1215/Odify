@@ -10,7 +10,9 @@ final class PlayerInteractionTests: XCTestCase {
         return app
     }
     private func capture(_ name: String, app: XCUIApplication) {
-        let attachment = XCTAttachment(screenshot: app.screenshot()); attachment.name = name
+        // Application-region screenshots can retain portrait clipping after an
+        // iPad rotation. Capture the composed display, including the inspector.
+        let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot()); attachment.name = name
         attachment.lifetime = .keepAlways; add(attachment)
     }
     func testOneTapCollapsesAndReopensRepeatedly() {
@@ -55,8 +57,14 @@ final class PlayerInteractionTests: XCTestCase {
         XCUIDevice.shared.orientation = .landscapeLeft
         let app = XCUIApplication(); app.launchArguments = ["--odify-preview"]; app.launch()
         XCUIDevice.shared.orientation = .landscapeLeft
+        let landscape = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            app.windows.firstMatch.frame.width > app.windows.firstMatch.frame.height
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [landscape], timeout: 10), .completed)
         let expand = app.buttons["player.inspector.expand"]
-        XCTAssertTrue(expand.waitForExistence(timeout: 15)); expand.tap()
+        XCTAssertTrue(expand.waitForExistence(timeout: 15))
+        XCTAssertLessThanOrEqual(expand.frame.maxX, app.windows.firstMatch.frame.maxX)
+        XCTAssertTrue(expand.isHittable); expand.tap()
         XCTAssertTrue(app.buttons["player.collapse"].waitForExistence(timeout: 5))
         capture("inspector-expanded-landscape", app: app)
         app.buttons["player.collapse"].tap()
