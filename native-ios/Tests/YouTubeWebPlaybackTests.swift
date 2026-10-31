@@ -161,6 +161,8 @@ import XCTest
         XCTAssertEqual(context.evaluateScript("messages[messages.length-1].intent")?.toBool(), true)
         context.evaluateScript("odifyPlay();Date.now=function(){return 99999999999999};options.events.onStateChange({data:2});snapshot()")
         XCTAssertEqual(context.evaluateScript("messages[messages.length-1].intent")?.toBool(), true)
+        context.evaluateScript("fakeState=1;options.events.onStateChange({data:1});fakeState=2;options.events.onStateChange({data:2});snapshot()")
+        XCTAssertEqual(context.evaluateScript("messages[messages.length-1].intent")?.toBool(), true)
         context.evaluateScript("fakeState=1;options.events.onStateChange({data:1});odifyPause();fakeState=2;options.events.onStateChange({data:2});snapshot()")
         XCTAssertEqual(context.evaluateScript("messages[messages.length-1].intent")?.toBool(), false)
         context.evaluateScript("odifyLoad('lmnopqrstuv','next',0,true);video='abcdefghijk';fakeState=0;var count=messages.length;options.events.onStateChange({data:0});snapshot()")
@@ -180,5 +182,34 @@ import XCTest
         }
         XCTAssertEqual(engine.current?.id, "owned"); XCTAssertFalse(engine.usingYouTubeWebPlayer)
         XCTAssertTrue(driver.loads.isEmpty); XCTAssertGreaterThan(engine.player.rate, 0)
+    }
+    func testAttachedLocalFileWinsOverStaleYouTubeAndDriveMetadata() async throws {
+        let root = try directory(), driver = WebDriverFixture()
+        let original = try XCTUnwrap(Bundle(for: YouTubeWebPlaybackTests.self).url(forResource: "silence-320k", withExtension: "mp3"))
+        try FileManager.default.copyItem(at: original, to: root.appendingPathComponent("owned.mp3"))
+        var track = a; track.localFile = "owned.mp3"; track.driveFileID = "staleDriveID"
+        let engine = PlaybackEngine(documents: root, autoplay: false, youtubeWebPlayer: driver)
+        defer { engine.shutdown(); try? FileManager.default.removeItem(at: root) }
+        engine.player.volume = 0; engine.play([track])
+        for _ in 0..<150 {
+            if engine.player.rate > 0 { break }; try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertEqual(engine.current?.source, .local)
+        XCTAssertFalse(engine.usingYouTubeWebPlayer); XCTAssertTrue(driver.loads.isEmpty)
+        XCTAssertTrue(driver.searches.isEmpty); XCTAssertGreaterThan(engine.player.rate, 0)
+    }
+    func testPreparationPauseAfterPlayingCannotCancelNativeIntentAndExplicitPauseStillWins() async throws {
+        let root = try directory(), driver = WebDriverFixture()
+        let engine = PlaybackEngine(documents: root, autoplay: false, youtubeWebPlayer: driver)
+        defer { engine.shutdown(); try? FileManager.default.removeItem(at: root) }
+        engine.play([a, b]); try await waitForLoads(1, driver)
+        driver.event(.state(1, 1, 180, true))
+        driver.event(.state(2, 1, 180, false))
+        XCTAssertTrue(engine.isBuffering)
+        // Toggle must pause a requested start, rather than require a second play.
+        engine.toggle(); XCTAssertGreaterThan(driver.pauses, 0)
+        driver.event(.state(1, 1, 180, true)); XCTAssertFalse(engine.isPlaying)
+        engine.next(); try await waitForLoads(2, driver)
+        XCTAssertEqual(driver.loadIntents.last, true)
     }
 }

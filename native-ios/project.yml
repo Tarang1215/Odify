@@ -19,7 +19,7 @@ settings:
     TARGETED_DEVICE_FAMILY: '1,2'
     CODE_SIGNING_ALLOWED: NO
     MARKETING_VERSION: '1.1.0'
-    CURRENT_PROJECT_VERSION: '18'
+    CURRENT_PROJECT_VERSION: '19'
 targets:
   Odify:
     type: application

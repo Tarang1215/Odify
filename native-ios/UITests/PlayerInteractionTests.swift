@@ -66,6 +66,9 @@ final class PlayerInteractionTests: XCTestCase {
         XCTAssertLessThanOrEqual(expand.frame.maxX, app.windows.firstMatch.frame.maxX)
         XCTAssertTrue(expand.isHittable); expand.tap()
         XCTAssertTrue(app.buttons["player.collapse"].waitForExistence(timeout: 5))
+        let full = app.otherElements["player.full"]
+        XCTAssertGreaterThanOrEqual(full.frame.width, app.windows.firstMatch.frame.width - 1)
+        XCTAssertGreaterThanOrEqual(full.frame.maxY, app.windows.firstMatch.frame.maxY - 40)
         capture("inspector-expanded-landscape", app: app)
         app.buttons["player.collapse"].tap()
         XCTAssertTrue(expand.waitForExistence(timeout: 5))
@@ -116,5 +119,45 @@ final class PlayerInteractionTests: XCTestCase {
         XCTAssertTrue(field.waitForExistence(timeout: 5)); field.tap()
         field.typeText(" test words")
         XCTAssertTrue((field.value as? String)?.contains("test words") == true)
+    }
+    func testDockSeparatesAndRejoinsWithoutLosingControls() {
+        let app = launch(); app.buttons["player.collapse"].tap()
+        let transport = app.buttons["player.mini.transport"]
+        XCTAssertTrue(transport.waitForExistence(timeout: 5))
+        capture("dock-joined-paused", app: app)
+        transport.tap()
+        let playing = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@", "일시 정지"), object: transport)
+        XCTAssertEqual(XCTWaiter.wait(for: [playing], timeout: 5), .completed)
+        XCTAssertTrue(app.buttons["player.expand"].isHittable)
+        capture("dock-separated-playing", app: app)
+        transport.tap()
+        let paused = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@", "재생"), object: transport)
+        XCTAssertEqual(XCTWaiter.wait(for: [paused], timeout: 5), .completed)
+        app.buttons["player.expand"].tap()
+        XCTAssertTrue(app.buttons["player.collapse"].waitForExistence(timeout: 5))
+        app.typeKey(XCUIKeyboardKey.escape, modifierFlags: [])
+        XCTAssertTrue(transport.waitForExistence(timeout: 5))
+        app.typeKey(" ", modifierFlags: [])
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@", "일시 정지"), object: transport)], timeout: 5), .completed)
+    }
+    func testNativeAudioKeepsPlayingInBackgroundAndExplicitPauseSurvivesReturn() {
+        let app = launch(), transport = app.buttons["player.transport"]
+        transport.tap()
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@", "일시 정지"), object: transport)], timeout: 5), .completed)
+        XCUIDevice.shared.press(.home)
+        Thread.sleep(forTimeInterval: 3)
+        app.activate()
+        XCTAssertTrue(transport.waitForExistence(timeout: 5))
+        XCTAssertEqual(transport.label, "일시 정지")
+        let seek = app.descendants(matching: .any).matching(identifier: "player.seek").firstMatch
+        let position = (seek.value as? String)?.components(separatedBy: " / ").first ?? ""
+        let parts = position.split(separator: ":").compactMap { Int($0) }
+        XCTAssertEqual(parts.count, 2)
+        if parts.count == 2 { XCTAssertGreaterThanOrEqual(parts[0] * 60 + parts[1], 44) }
+        transport.tap(); XCUIDevice.shared.press(.home)
+        Thread.sleep(forTimeInterval: 2); app.activate()
+        XCTAssertTrue(transport.waitForExistence(timeout: 5))
+        XCTAssertEqual(transport.label, "재생")
+        capture("native-background-return", app: app)
     }
 }

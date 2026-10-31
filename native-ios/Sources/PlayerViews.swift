@@ -8,44 +8,60 @@ struct MiniPlayer: View {
     var artworkVisible = true
     @EnvironmentObject private var engine: PlaybackEngine
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Namespace private var dockGlass
+    private var separated: Bool { wide && engine.isPlaying }
     var body: some View {
         if let track = engine.current {
-            HStack(spacing: 14) {
-                Button(action: open) {
-                    HStack(spacing: 12) {
-                        Group {
-                            if artworkVisible {
-                                Artwork(address: track.artwork, title: track.album.isEmpty ? track.title : track.album, size: 48, radius: 12)
-                                    .playerArtworkTransition("mini.artwork", namespace: transitionNamespace, source: true)
-                                    .scaleEffect(engine.isPlaying ? 1 : 0.92)
-                            } else { Color.clear.frame(width: 48, height: 48) }
-                        }.animation(reduceMotion ? nil : .spring(response: 0.55, dampingFraction: 0.7), value: engine.isPlaying)
-                        VStack(alignment: .leading, spacing: 5) {
-                            Text(track.title).font(.system(size: 14, weight: .semibold)).lineLimit(1)
-                            Text(track.artist).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
-                        }.frame(maxWidth: .infinity, alignment: .leading)
-                        Image(systemName: "waveform").font(.system(size: 16)).foregroundStyle(Color(uiColor: engine.tint).opacity(0.9))
-                            .symbolEffect(.variableColor.iterative, options: .repeating, isActive: engine.isPlaying && !reduceMotion)
-                    }.contentShape(Rectangle())
-                }.buttonStyle(.plain).accessibilityIdentifier("player.expand")
-                if wide { TimelineViewCompact(clock: engine.clock).frame(maxWidth: 280).padding(.horizontal, 20) }
-                HStack(spacing: wide ? 22 : 12) {
-                    if wide { Button(action: engine.previous) { Image(systemName: "backward.end.fill").frame(width: 40, height: 44) }.accessibilityLabel("이전 곡") }
-                    Button(action: engine.toggle) {
-                        Group { if engine.isBuffering { ProgressView() } else { Image(systemName: engine.isPlaying ? "pause.fill" : "play.fill").font(.system(size: 23, weight: .semibold)) } }.frame(width: 46, height: 46)
-                    }.accessibilityLabel(engine.isPlaying ? "일시 정지" : "재생")
-                    Button(action: engine.next) { Image(systemName: "forward.end.fill").frame(width: 40, height: 44) }.accessibilityLabel("다음 곡")
-                }.buttonStyle(.plain)
-                if wide { AirPlayButton().frame(width: 40, height: 40) }
-            }.padding(10).padding(.horizontal, wide ? 10 : 0)
-                .background(Color(uiColor: engine.tint).opacity(0.045), in: RoundedRectangle(cornerRadius: 24))
-                .glassEffect(.clear.tint(Color(uiColor: engine.tint).opacity(0.07)).interactive(), in: .rect(cornerRadius: 24))
-                .overlay { RoundedRectangle(cornerRadius: 24).strokeBorder(LinearGradient(colors: [.white.opacity(0.48), .white.opacity(0.05), .white.opacity(0.18)], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 0.7).allowsHitTesting(false) }
-                .shadow(color: Color(uiColor: engine.tint).opacity(0.2), radius: 22, y: 7)
-                .animation(reduceMotion ? nil : .easeInOut(duration: 1.1), value: engine.tint)
-                .accessibilityElement(children: .contain)
-                .accessibilityIdentifier("player.mini")
+            GlassEffectContainer(spacing: 22) {
+                HStack(spacing: separated ? 32 : 4) {
+                    Button(action: open) {
+                        HStack(spacing: 12) {
+                            Artwork(address: track.artwork, title: track.album.isEmpty ? track.title : track.album, size: 48, radius: 12)
+                                .scaleEffect(engine.isPlaying ? 1 : 0.94)
+                            VStack(alignment: .leading, spacing: 5) {
+                                Text(track.title).font(.system(size: 14, weight: .semibold)).lineLimit(1)
+                                Text(track.artist).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
+                            }.frame(maxWidth: .infinity, alignment: .leading)
+                            Image(systemName: "music.note").font(.system(size: 16)).foregroundStyle(Color(uiColor: engine.tint))
+                                .symbolEffect(.variableColor.iterative, options: .repeating, isActive: engine.isPlaying && !reduceMotion)
+                        }.padding(10).contentShape(Rectangle())
+                    }.buttonStyle(.plain).accessibilityIdentifier("player.expand")
+                        .modifier(PlayerDockIsland(id: "song", joined: !separated, tint: Color(uiColor: engine.tint), namespace: dockGlass))
+                    HStack(spacing: wide ? 12 : 4) {
+                        if wide { TimelineViewCompact(clock: engine.clock).frame(width: 180).padding(.horizontal, 8) }
+                        if wide { Button(action: engine.previous) { Image(systemName: "backward.end.fill").frame(width: 36, height: 46) }.accessibilityLabel("이전 곡") }
+                        Button(action: engine.toggle) {
+                            Group {
+                                if engine.isBuffering { ProgressView() }
+                                else { Image(systemName: engine.isPlaying ? "pause.fill" : "play.fill").font(.system(size: 23, weight: .semibold)) }
+                            }.frame(width: 46, height: 46)
+                        }.accessibilityLabel(engine.isPlaying ? "일시 정지" : "재생").accessibilityIdentifier("player.mini.transport")
+                        Button(action: engine.next) { Image(systemName: "forward.end.fill").frame(width: 36, height: 46) }.accessibilityLabel("다음 곡")
+                        if wide { AirPlayButton().frame(width: 32, height: 40) }
+                    }.buttonStyle(.plain).padding(.horizontal, 10).padding(.vertical, 11)
+                        .modifier(PlayerDockIsland(id: "controls", joined: !separated, tint: Color(uiColor: engine.tint), namespace: dockGlass))
+                }
+            }.frame(maxWidth: wide ? 1000 : .infinity)
+                .playerArtworkTransition("mini.artwork", namespace: transitionNamespace, source: true)
+                .animation(reduceMotion ? nil : .spring(response: 0.5, dampingFraction: 0.88), value: separated)
+                .animation(reduceMotion ? nil : .spring(response: 0.5, dampingFraction: 0.85), value: engine.isPlaying)
+                .accessibilityElement(children: .contain).accessibilityIdentifier("player.mini")
         }
+    }
+}
+
+private struct PlayerDockIsland: ViewModifier {
+    var id: String
+    var joined: Bool
+    var tint: Color
+    var namespace: Namespace.ID
+    func body(content: Content) -> some View {
+        content
+            .background(tint.opacity(0.035), in: RoundedRectangle(cornerRadius: 24))
+            .glassEffect(.clear.tint(tint.opacity(0.065)).interactive(), in: .rect(cornerRadius: 24))
+            .glassEffectID(id, in: namespace)
+            .glassEffectUnion(id: joined ? "joined" : id, namespace: namespace)
+            .glassEffectTransition(.matchedGeometry)
     }
 }
 
@@ -141,6 +157,7 @@ struct FullPlayerView: View {
     var close: () -> Void
     var transitionNamespace: Namespace.ID? = nil
     var artworkTransitionID = "mini.artwork"
+    var keyboardAction: ((MusicKeyAction) -> Void)? = nil
     @EnvironmentObject private var engine: PlaybackEngine
     @EnvironmentObject private var store: LibraryStore
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -203,6 +220,7 @@ struct FullPlayerView: View {
                         .simultaneousGesture(collapseGesture)
                     bottomGlass(availableHeight: geometry.size.height)
                 }.padding(.horizontal, wide ? 42 : 26).padding(.bottom, max(16, geometry.safeAreaInsets.bottom + 12))
+                    .offset(y: dragOffset)
                 if panel != nil {
                     Color.black.opacity(0.14).ignoresSafeArea().allowsHitTesting(false)
                         .transition(.opacity).zIndex(5)
@@ -216,7 +234,6 @@ struct FullPlayerView: View {
             }
             .animation(reduceMotion ? nil : .spring(response: 0.48, dampingFraction: 0.86), value: panel)
             .animation(reduceMotion ? nil : .spring(response: 0.48, dampingFraction: 0.86), value: expanded)
-            .offset(y: dragOffset)
             .sheet(item: $lyricSearchTrack) { LyricsSearchView(track: $0) }
             .sheet(isPresented: $editLyrics) {
                 NavigationStack {
@@ -229,6 +246,7 @@ struct FullPlayerView: View {
                 }.presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
             }
         }.tint(OdifyPalette.text).accessibilityElement(children: .contain).accessibilityIdentifier("player.full")
+            .background { if let keyboardAction { KeyboardControls(perform: keyboardAction).frame(width: 0, height: 0) } }
     }
     private var collapseGesture: some Gesture {
         DragGesture(minimumDistance: 18)

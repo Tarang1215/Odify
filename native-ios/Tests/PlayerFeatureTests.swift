@@ -79,6 +79,23 @@ final class SourcePreferenceTests: XCTestCase {
         let root = FileManager.default.temporaryDirectory
         XCTAssertEqual(PlaybackSourcePreference.resolve(catalog, library: [drive], account: "account", documents: root).source, .drive)
     }
+    func testAttachedDriveWinsOverStaleCatalogLabelAndUntaggedFilenameMatchesBothFields() {
+        let root = FileManager.default.temporaryDirectory
+        var stored = drive; stored.source = .youtube
+        XCTAssertEqual(PlaybackSourcePreference.resolve(stored, library: [], account: "account", documents: root).source, .drive)
+        stored.artist = "Google Drive"; stored.title = "01 - Artist - Song"
+        XCTAssertEqual(PlaybackSourcePreference.resolve(catalog, library: [stored], account: "account", documents: root).id, stored.id)
+        stored.title = "01 - Other Artist - Song"
+        XCTAssertEqual(PlaybackSourcePreference.resolve(catalog, library: [stored], account: "account", documents: root), catalog)
+    }
+    func testMissingOwnedReferenceFailsWithoutYouTubeLookup() async {
+        let resolver = StreamResolver()
+        for source in [MusicSource.local, .drive] {
+            var broken = catalog; broken.source = source
+            do { _ = try await resolver.url(for: broken, documents: FileManager.default.temporaryDirectory); XCTFail("Missing owned reference must fail") }
+            catch { XCTAssertTrue(error.localizedDescription.contains("원본 음원")) }
+        }
+    }
     func testDisconnectedOtherAccountWrongDurationOrAmbiguousEditionDoesNotReplaceSong() {
         let root = FileManager.default.temporaryDirectory
         XCTAssertEqual(PlaybackSourcePreference.resolve(catalog, library: [drive], account: nil, documents: root), catalog)

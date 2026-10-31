@@ -24,6 +24,15 @@ struct Track: Identifiable, Codable, Hashable {
     var fileExtension: String? = nil
     var driveModifiedTime: String? = nil
 
+    // Stored source labels can be stale after metadata/import updates. An
+    // attached file is authoritative and must never enter YouTube lookup.
+    var playbackSource: MusicSource {
+        if localFile != nil { return .local }
+        if driveFileID != nil { return .drive }
+        return source
+    }
+    var routedForPlayback: Track { var value = self; value.source = playbackSource; return value }
+
     var recordingKey: String { Self.normalized(artist) + "|" + Self.normalized(title) }
     static func normalized(_ value: String) -> String {
         value.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: Locale(identifier: "en_US_POSIX"))

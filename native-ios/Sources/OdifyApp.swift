@@ -82,7 +82,7 @@ struct RootView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(OdifyPalette.background)
                 if inspector {
-                    NowPlayingPane(openFullPlayer: { bounds, artwork in openPlayer(bounds: bounds, artwork: artwork) }, transitionNamespace: playerMotion, activeArtwork: fullPlayer ? launchArtwork : nil)
+                    NowPlayingPane(openFullPlayer: { bounds, artwork in openPlayer(bounds: bounds, artwork: artwork) }, transitionNamespace: playerMotion, activeArtwork: nil)
                         .frame(width: min(342, geometry.size.width * 0.28))
                 }
             }
@@ -103,27 +103,23 @@ struct RootView: View {
                         }.padding(14).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18)).padding(.horizontal, 20)
                     }
                     if engine.current != nil {
-                        MiniPlayer(wide: sidebar, open: { openPlayer(bounds: miniBounds, artwork: "mini.artwork") }, transitionNamespace: playerMotion, artworkVisible: !fullPlayer)
+                        MiniPlayer(wide: sidebar, open: { openPlayer(bounds: miniBounds, artwork: "mini.artwork") }, transitionNamespace: playerMotion, artworkVisible: true)
                             .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { miniBounds = $0 }
                             .padding(.horizontal, sidebar ? 20 : 12)
-                            .opacity(fullPlayer ? 0 : 1).accessibilityHidden(fullPlayer)
+
                     }
                     if !sidebar { compactTabs.padding(.horizontal, 32) }
                 }.padding(.bottom, 8).accessibilityHidden(fullPlayer).allowsHitTesting(!fullPlayer)
             }
             .animation(reduceMotion ? nil : .smooth(duration: 0.3), value: sidebar)
             .animation(reduceMotion ? nil : .smooth(duration: 0.22), value: page)
-            .overlay {
-                if fullPlayer {
-                    FullPlayerView(close: { fullPlayer = false }, transitionNamespace: playerMotion, artworkTransitionID: launchArtwork)
-                        .environmentObject(store).environmentObject(engine)
-                        .transition(reduceMotion ? .opacity : .modifier(
-                            active: PlayerExpansion(source: launchBounds.isEmpty ? CGRect(x: 20, y: geometry.size.height - 90, width: geometry.size.width - 40, height: 72) : launchBounds, bounds: geometry.frame(in: .global), progress: 0),
-                            identity: PlayerExpansion(source: launchBounds, bounds: geometry.frame(in: .global), progress: 1)))
-                        .zIndex(30)
-                }
+            .fullScreenCover(isPresented: $fullPlayer) {
+                FullPlayerView(close: { fullPlayer = false }, keyboardAction: keyboardAction)
+                    .environmentObject(store).environmentObject(engine)
+                    .preferredColorScheme(.dark)
+                    .presentationBackground(.clear)
+                    .navigationTransition(.zoom(sourceID: launchArtwork, in: playerMotion))
             }
-            .animation(reduceMotion ? nil : .spring(response: 0.48, dampingFraction: 0.88), value: fullPlayer)
             .sheet(isPresented: $showAbout) { AboutView() }
             .sheet(isPresented: $showDrive) { DriveBrowser() }
             .fileImporter(isPresented: $importer, allowedContentTypes: [.audio, .mpeg4Movie], allowsMultipleSelection: true) { result in
@@ -186,8 +182,6 @@ struct RootView: View {
                 Label("가져온 음악 \(store.tracks.filter { $0.localFile != nil }.count)", systemImage: "folder")
             }.font(.system(size: 12)).foregroundStyle(.secondary).padding(.horizontal, 26)
             Spacer()
-            Button { showAbout = true } label: { Label("Made for your music", systemImage: "sparkles").font(.system(size: 11)) }
-                .buttonStyle(.plain).foregroundStyle(.secondary).padding(22)
         }
         .frame(maxHeight: .infinity)
         .background(.white.opacity(0.025))

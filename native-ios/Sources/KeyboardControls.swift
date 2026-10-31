@@ -53,7 +53,17 @@ final class MusicKeyboardController: UIViewController {
     deinit { for observer in observers { NotificationCenter.default.removeObserver(observer) } }
     private var textOrModalActive: Bool {
         guard let window = viewIfLoaded?.window else { return true }
-        if window.rootViewController?.presentedViewController != nil { return true }
+        if let root = window.rootViewController {
+            var front = root
+            while let presented = front.presentedViewController { front = presented }
+            var owner: UIViewController? = self
+            var belongsToFront = false
+            while let current = owner {
+                if current === front { belongsToFront = true; break }
+                owner = current.parent
+            }
+            if !belongsToFront { return true }
+        }
         func editing(_ view: UIView) -> Bool {
             if view.isFirstResponder, view is UITextInput { return true }
             return view.subviews.contains(where: editing)
@@ -88,24 +98,9 @@ final class MusicKeyboardController: UIViewController {
     }
 }
 
-struct PlayerExpansion: ViewModifier, Animatable {
-    var source: CGRect
-    var bounds: CGRect
-    var progress: CGFloat
-    var animatableData: CGFloat { get { progress } set { progress = newValue } }
-    func body(content: Content) -> some View {
-        let width = max(1, bounds.width), height = max(1, bounds.height)
-        content
-            .clipShape(RoundedRectangle(cornerRadius: 26 * (1 - progress)))
-            .scaleEffect(x: progress + source.width / width * (1 - progress), y: progress + source.height / height * (1 - progress))
-            .offset(x: (source.midX - bounds.midX) * (1 - progress), y: (source.midY - bounds.midY) * (1 - progress))
-            .opacity(0.4 + 0.6 * progress)
-    }
-}
-
 extension View {
     @ViewBuilder func playerArtworkTransition(_ id: String, namespace: Namespace.ID?, source: Bool) -> some View {
-        if let namespace { matchedGeometryEffect(id: id, in: namespace, isSource: source) }
+        if let namespace { matchedTransitionSource(id: id, in: namespace) }
         else { self }
     }
 }

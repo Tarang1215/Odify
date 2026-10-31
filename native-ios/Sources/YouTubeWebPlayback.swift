@@ -68,6 +68,7 @@ struct YouTubeWebFailure: LocalizedError, CustomNSError {
     private func makeView() -> WKWebView {
         let config = WKWebViewConfiguration()
         config.allowsInlineMediaPlayback = true
+        config.allowsPictureInPictureMediaPlayback = true
         config.mediaTypesRequiringUserActionForPlayback = []
         config.websiteDataStore = .default()
         let view = WKWebView(frame: .zero, configuration: config)
@@ -132,7 +133,15 @@ struct YouTubeWebFailure: LocalizedError, CustomNSError {
     }
     // Do not synthesize visibility or a playback gesture on screen lock.
     // The ordinary WebKit/media lifecycle remains in charge.
-    func setActive(_ active: Bool) { self.active = active }
+    func setActive(_ active: Bool) {
+        self.active = active
+        if !active { timeout?.cancel(); timeout = nil }
+        // Reconcile a system pause only after returning to the foreground.
+        // Never invent page visibility or loop play commands on screen lock.
+        if active, wantsPlayback, loaded, !choosing {
+            command("odifyPlay()"); scheduleTimeout(request)
+        }
+    }
     func stop() {
         guard hasLoadedPage else { return }; hasLoadedPage = false
         timeout?.cancel(); timeout = nil; searchRead?.cancel(); searchRead = nil
@@ -155,11 +164,11 @@ struct YouTubeWebFailure: LocalizedError, CustomNSError {
             guard let state = data["state"] as? Int, [-1, 0, 1, 2, 3, 5].contains(state),
                   let position = data["position"] as? Double, position.isFinite, position >= 0,
                   let duration = data["duration"] as? Double, duration.isFinite, duration >= 0,
-                  let intent = data["intent"] as? Bool else { return }
-            loaded = true; wantsPlayback = intent
-            if state == 1 || !intent { timeout?.cancel(); timeout = nil }
+                  (data["intent"] as? Bool) != nil else { return }
+            loaded = true
+            if state == 1 || !wantsPlayback { timeout?.cancel(); timeout = nil }
             else if [-1, 2, 3].contains(state) { scheduleTimeout(request) }
-            onEvent?(request, .state(state, position, duration, intent))
+            onEvent?(request, .state(state, position, duration, wantsPlayback))
         } else if kind == "error", let code = data["code"] as? Int {
             timeout?.cancel(); onEvent?(request, .failed(code))
         } else if kind == "blocked" { timeout?.cancel(); onEvent?(request, .needsTap) }
@@ -178,7 +187,7 @@ struct YouTubeWebFailure: LocalizedError, CustomNSError {
         else { timeout?.cancel(); onEvent?(request, .failed(-1)) }
     }
     private func scheduleTimeout(_ request: UUID) {
-        guard timeout == nil else { return }
+        guard active, timeout == nil else { return }
         timeout = Task { [weak self] in
             do { try await Task.sleep(for: .seconds(20)) } catch { return }
             guard let self, self.request == request, self.wantsPlayback else { return }
@@ -242,15 +251,16 @@ struct YouTubeWebFailure: LocalizedError, CustomNSError {
         <meta name="referrer" content="strict-origin-when-cross-origin">
         <style>html,body{margin:0;width:100%;height:100%;background:#000}#player{width:100%;height:100%;position:absolute;inset:0}</style></head>
         <body><div id="player"></div><script>
+        try{if(navigator.audioSession)navigator.audioSession.type='playback'}catch(e){}
         var p,ready=false,mounted=\(visible ? "true" : "false"),intent=\(autoplay ? "true" : "false"),pending=\(autoplay ? "1" : "2"),started=false,activeID='\(videoID)',commanded=Date.now(),tag='\(request.uuidString)';
         function send(kind,extra){window.webkit.messageHandlers.odify.postMessage(Object.assign({request:tag,kind:kind},extra||{}))}
         function currentVideo(){return !p.getVideoData||(p.getVideoData()||{}).video_id===activeID}
         function snapshot(){if(!ready||!currentVideo())return;var s=p.getPlayerState();if(s===0&&!started)return;send('state',{state:s,position:p.getCurrentTime()||0,duration:p.getDuration()||0,intent:intent})}
         function onYouTubeIframeAPIReady(){p=new YT.Player('player',{videoId:'\(videoID)',width:'100%',height:'100%',
         playerVars:{playsinline:1,autoplay:0,controls:1,origin:\(encodedOrigin)},events:{onReady:function(){ready=true;
-        if(\(start)>0)p.seekTo(\(start),true);send('ready')},
+        if(\(start)>0)p.seekTo(\(start),true);if(intent&&mounted)p.playVideo();send('ready')},
         onStateChange:function(e){if(!currentVideo())return;if(e.data===1){if(pending===2){p.pauseVideo();return}started=true;intent=true;pending=0}
-        if(e.data===2){if(pending===1&&!started)return;intent=false;pending=0}snapshot()},
+        if(e.data===2&&pending===1&&!started)return;snapshot()},
         onError:function(e){intent=false;pending=0;send('error',{code:e.data})},onAutoplayBlocked:function(){intent=false;pending=0;send('blocked')}}})}
         function odifyPlay(){intent=true;pending=1;commanded=Date.now();if(ready&&mounted)p.playVideo()}
         function odifyPause(){intent=false;pending=2;commanded=Date.now();if(ready)p.pauseVideo()}

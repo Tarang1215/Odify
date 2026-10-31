@@ -164,6 +164,7 @@ import UIKit
     }
 
     private func configurePlayer() {
+        player.audiovisualBackgroundPlaybackPolicy = .continuesIfPossible
         player.automaticallyWaitsToMinimizeStalling = true
         player.actionAtItemEnd = .advance
         observations.append(player.observe(\.currentItem, options: [.new]) { [weak self] _, _ in
@@ -208,7 +209,7 @@ import UIKit
     func play(_ tracks: [Track], at index: Int = 0) {
         guard !tracks.isEmpty else { return }
         prefetchDenied = false; deniedEntries.removeAll(); playbackRestricted = false
-        queue.replace(tracks, at: index); failedIDs.removeAll(); retries.removeAll()
+        queue.replace(tracks.map(\.routedForPlayback), at: index); failedIDs.removeAll(); retries.removeAll()
         waitingForRecommendations = false; savedPosition = 0; startCurrent()
     }
     func resume() {
@@ -272,7 +273,7 @@ import UIKit
         onCheckpoint?()
     }
     func enqueue(_ track: Track) {
-        queue.entries.append(QueueEntry(track: preferSource?(track) ?? track))
+        queue.entries.append(QueueEntry(track: (preferSource?(track) ?? track).routedForPlayback))
         if queue.currentID == nil { queue.currentID = queue.entries.first?.id }
         rebuildUpcoming(); onCheckpoint?()
     }
@@ -293,7 +294,7 @@ import UIKit
     }
     func appendRecommendations(_ tracks: [Track]) {
         guard !tracks.isEmpty else { return }
-        queue.entries.append(contentsOf: tracks.map { QueueEntry(track: preferSource?($0) ?? $0) })
+        queue.entries.append(contentsOf: tracks.map { QueueEntry(track: (preferSource?($0) ?? $0).routedForPlayback) })
         if waitingForRecommendations, wantsPlayback, let id = queue.currentID,
            let next = queue.successor(after: id, automatic: false) {
             jump(next.id, userInitiated: false); return
@@ -326,6 +327,7 @@ import UIKit
             let resolved = preferSource(track)
             if resolved != track { queue.entries[index].track = resolved }
         }
+        if let index = queue.currentIndex { queue.entries[index].track = queue.entries[index].track.routedForPlayback }
         startTask?.cancel(); prefetchTask?.cancel(); stallTask?.cancel(); stallTask = nil
         generation = UUID(); let request = generation
         // AVPlayer.Status.failed is terminal for that player instance.
@@ -411,7 +413,7 @@ import UIKit
         let asset: AVURLAsset
         let loader: DriveResourceLoader?
         var sourceKey: UUID?
-        if entry.track.driveFileID != nil {
+        if !url.isFileURL, entry.track.driveFileID != nil {
             asset = AVURLAsset(url: url)
             let delegate = DriveResourceLoader(track: entry.track, client: driveClient)
             asset.resourceLoader.setDelegate(delegate, queue: delegate.queue)
@@ -479,7 +481,7 @@ import UIKit
         // actually been inserted, rather than examining only two queue slots.
         for _ in 0..<max(2, queue.entries.count) {
             guard let entry = queue.successor(after: cursor, automatic: true) else { break }
-            if webPlayback != nil, entry.track.source == .youtube { break }
+            if webPlayback != nil, entry.track.playbackSource == .youtube { break }
             if !failedIDs.contains(entry.id) { prepared.append(entry) }
             cursor = entry.id
         }
@@ -709,8 +711,9 @@ import UIKit
                 if wantsPlayback && intent { advanceWebQueue() }
                 return
             }
-            wantsPlayback = intent
-            let playing = intent && state == 1, buffering = intent && [-1, 2, 3, 5].contains(state)
+            // Native controls own playback intent. Preparation or background
+            // pause snapshots are observations, not a user pause command.
+            let playing = wantsPlayback && state == 1, buffering = wantsPlayback && [-1, 2, 3, 5].contains(state)
             if isPlaying != playing { isPlaying = playing }
             if isBuffering != buffering { isBuffering = buffering }
             if state == 1 {

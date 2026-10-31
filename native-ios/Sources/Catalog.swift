@@ -275,6 +275,9 @@ actor StreamResolver {
             guard let url = components.url else { throw OdifyError.message("Drive 음원 주소를 만들지 못했습니다.") }
             return url
         }
+        guard track.source == .youtube else {
+            throw OdifyError.message("원본 음원이 연결되어 있지 않습니다. 파일 또는 Drive에서 다시 선택해 주세요.")
+        }
         let id: String
         if let videoID = track.videoID { id = videoID } else { id = try await YouTubeCatalog.shared.match(track).id }
         if !refresh, let (url, expiry) = streams[id], expiry.timeIntervalSinceNow > 60 { return url }
