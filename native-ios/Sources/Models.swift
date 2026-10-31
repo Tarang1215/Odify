@@ -23,6 +23,8 @@ struct Track: Identifiable, Codable, Hashable {
     var mimeType: String? = nil
     var fileExtension: String? = nil
     var driveModifiedTime: String? = nil
+    var originalFilename: String? = nil
+    var metadataOrigin: String? = nil
 
     // Stored source labels can be stale after metadata/import updates. An
     // attached file is authoritative and must never enter YouTube lookup.

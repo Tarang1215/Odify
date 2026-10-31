@@ -40,3 +40,19 @@ references, late paused web states, explicit pause, full window/inspector bounds
 dock split/join, real silent native playback while backgrounded, and keyboard
 handoff across full-screen presentation. Physical YouTube lock-screen playback
 remains an explicit unverified acceptance criterion.
+
+The Android comparison also exposed a missing ownership link: APK reads the
+user's Odify 음악 마스터 Google Sheet and resolves ODF filenames/exact Drive
+IDs into canonical names. iOS now discovers the same named sheet through the
+existing read-only Drive account, validates its first-sheet CSV headers, and
+applies only exact unambiguous ID/code mappings. No private document ID is
+embedded, no file is modified, and no MASTER data is sent outside Google.
+Lookup is paginated/bounded, CSV is limited to 9MB, and cache is account-scoped.
+Other accounts, ODF prefix collisions, conflicting records and explicit user
+corrections are rejected. Original filenames survive tag reads, which cannot
+overwrite MASTER names. Startup repairs connected libraries; explicit music
+reconnect also refreshes the table and reports the result.
+
+Master parser/export/mapping regressions cover quoting, Unicode, account
+isolation, read-only requests, ambiguity and owned-source preference afterward.
+Drive API: https://developers.google.com/workspace/drive/api/reference/rest/v3/files/export

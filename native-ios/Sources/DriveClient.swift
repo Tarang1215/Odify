@@ -21,7 +21,7 @@ struct DriveFile: Identifiable, Decodable, Hashable {
         return Track(id: "drive:\(account):\(id)", title: parts.count == 2 ? parts[1] : stem,
                      artist: parts.count == 2 ? parts[0] : "Google Drive", source: .drive,
                      driveFileID: id, driveAccountHash: account, fileSize: size.flatMap(Int64.init), mimeType: mimeType,
-                     fileExtension: (name as NSString).pathExtension.lowercased(), driveModifiedTime: modifiedTime)
+                     fileExtension: (name as NSString).pathExtension.lowercased(), driveModifiedTime: modifiedTime, originalFilename: name)
     }
 }
 
@@ -57,6 +57,7 @@ final class DriveRedirects: NSObject, URLSessionTaskDelegate {
 
 actor DriveClient {
     static let shared = DriveClient()
+    private var masterCache: [String: (Date, [MasterRecording])] = [:]
     typealias Token = @Sendable (String) async throws -> String
     private let session: URLSession
     private let token: Token
@@ -93,6 +94,36 @@ actor DriveClient {
         let result = try JSONDecoder().decode(DrivePage.self, from: data)
         Self.log.notice("[OdifyDrive] listing all-audio=\(allMusic, privacy: .public) roots=\(musicRoots, privacy: .public) shared=\(shared, privacy: .public) files=\(result.files.count, privacy: .public) folders=\(result.files.filter(\.isFolder).count, privacy: .public) audio=\(result.files.filter(\.playable).count, privacy: .public) more=\(result.nextPageToken != nil, privacy: .public)")
         return result
+    }
+    func masterRecordings(account: String, refresh: Bool = false) async throws -> [MasterRecording] {
+        if !refresh, let (date, rows) = masterCache[account], Date().timeIntervalSince(date) < 3600 { return rows }
+        var page: String?, seen = Set<String>(), sheets: [DriveFile] = []
+        repeat {
+            try Task.checkCancellation()
+            guard seen.count < 10, seen.insert(page ?? "").inserted else { throw OdifyError.message("MASTER 표 조회 범위를 초과했습니다.") }
+            var parameters = ["q": "mimeType = 'application/vnd.google-apps.spreadsheet' and name contains 'Odify' and name contains '음악 마스터' and trashed = false",
+                              "fields": "nextPageToken,files(id,name,mimeType)", "pageSize": "100", "spaces": "drive",
+                              "supportsAllDrives": "true", "includeItemsFromAllDrives": "true"]
+            if let page { parameters["pageToken"] = page }
+            var request = URLRequest(url: MusicHTTP.url("https://www.googleapis.com/drive/v3/files", parameters), timeoutInterval: 20)
+            request.setValue("Bearer " + (try await token(account)), forHTTPHeaderField: "Authorization")
+            let (data, response) = try await session.data(for: request); try Self.check(response)
+            guard data.count < 1_000_000 else { throw OdifyError.message("MASTER 표 목록이 너무 큽니다.") }
+            let result = try JSONDecoder().decode(DrivePage.self, from: data)
+            sheets += result.files.filter { $0.mimeType == "application/vnd.google-apps.spreadsheet" && $0.name.contains("음악 마스터") }
+            page = result.nextPageToken
+        } while page != nil
+        guard sheets.count <= 1 else { throw OdifyError.message("Odify 음악 마스터 표가 여러 개입니다. 사용할 표를 하나로 정리한 뒤 다시 연결해 주세요.") }
+        guard let sheet = sheets.first else { masterCache[account] = (Date(), []); return [] }
+        guard Self.validID(sheet.id) else { throw OdifyError.message("MASTER 표 주소를 확인하지 못했습니다.") }
+        var request = URLRequest(url: MusicHTTP.url("https://www.googleapis.com/drive/v3/files/\(sheet.id)/export", ["mimeType": "text/csv"]), timeoutInterval: 25)
+        request.setValue("Bearer " + (try await token(account)), forHTTPHeaderField: "Authorization")
+        let (data, response) = try await session.data(for: request); try Self.check(response)
+        try Task.checkCancellation()
+        let rows = try MasterCatalog.parse(data)
+        if masterCache.count >= 4 { masterCache.removeAll() }
+        masterCache[account] = (Date(), rows)
+        return rows
     }
     func confirmAccount(account: String, expectedEmail: String?) async throws {
         guard let expectedEmail, !expectedEmail.isEmpty else { return }

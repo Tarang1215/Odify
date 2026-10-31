@@ -84,6 +84,9 @@ struct DriveBrowser: View {
                 guard account.accountHash == hash, syncGeneration == request else { return }
                 store.mergeDriveLibrary(tracks)
                 syncNotice = tracks.isEmpty ? "읽을 수 있는 음악이 0곡입니다. 오른쪽 위에서 연결 계정을 확인하거나, 계정을 다시 연결해 주세요." : "\(tracks.count)곡을 보관함에 연결했습니다."
+                if let masterNotice = await store.syncMasterCatalog(account: hash, refresh: true), account.accountHash == hash, syncGeneration == request {
+                    syncNotice = (syncNotice ?? "") + " " + masterNotice
+                }
             } catch is CancellationError { }
             catch { if !Task.isCancelled, account.accountHash == hash { syncNotice = error.localizedDescription } }
         }
@@ -109,7 +112,7 @@ struct DriveFolderView: View {
     @State private var error: String?
     @State private var location: DriveLocation = .allMusic
     @State private var generation = UUID()
-    private var audio: [Track] { files.filter(\.playable).map { $0.track(account: accountHash) } }
+    private var audio: [Track] { files.filter(\.playable).map { store.driveTrack($0.track(account: accountHash)) } }
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 12) {

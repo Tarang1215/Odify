@@ -787,6 +787,10 @@ import UIKit
                 if let duration = try? await item.asset.load(.duration), duration.seconds.isFinite { track.duration = duration.seconds }
                 try Task.checkCancellation()
                 guard self.current?.id == track.id else { return }
+                if let current = self.current, current.metadataOrigin == "master" {
+                    track.title = current.title; track.artist = current.artist; track.album = current.album
+                    track.metadataOrigin = "master"; track.originalFilename = current.originalFilename
+                }
                 self.update(track); self.onTrackMetadata?(track)
                 completed = true
             } catch { /* Tag lookup is optional; a playable Drive stream keeps playing. */ }

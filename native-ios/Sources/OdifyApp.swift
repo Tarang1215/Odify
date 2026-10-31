@@ -19,7 +19,10 @@ final class OdifyOrientationDelegate: NSObject, UIApplicationDelegate {
                     if GIDSignIn.sharedInstance.handle(url) { return }
                     if url.isFileURL { Task { await store.importFiles([url], source: .local) } }
                 }
-                .task { await DriveAccount.shared.restore() }
+                .task {
+                    await DriveAccount.shared.restore()
+                    if let account = DriveAccount.shared.accountHash { _ = await store.syncMasterCatalog(account: account) }
+                }
         }
     }
 }
