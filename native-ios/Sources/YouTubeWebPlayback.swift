@@ -158,7 +158,6 @@ struct YouTubeWebFailure: LocalizedError, CustomNSError {
               data["request"] as? String == request.uuidString, let kind = data["kind"] as? String else { return }
         if kind == "ready", !choosing {
             loaded = true
-            if state == 2, active, wantsPlayback { command("odifyRecoverStart()") }
             command("odifyVolume(\(volume))")
             command(wantsPlayback ? "odifyPlay()" : "odifyPause()")
         } else if kind == "state", !choosing {
@@ -167,6 +166,7 @@ struct YouTubeWebFailure: LocalizedError, CustomNSError {
                   let duration = data["duration"] as? Double, duration.isFinite, duration >= 0,
                   (data["intent"] as? Bool) != nil else { return }
             loaded = true
+            if state == 2, active, wantsPlayback { command("odifyRecoverStart()") }
             if state == 1 || !wantsPlayback { timeout?.cancel(); timeout = nil }
             else if [-1, 2, 3].contains(state) { scheduleTimeout(request) }
             onEvent?(request, .state(state, position, duration, wantsPlayback))
