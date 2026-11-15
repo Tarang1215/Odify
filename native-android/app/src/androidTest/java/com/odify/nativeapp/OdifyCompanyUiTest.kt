@@ -844,7 +844,7 @@ class OdifyCompanyUiTest {
             main {screen.value="home"}
             tap("A very long artist name with a collection for quiet evenings");waitFor("컬렉션 닫기");waitForOpenSurface();capture("home-collection")
             tap("컬렉션 닫기");Thread.sleep(450)
-            tap("Odify Artist");waitFor("내 음악 1곡 · 더 많은 곡 60");waitForOpenSurface()
+            tap("Odify Artist");waitFor("내 음악 1곡 · 온라인 60곡");waitForOpenSurface()
             pullHandle(true);waitFor("New artist song 1");capture("artist-expanded")
             val height=context.resources.displayMetrics.heightPixels.toFloat()
             repeat(2) {
