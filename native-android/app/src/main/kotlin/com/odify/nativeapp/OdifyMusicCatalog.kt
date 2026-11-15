@@ -6,6 +6,8 @@ import android.graphics.BitmapFactory
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import org.json.JSONObject
 import java.io.File
 import java.net.HttpURLConnection
@@ -42,6 +44,9 @@ internal object OdifyMusicMatching {
     private val love=norm("사랑에 연습이 있었다면")
     private val green=norm("GReeeeN")
     private val kiseki=setOf(norm("キセキ"),norm("키세키"),"kiseki")
+    private val illit=norm("ILLIT")
+    private val arrest=norm("You're Under Arrest")
+    private val arrestKo=norm("체포하겠어")
     private val artists=mapOf(
         "JENNIE" to listOf("제니","Gennie"),
         "G-DRAGON" to listOf("지드래곤"),
@@ -58,6 +63,10 @@ internal object OdifyMusicMatching {
 
     fun artistName(value:String):String {
         val name=producer.replace(value,"").trim().replace(suffix,"")
+        creditedAlias.matchEntire(name)?.let { match ->
+            val primary=artists[norm(match.groupValues[1])]
+            if(primary!=null && primary==artists[norm(match.groupValues[2])])return primary
+        }
         return artists[norm(name)] ?: name
     }
     fun artistKey(value:String)=norm(artistName(value))
@@ -75,6 +84,7 @@ internal object OdifyMusicMatching {
         val key=norm(text)
         return when (artistKey(artist)) {
             lim -> if(key=="iftherewaspracticeinlove")love else key
+            illit -> if(key in setOf(arrest,arrestKo,arrestKo+arrest,arrest+arrestKo))arrest else key
             green -> if(norm(text.substringBefore('(')) in kiseki &&
                 (text.indexOf('(')<0 || text.substringAfter('(').substringBeforeLast(')').split(',').all {
                     norm(it) in kiseki
@@ -108,12 +118,18 @@ internal object OdifyMusicMatching {
         val preferred=when {
             artistKey(name)==lim && titleKey(verifiedTitle.ifBlank {title},name)==love ->
                 "사랑에 연습이 있었다면"
+            artistKey(name)==illit && titleKey(verifiedTitle.ifBlank {title},name)==arrest ->
+                "체포하겠어"
             else -> songTitle(verifiedTitle.ifBlank {title})
         }
         val production=(producer.find(verifiedTitle) ?: producer.find(video.title))?.groupValues?.get(1)?.trim()
         return Credits(preferred,if(name.isNotBlank() && !production.isNullOrBlank())"$name (Prod. $production)" else name)
     }
     private val alternative=Regex("(?i)\\b(cover|karaoke|remix|sped|slowed|live|concert|instrumental)\\b|커버|라이브|콘서트|歌ってみた")
+    private val alternateRelease=Regex("(?i)\\((?:remix(?:es)?|instrumental|deluxe|live|sped up|slowed)[^)]*\\)")
+    fun standardRelease(song:OdifyMusicIdentity)=!song.compilation && !alternateRelease.containsMatchIn(song.album)
+    fun acceptsRelease(song:OdifyMusicIdentity)=artistKey(song.artist)!=illit ||
+        titleKey(song.title,song.artist)!=arrest || standardRelease(song)
     fun usesVideoArtwork(video:YoutubeVideo)=alternative.containsMatchIn(video.title)
     fun recent(videos:List<YoutubeVideo>,history:List<String>,signals:Map<String,ListeningSignal>):List<YoutubeVideo> =
         videos.sortedWith(compareBy<YoutubeVideo> {history.indexOf("youtube:${it.videoId}").takeIf {index->index>=0} ?: 1000}
@@ -122,6 +138,7 @@ internal object OdifyMusicMatching {
         val (title,artist)=parts(video)
         if(artistKey(artist)==green && titleKey(title,artist)=="kiseki")return "GReeeeN キセキ"
         if(artistKey(artist)==lim && titleKey(title,artist)==love)return "Jaehyun Lim If there was practice in love"
+        if(artistKey(artist)==illit && titleKey(title,artist)==arrest)return "ILLIT You're Under Arrest"
         return (artist+" "+songTitle(title)).trim().take(150)
     }
     fun choose(video:YoutubeVideo,candidates:List<OdifyMusicIdentity>):OdifyMusicIdentity? {
@@ -133,10 +150,10 @@ internal object OdifyMusicMatching {
             val songArtist=artistKey(song.artist)
             val name=titleKey(song.title,song.artist)
             val uploadTitle=titleKey(title,song.artist)
-            name.length>=2 && songArtist.isNotEmpty() &&
+            name.length>=2 && songArtist.isNotEmpty() && acceptsRelease(song) &&
                 if(expectedArtist.isNotEmpty()) expectedArtist==songArtist && uploadTitle==name
                 else uploadTitle==songArtist+name || channel==songArtist && uploadTitle==name
-        }.sortedBy {it.compilation}.distinctBy {it.artistId.ifBlank {artistKey(it.artist)} to titleKey(it.title,it.artist)}.singleOrNull()
+        }.sortedByDescending(::standardRelease).distinctBy {it.artistId.ifBlank {artistKey(it.artist)} to titleKey(it.title,it.artist)}.singleOrNull()
     }
     fun artistAlias(name:String,videos:List<YoutubeVideo>):String? {
         val pattern=Regex(Regex.escape(name)+"\\s*\\(([A-Za-z][A-Za-z0-9 ._-]{1,35})\\)",RegexOption.IGNORE_CASE)
@@ -180,6 +197,7 @@ internal object OdifyCatalogHttp {
 }
 
 internal class OdifyMusicCatalog(context:Context) {
+    private companion object {val recommendationLookups=Semaphore(3)}
     private val app=context.applicationContext
     private val directory=File(app.cacheDir,"recording_metadata").apply {mkdirs()}
     suspend fun recording(artist:String,title:String,id:String=""):OdifyMusicIdentity? = withContext(Dispatchers.IO) {
@@ -193,10 +211,15 @@ internal class OdifyMusicCatalog(context:Context) {
         }
         val candidates=OdifyCatalogHttp.songs(raw)
         if(id.matches(Regex("[0-9]+")))candidates.firstOrNull {it.id==id}
-        else candidates.sortedBy {it.compilation}.distinctBy {OdifyMusicMatching.artistKey(it.artist) to OdifyMusicMatching.titleKey(it.title,it.artist)}.singleOrNull {
-            OdifyMusicMatching.artistKey(it.artist)==OdifyMusicMatching.artistKey(artist) &&
+        else candidates.filter {
+            OdifyMusicMatching.acceptsRelease(it) &&
+                OdifyMusicMatching.artistKey(it.artist)==OdifyMusicMatching.artistKey(artist) &&
                 OdifyMusicMatching.titleKey(it.title,it.artist)==OdifyMusicMatching.titleKey(title,artist)
-        }
+        }.sortedByDescending(OdifyMusicMatching::standardRelease)
+            .distinctBy {it.artistId.ifBlank {OdifyMusicMatching.artistKey(it.artist)}}.singleOrNull()
+    }
+    suspend fun recommendationArtwork(artist:String,title:String):String = recommendationLookups.withPermit {
+        recording(artist,title)?.artwork.orEmpty()
     }
     suspend fun video(video:YoutubeVideo):OdifyMusicIdentity? = withContext(Dispatchers.IO) {
         if(OdifyMusicMatching.usesVideoArtwork(video))return@withContext null

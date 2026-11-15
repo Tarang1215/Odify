@@ -8,6 +8,29 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class OdifyStreamingPlaylistTest {
+    @Test fun reportedRecommendationCoversAndIllitRecordingResolveThroughThePublicCatalog() {
+        org.junit.Assume.assumeTrue(InstrumentationRegistry.getArguments().getString("liveCatalog")=="true")
+        val context=InstrumentationRegistry.getInstrumentation().targetContext
+        val name="odify_illit_catalog_test"
+        val store=OdifyStreamingLibrary(context,name)
+        val catalog=OdifyMusicCatalog(context)
+        val clip=YoutubeVideo("xB5Ia_Nnlvg","ILLIT(아일릿) '체포하겠어 (You're Under Arrest)' (4K) | STUDIO CHOOM ORIGINAL",
+            "STUDIO CHOOM [스튜디오 춤]","")
+        try {
+            kotlinx.coroutines.runBlocking {
+                store.remember(clip)
+                assertTrue(catalog.enrich(store,clip))
+                val song=requireNotNull(store.find("youtube:"+clip.videoId))
+                assertEquals("체포하겠어",song.title)
+                assertEquals("ILLIT",song.artist)
+                assertEquals("BREAK EVEN - EP",song.album)
+                assertTrue(java.io.File(requireNotNull(song.artworkPath)).length()>0L)
+                listOf("BLACKPINK" to "How You Like That","ifeye" to "r u ok?","Official HIGE DANdism" to "Cry Baby").forEach { (artist,title)->
+                    assertTrue("$artist / $title",catalog.recommendationArtwork(artist,title).contains(".mzstatic.com/"))
+                }
+            }
+        } finally {context.deleteSharedPreferences(name)}
+    }
     @Test fun reportedDjKhaledUploadGetsTheGratefulCoverFromThePublicCatalog() {
         org.junit.Assume.assumeTrue(InstrumentationRegistry.getArguments().getString("liveCatalog")=="true")
         val context=InstrumentationRegistry.getInstrumentation().targetContext

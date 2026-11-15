@@ -61,6 +61,7 @@ internal class OdifyStreamingLibrary(private val context:Context, name:String="o
         row.optString("trackUrl"),row.optLong("duration"),albumUrl=row.optString("albumUrl"))
     private fun recording(videoId:String,data:JSONObject):JSONObject? {
         val row=data.optJSONObject("recording") ?: return null
+        if(!OdifyMusicMatching.acceptsRelease(identity(row)))return null
         val video=YoutubeVideo(videoId,data.optString("title"),data.optString("artist"),"")
         return row.takeIf { it.optInt("matchVersion")>=2 || (data.optJSONArray("charts")?.length() ?: 0)>0 ||
             OdifyMusicMatching.choose(video,listOf(identity(it)))!=null }

@@ -50,16 +50,21 @@ internal class OdifyArtistCatalog(private val context:Context) {
         return (exact.singleOrNull() ?: exact.singleOrNull {it.optString("artistName")==OdifyMusicMatching.artistName(artist)})
             ?.optString("artistLinkUrl")?.takeIf {it.isNotBlank()}
     }
-    suspend fun moodTracks(key:String):List<ExploreTrack> = withContext(Dispatchers.IO) {
+    suspend fun moodTracks(key:String):List<ExploreTrack> {
         val mood=OdifyDiscovery.moods.first {it.key==key}
         val query=when(key) {"focus"->"classical";"unwind"->"jazz";"night"->"R&B soul";else->"dance"}
-        val file=File(directory,"mood-$key.json")
+        return topicTracks("mood-$key",query) {OdifyDiscovery.matches(mood,listOf(it))}
+    }
+    suspend fun genreTracks(genre:OdifyMood):List<ExploreTrack> =
+        topicTracks("genre-${genre.key}",genre.name) {genreMatches(genre,listOf(it))}
+    private suspend fun topicTracks(key:String,query:String,matches:(String)->Boolean):List<ExploreTrack> = withContext(Dispatchers.IO) {
+        val file=File(directory,"$key.json")
         fun decodeMood(raw:String):List<ExploreTrack> {
             val rows=JSONObject(raw).getJSONArray("results")
             return (0 until minOf(rows.length(),100)).mapNotNull {index ->
                 val row=rows.optJSONObject(index) ?: return@mapNotNull null
                 val genre=row.optString("primaryGenreName")
-                if(row.optString("kind")!="song" || !OdifyDiscovery.matches(mood,listOf(genre)))return@mapNotNull null
+                if(row.optString("kind")!="song" || !matches(genre))return@mapNotNull null
                 val id=row.optString("trackId");val title=row.optString("trackName");val artist=row.optString("artistName")
                 if(!id.matches(Regex("[0-9]+")) || title.isBlank() || artist.isBlank())null
                 else OdifyCatalogHttp.parse(row)?.track(index+1)

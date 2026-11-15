@@ -3,18 +3,24 @@ package com.odify.nativeapp
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.*
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.*
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.*
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.*
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.launch
 
 private val homeInk = OdifyPalette.text
 private val homeGrey = OdifyPalette.muted
@@ -35,8 +41,18 @@ fun OdifyPersonalHome(
     ownedIndex:OdifyChartMatching.Index?=null,
     recommendations:List<OdifyRecommendation> = emptyList(),
     onPlayRecommendation:(ExploreTrack)->Unit = onPlayOnline,
-    onTrackOptions:((OdifySong,Boolean)->Unit)?=null
+    onTrackOptions:((OdifySong,Boolean)->Unit)?=null,
+    trendingPreview:List<String> = emptyList(),
+    isActive:Boolean = true,
+    recommendArtists:suspend (String,Set<String>)->List<String> = {_,_->emptyList()}
 ) {
+    var trending by rememberSaveable {mutableStateOf(false)}
+    val heroPager=rememberPagerState {2}
+    val heroScope=rememberCoroutineScope()
+    if(trending) {
+        OdifyTrendingArtists(isActive,{trending=false},onProfile,onArtistSearch,loadArtistPortrait,recommendArtists)
+        return
+    }
     var selectedMix by remember { mutableStateOf<OdifyMix?>(null) }
     var artistTracks by remember {mutableStateOf<List<ExploreTrack>>(emptyList())}
     var artistLoading by remember {mutableStateOf(false)}
@@ -99,7 +115,22 @@ fun OdifyPersonalHome(
                 }
             }
             Spacer(Modifier.height(12.dp))
-            if (hero != null) {
+            HorizontalPager(state=heroPager,pageSpacing=12.dp,contentPadding=PaddingValues(end=20.dp)) {page ->
+            if (page==1) {
+                Box(Modifier.fillMaxWidth().height(164.dp).clip(RoundedCornerShape(24.dp))
+                    .background(OdifyPalette.surface).clickable {trending=true}) {
+                    Row(Modifier.align(Alignment.TopEnd).padding(12.dp),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                        trendingPreview.take(3).forEach {artist ->
+                            HomeArtistPortrait(artist,loadArtistPortrait,Modifier.size(60.dp))
+                        }
+                    }
+                    Row(Modifier.align(Alignment.BottomStart).padding(20.dp),verticalAlignment=Alignment.CenterVertically) {
+                        Text("Trending Artists",fontSize=23.sp,fontWeight=FontWeight.Bold,color=homeInk,
+                            modifier=Modifier.weight(1f))
+                        Icon(Icons.Outlined.ChevronRight,null,tint=homeInk,modifier=Modifier.size(20.dp))
+                    }
+                }
+            } else if (hero != null) {
                 Box(Modifier.fillMaxWidth().height(164.dp).clip(RoundedCornerShape(25.dp))
                     .clickable { selectedMix = hero }) {
                     AlbumArt(hero.coverSong(), Modifier.fillMaxSize(), radius = RoundedCornerShape(25.dp))
@@ -116,10 +147,24 @@ fun OdifyPersonalHome(
                     }
                 }
             } else {
-                Text("음악을 연결하고, 나만의 리듬을 찾아요.",color=homeGrey,fontSize=14.sp)
-                TextButton(onClick=onProfile) { Text("음악 소스 연결",color=homeInk) }
+                Column(Modifier.fillMaxWidth().height(164.dp).clip(RoundedCornerShape(24.dp))
+                    .background(OdifyPalette.surface).padding(20.dp),verticalArrangement=Arrangement.Bottom) {
+                    Text("Your daily mix",fontSize=23.sp,fontWeight=FontWeight.Bold,color=homeInk)
+                    TextButton(onClick=onProfile) {Text("음악 소스 연결",color=homeInk)}
+                }
             }
-            Spacer(Modifier.height(27.dp))
+            }
+            Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.Center) {
+                listOf("Daily Mix","Trending Artists").forEachIndexed {page,label ->
+                    Box(Modifier.size(width=36.dp,height=36.dp).clickable(onClickLabel=label) {
+                        heroScope.launch {heroPager.animateScrollToPage(page)}
+                    }.semantics {contentDescription=label},contentAlignment=Alignment.Center) {
+                        Box(Modifier.size(width=if(heroPager.currentPage==page)16.dp else 6.dp,height=6.dp)
+                            .clip(RoundedCornerShape(6.dp)).background(if(heroPager.currentPage==page)homeInk else homeGrey.copy(alpha=.34f)))
+                    }
+                }
+            }
+            Spacer(Modifier.height(8.dp))
         }
         if (recent.isNotEmpty()) Column {
             Text(if(hasHistory) "Your recent moments" else "Ready when you are",fontSize=20.sp,fontWeight=FontWeight.Bold,color=homeInk)
@@ -292,7 +337,7 @@ fun OdifyPersonalHome(
     }
 }
 
-@Composable private fun HomeRecommendationTrack(recommendation:OdifyRecommendation,onOptions:(()->Unit)?,onClick:()->Unit) {
+@Composable internal fun HomeRecommendationTrack(recommendation:OdifyRecommendation,onOptions:(()->Unit)?,onClick:()->Unit) {
     val song=recommendation.owned
     if(song==null)HomeOnlineTrack(recommendation.track,onOptions,onClick) else HomeOwnedTrack(song,onOptions,onClick)
 }

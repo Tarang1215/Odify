@@ -41,6 +41,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
@@ -631,9 +632,28 @@ fun OdifyRoot(
                             streaming.find(track.id)?.let {onPlayYoutubeMatched(listOf(it),0)}
                         } else onExternalTrack(track.artist,track.title,track.id)
                     },
-                    onArtistSearch={artist ->searchQuery=artist;navigateTo(OdifyTab.Search)},
+                    onArtistSearch={artist ->searchScope=OdifySearchScope.Music;searchQuery=artist;navigateTo(OdifyTab.Search)},
                     loadMoodTracks=artistCatalog::moodTracks,
                     loadArtistPortrait={artist ->artistCatalog.portrait(artist,titlesForArtist(artist))},
+                    trendingPreview=hotArtists.take(3).map {it.name},
+                    isActive=selectedTab==OdifyTab.Home && !expanded && !playlistCovered,
+                    recommendArtists=remember(taste,listeningSignals,related,lessSuggested,discoveryCharts.values.toList()) {
+                        {country,popular ->
+                            val tracks=discoveryCharts[country]?.tracks.orEmpty()
+                            val countryArtists=tracks.map {OdifyMusicMatching.artistKey(it.artist)}.toSet()+popular
+                            val knownArtists=taste.map {OdifyMusicMatching.artistKey(it.song.artist)}.toSet()
+                            withContext(Dispatchers.Default) {
+                                val countryRelated=related.copy(bySeed=related.bySeed.mapValues {(_,rows)->
+                                    rows.filter {OdifyMusicMatching.artistKey(it.artist) in countryArtists}
+                                })
+                                OdifyRecommendations.recommend(emptyList(),taste,listeningSignals,tracks,countryRelated,
+                                    System.currentTimeMillis(),lessSuggested)
+                                    .map {it.track.artist}.distinctBy(OdifyMusicMatching::artistKey)
+                                    .filter {OdifyMusicMatching.artistKey(it) !in knownArtists}
+                                    .sortedBy {OdifyMusicMatching.artistKey(it) in popular}.take(9)
+                            }
+                        }
+                    },
                     playlists = playlists,
                     onPlaylistPlay = { list ->
                         val tracks = playlistStore.resolved(list, songs)
@@ -646,8 +666,6 @@ fun OdifyRoot(
                 )
                 OdifyTab.Explore -> OdifyExplore(
                     index=chartIndex,repository=exploreRepository,onPlay=::playList,onSync=onDriveSync,
-                    onArtist={artist ->searchQuery=artist;navigateTo(OdifyTab.Search)},
-                    loadArtistPortrait={artist ->artistCatalog.portrait(artist)},
                     onAddTrack={track,owned -> trackOptions=OdifyTrackMenu(owned ?: track.optionSong())},
                     onProfile = { navigateTo(OdifyTab.Profile) },
                     onMissingTrack = { track -> onExternalTrack(track.artist, track.title,track.id) },
@@ -658,29 +676,31 @@ fun OdifyRoot(
                         }
                     }
                 )
-                OdifyTab.Search -> OdifySearch(songs, onImport, ::playList,
+                OdifyTab.Search -> OdifySearch(songs, ::playList,
                     onProfile = { navigateTo(OdifyTab.Profile) },
                     query = searchQuery, onQueryChange = { searchQuery = it },
                     genre = searchGenre, onGenreChange = { searchGenre = it },
                     searchScope = searchScope, onScopeChange = { searchScope = it },
                     youtubeConnected = youtubeConnected, onConnectYoutube = onConnectYoutube,
                     onExternalYoutubeStarted = onExternalYoutubeStarted,
-                    onPlayYoutubeVideo = onPlayYoutubeVideo, onAddSong = { trackOptions=OdifyTrackMenu(it) })
+                    onPlayYoutubeVideo = onPlayYoutubeVideo, onAddSong = { trackOptions=OdifyTrackMenu(it) },
+                    active=selectedTab==OdifyTab.Search && !expanded && !playlistCovered,
+                    discoveryTracks=discoveryTracks,recommendations=recommendations,
+                    loadGenre=artistCatalog::genreTracks, chartIndex=chartIndex,
+                    onPlayOnline={onExternalTrack(it.artist,it.title,"recommendation:"+it.id)})
                 OdifyTab.Library -> OdifyLibraryScreen(
                     songs = songs, liked = liked, onPlay = ::playList,
                     onImport = onImport, onRemove = onRemove, onEdit = onEdit,
                     onChooseArtwork = onChooseArtwork,
                     onProfile = { navigateTo(OdifyTab.Profile) },
                     onOpenYoutube = { youtubeOpen = true },
-                    playlists = playlists, playlistFocus = openLibraryPlaylists,currentSongId=playback.mediaId,
+                    playlists = playlists, playlistFocus = openLibraryPlaylists,
                     onOpenPlaylist={selectedPlaylistId=it.id},
                     onRenamePlaylist=::renamePlaylist,
+                    active=selectedTab==OdifyTab.Library && !expanded && !playlistCovered,
                     onCreatePlaylist = ::createPlaylist,
                     onDeletePlaylist = { id ->
                         playlistStore.delete(id); playlistVersion++
-                    },
-                    onRemoveFromPlaylist = { listId, trackId ->
-                        playlistStore.removeSong(listId, trackId); playlistVersion++
                     }
                 )
                 OdifyTab.Profile -> OdifyNeutralScene { OdifyProfile(
@@ -1162,7 +1182,6 @@ internal fun OdifyMiniPlayer(
 @Composable
 private fun OdifySearch(
     songs: List<OdifySong>,
-    onImport: () -> Unit,
     onPlay: (List<OdifySong>, Int) -> Unit,
     onProfile: () -> Unit,
     query: String,
@@ -1172,16 +1191,15 @@ private fun OdifySearch(
     searchScope: OdifySearchScope,
     onScopeChange: (OdifySearchScope) -> Unit,
     youtubeConnected: Boolean, onConnectYoutube: () -> Unit, onExternalYoutubeStarted: () -> Unit,
-    onPlayYoutubeVideo: (List<YoutubeVideo>, Int) -> Unit, onAddSong:(OdifySong)->Unit
+    onPlayYoutubeVideo: (List<YoutubeVideo>, Int) -> Unit, onAddSong:(OdifySong)->Unit,
+    active:Boolean,discoveryTracks:List<ExploreTrack>,recommendations:List<OdifyRecommendation>,
+    loadGenre:suspend(OdifyMood)->List<ExploreTrack>,chartIndex:OdifyChartMatching.Index,
+    onPlayOnline:(ExploreTrack)->Unit
 ) {
     var showDuplicates by rememberSaveable { mutableStateOf(false) }
-    val genres = remember(songs) {
-        listOf("All") + songs.map { it.genre.substringBefore(" / ").trim() }
-            .filter { it.isNotBlank() }.distinct().sorted().take(60)
-    }
-    val filtered = remember(songs, query, genre, showDuplicates, searchScope) {
+    val filtered = remember(songs, query, showDuplicates, searchScope) {
+        if(query.isBlank())return@remember emptyList()
         val matches = songs.filter {
-            (genre == "All" || it.genre.startsWith(genre, ignoreCase = true)) &&
             OdifySearchMatching.matches(it, query, searchScope)
         }
         OdifySongPresentation.visible(matches, showDuplicates).sortedBy { if(it.id.startsWith("gdrive:"))0 else 1 }
@@ -1219,15 +1237,14 @@ private fun OdifySearch(
             }
         }
         Spacer(Modifier.height(12.dp))
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-            items(genres) { option ->
-                val selected = genre == option
-                OdifyPill(option,selected) {onGenreChange(option)}
-            }
+        if(query.isBlank()) {
+            if(searchScope==OdifySearchScope.Music) OdifyGenreBrowser(genre,onGenreChange,active,songs,
+                discoveryTracks,recommendations,loadGenre,chartIndex,onPlay,onPlayOnline,onAddSong)
+            return@Column
         }
         Spacer(Modifier.height(16.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(if (query.isEmpty()) "내 음악" else if(searchScope==OdifySearchScope.Music) "통합 검색" else "가사 검색 · ${filtered.size}",
+            Text(if(searchScope==OdifySearchScope.Music) "통합 검색" else "가사 검색 · ${filtered.size}",
                 fontSize = 16.sp, fontWeight = FontWeight.Bold,
                 modifier = Modifier.weight(1f))
             Text(if (showDuplicates) "중복 숨기기" else "중복 포함 보기",
@@ -1256,61 +1273,84 @@ private fun OdifyLibraryScreen(
     playlists: List<OdifyPlaylist>,
     playlistFocus: Int,
     onCreatePlaylist: (String) -> String,
-    onDeletePlaylist: (String) -> Unit,
-    onRemoveFromPlaylist: (String, String) -> Unit,currentSongId:String?=null,
+    onDeletePlaylist: (String) -> Unit,active:Boolean,
     onOpenPlaylist:(OdifyPlaylist)->Unit,onRenamePlaylist:(String,String)->String
 ) {
     var editingSong by remember { mutableStateOf<OdifySong?>(null) }
-    var selection by rememberSaveable { mutableStateOf("Playlists") }
+    var selection by rememberSaveable { mutableStateOf("") }
+    var selectedGroup by rememberSaveable {mutableStateOf("")}
     var lastPlaylistFocus by rememberSaveable { mutableIntStateOf(0) }
     LaunchedEffect(playlistFocus) {
         if (playlistFocus > lastPlaylistFocus) {
             selection = "Playlists"
+            selectedGroup = ""
             lastPlaylistFocus = playlistFocus
         }
     }
     var showDuplicates by rememberSaveable { mutableStateOf(false) }
-    val modes = listOf("Playlists" to "플레이리스트", "Offline" to "오프라인", "Saved" to "좋아요")
-    val rawVisible = when (selection) {
-        "Saved" -> songs.filter { it.id in liked }
-        "Offline" -> songs.filter { it.isOfflineSaved }
-        else -> emptyList()
+    val modes=linkedMapOf("Playlists" to ("플레이리스트" to Icons.Outlined.PlaylistPlay),
+        "Artists" to ("아티스트" to Icons.Outlined.Person),
+        "Albums" to ("앨범" to Icons.Outlined.Album),
+        "Songs" to ("곡" to Icons.Outlined.MusicNote),
+        "Offline" to ("오프라인" to Icons.Outlined.Download),
+        "Saved" to ("좋아요" to Icons.Outlined.FavoriteBorder))
+    val back={if(selectedGroup.isNotEmpty())selectedGroup="" else selection=""}
+    BackHandler(active && selection.isNotEmpty(),onBack=back)
+    val librarySongs by produceState(emptyList<OdifySong>(),songs,liked,playlists) {
+        value=withContext(Dispatchers.Default) {
+            val saved=playlists.flatMap {it.songIds}.toSet()
+            songs.filter {!it.isYoutubeStream || it.id in liked || it.id in saved}
+        }
     }
-    val visible = OdifySongPresentation.visible(rawVisible, showDuplicates)
+    val groups by produceState(emptyList<Pair<String,List<OdifySong>>>(),selection,librarySongs) {
+        value=withContext(Dispatchers.Default) {
+            when(selection) {
+                "Artists"->OdifyDiscovery.artistGroups(librarySongs)
+                "Albums"->librarySongs.filter {it.album.isNotBlank() && it.album!="YouTube"}
+                    .groupBy {OdifyMusicMatching.artistKey(it.artist) to OdifyMusicMatching.norm(it.album)}
+                    .values.map {it.first().album to it}
+                else->emptyList()
+            }.sortedBy {it.first.lowercase(java.util.Locale.ROOT)}
+        }
+    }
+    val group=groups.firstOrNull {it.second.firstOrNull()?.id==selectedGroup}
+    val rawVisible=remember(selection,group,librarySongs,liked) {
+        when(selection) {
+            "Saved"->librarySongs.filter {it.id in liked}
+            "Offline"->librarySongs.filter {it.isOfflineSaved}
+            "Artists","Albums"->group?.second.orEmpty()
+            "Songs"->librarySongs
+            else->emptyList()
+        }
+    }
+    val visible=remember(rawVisible,showDuplicates) {OdifySongPresentation.visible(rawVisible,showDuplicates)}
     Column(Modifier.fillMaxSize().padding(start = 20.dp, end = 20.dp)) {
         Spacer(Modifier.height(12.dp))
-        OdifyPageHeader("보관함", onProfile, onImport)
+        if(selection.isBlank())OdifyPageHeader("보관함",onProfile,onImport)
+        else Row(verticalAlignment=Alignment.CenterVertically) {
+            IconButton(onClick=back){Icon(Icons.AutoMirrored.Outlined.ArrowBack,"보관함 뒤로")}
+            Text(group?.first ?: modes[selection]?.first.orEmpty(),fontSize=24.sp,fontWeight=FontWeight.Bold,
+                color=ink,maxLines=1,overflow=TextOverflow.Ellipsis)
+        }
         Spacer(Modifier.height(12.dp))
-        Row(Modifier.horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-            modes.forEach { (mode, label) ->
-                Box(Modifier.heightIn(min = 48.dp)
-                    .wrapContentHeight(Alignment.CenterVertically)
-                    .clip(RoundedCornerShape(50))
-                    .background(if (selection == mode) ink else pale)
-                    .clickable { selection = mode }
-                    .padding(horizontal = 13.dp, vertical = 8.dp)) {
-                    Text(label, fontSize = 12.sp,
-                        color = if (selection == mode) white else grey)
-                }
-            }
-        }
-        TextButton(onClick = onOpenYoutube,
-            contentPadding = PaddingValues(horizontal = 0.dp, vertical = 6.dp)) {
-            Icon(Icons.Outlined.PlaylistPlay, null, tint = grey,
-                modifier = Modifier.size(19.dp))
-            Spacer(Modifier.width(6.dp))
-            Text("YouTube 플레이리스트", color = grey, fontSize = 12.sp)
-            Spacer(Modifier.width(3.dp))
-            Icon(Icons.Default.ChevronRight, null, tint = grey,
-                modifier = Modifier.size(16.dp))
-        }
-        if (selection == "Playlists") {
+        if(selection.isBlank()) {
+            OdifyLibraryOverview(modes,{selection=it},onOpenYoutube,playlists,librarySongs,onOpenPlaylist,onPlay)
+        } else if (selection == "Playlists") {
             OdifyPlaylistLibrary(
                 playlists = playlists, songs = songs,
                 onCreate = onCreatePlaylist, onDelete = onDeletePlaylist,
                 onOpenPlaylist=onOpenPlaylist,onRename=onRenamePlaylist
             )
+        } else if(selection in setOf("Artists","Albums") && selectedGroup.isEmpty()) {
+            LazyColumn(contentPadding=PaddingValues(bottom=160.dp)) {
+                items(groups,key={it.second.first().id}) { (name,tracks)->
+                    val representative=tracks.firstOrNull {!it.artworkPath.isNullOrBlank()} ?: tracks.first()
+                    OdifySongRow(representative.copy(title=name,artist=if(selection=="Albums")representative.artist else "${tracks.size}곡"),
+                        onClick={selectedGroup=tracks.first().id},
+                        trailing={Icon(Icons.Outlined.ChevronRight,null,tint=grey)})
+                }
+                if(groups.isEmpty())item {Text("표시할 항목이 없어요.",color=grey,fontSize=13.sp,modifier=Modifier.padding(vertical=20.dp))}
+            }
         } else {
         Text(
             if (showDuplicates) "중복 파일 숨기기" else "MP3 / M4A 중복 파일 모두 보기",
@@ -1320,12 +1360,16 @@ private fun OdifyLibraryScreen(
         )
         Spacer(Modifier.height(12.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(if(selection == "Offline") "기기에 저장한 음악" else "좋아요한 음악", fontSize = 12.sp, color = grey,
+            Text(if(selection == "Offline") "기기에 저장한 음악" else if(selection=="Saved") "좋아요한 음악" else "곡", fontSize = 12.sp, color = grey,
                 modifier = Modifier.weight(1f))
             Text("${visible.size}곡", fontSize = 11.sp, color = grey)
         }
         Spacer(Modifier.height(9.dp))
-        if (visible.isEmpty()) Text(if(selection=="Offline") "아직 오프라인 음악이 없어요. 설정에서 휴대폰 폴더를 연결하거나 음악을 오프라인으로 가져오세요." else "마음에 드는 음악에 하트를 눌러 주세요.",
+        if (visible.isEmpty()) Text(when(selection) {
+            "Offline"->"아직 오프라인 음악이 없어요."
+            "Saved"->"마음에 드는 음악에 하트를 눌러 주세요."
+            else->"표시할 곡이 없어요."
+        },
             color=grey,fontSize=13.sp,modifier=Modifier.padding(vertical=24.dp))
         else LazyColumn(contentPadding = PaddingValues(bottom = 155.dp)) {
             items(visible, key = { it.id }) { song ->

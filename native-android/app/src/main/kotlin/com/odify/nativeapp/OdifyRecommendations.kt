@@ -131,7 +131,8 @@ object OdifyRecommendations {
             val id=key(track.title,track.artist)
             val owned=index.resolve(track)
             if(owned!=null && key(owned.title,owned.artist) in candidates)continue
-            candidates.putIfAbsent(id,OdifyRecommendation(track,owned))
+            candidates.putIfAbsent(id,OdifyRecommendation(
+                track.copy(genres=(track.genres+related.tags[id].orEmpty()).distinct()),owned))
         }
         val ranked=candidates.entries.mapNotNull { (id,candidate)->
             if(id in excluded)return@mapNotNull null

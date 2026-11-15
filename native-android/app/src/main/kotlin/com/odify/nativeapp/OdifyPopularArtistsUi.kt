@@ -2,10 +2,14 @@ package com.odify.nativeapp
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.lazy.grid.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.outlined.Public
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -13,41 +17,76 @@ import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.*
 
-@Composable internal fun OdifyPopularArtistsRow(country:String,refresh:Int,onProfile:()->Unit,
-    onArtist:(String)->Unit,portrait:suspend(String)->String?) {
+private val artistCountries=linkedMapOf("kr" to "한국","jp" to "일본","us" to "미국")
+
+@Composable internal fun OdifyTrendingArtists(active:Boolean,onBack:()->Unit,onProfile:()->Unit,
+    onArtist:(String)->Unit,portrait:suspend(String)->String?,recommend:suspend(String,Set<String>)->List<String>) {
     val context=LocalContext.current
     val repository=remember(context){OdifyPopularArtists(context)}
     val revision by OdifyLastFmKeyStore.revision.collectAsState()
-    var ranking by remember(country) {mutableStateOf<OdifyArtistRanking?>(null)}
-    var message by remember(country) {mutableStateOf("국가별 순위를 확인하고 있어요.")}
-    LaunchedEffect(country,refresh,revision) {
-        ranking=null
-        try {ranking=repository.load(country,refresh>0);message=""}
-        catch(cancel:CancellationException){throw cancel}
-        catch(error:Exception){message=if(withContext(Dispatchers.IO){OdifyLastFmKeyStore(context).read()}==null)
-            "Last.fm을 연결하면 이 나라에서 인기 있는 아티스트를 볼 수 있어요."
-            else (error as? OdifyLastFmError)?.message ?: "순위를 불러오지 못했어요. 연결을 확인하고 새로고침해 주세요."}
+    var country by rememberSaveable {mutableStateOf("")}
+    val back={if(country.isBlank())onBack() else country=""}
+    BackHandler(active,onBack=back)
+    val ranking=remember(country,revision){mutableStateOf<List<String>>(emptyList())}
+    val suggestions=remember(country,revision){mutableStateOf<List<String>>(emptyList())}
+    val status=remember(country,revision){mutableStateOf("")}
+    LaunchedEffect(country,revision,active) {
+        if(country.isBlank() || !active)return@LaunchedEffect
+        status.value="인기 아티스트를 불러오는 중"
+        try {
+            ranking.value=repository.load(country,false).artists.map {it.name}.distinctBy(OdifyMusicMatching::artistKey)
+            status.value=""
+        } catch(cancel:CancellationException){throw cancel}
+        catch(_:Exception) {
+            status.value=if(withContext(Dispatchers.IO){OdifyLastFmKeyStore(context).read()}==null)
+                "Last.fm을 연결하면 인기 아티스트를 볼 수 있어요." else "인기 아티스트를 불러오지 못했어요."
+        }
     }
-    Column(Modifier.fillMaxWidth().padding(top=6.dp,bottom=20.dp)) {
-        Text("인기 아티스트",fontSize=19.sp,fontWeight=FontWeight.SemiBold,color=OdifyPalette.text)
-        Spacer(Modifier.height(12.dp))
-        val data=ranking
-        if(data==null) {
-            Text(message,fontSize=12.sp,color=OdifyPalette.muted)
-            if(message.contains("연결하면"))TextButton(onClick=onProfile){Text("Last.fm 연결")}
-        } else {
-            LazyRow(horizontalArrangement=Arrangement.spacedBy(18.dp)) {
-                items(data.artists,key={it.name}) {artist ->
-                    Column(Modifier.width(92.dp).clickable {onArtist(artist.name)},horizontalAlignment=Alignment.CenterHorizontally) {
-                        HomeArtistPortrait(artist.name,portrait,Modifier.size(78.dp))
-                        Text(artist.name,fontSize=12.sp,fontWeight=FontWeight.Medium,maxLines=2,
-                            overflow=TextOverflow.Ellipsis,color=OdifyPalette.text,modifier=Modifier.padding(top=9.dp))
+    LaunchedEffect(country,ranking.value,active,recommend) {
+        if(country.isNotBlank() && active) {
+            suggestions.value=recommend(country,ranking.value.map(OdifyMusicMatching::artistKey).toSet())
+        }
+    }
+    Column(Modifier.fillMaxSize().padding(horizontal=24.dp)) {
+        Row(Modifier.fillMaxWidth().padding(top=12.dp,bottom=12.dp),verticalAlignment=Alignment.CenterVertically) {
+            IconButton(onClick=back) {Icon(Icons.AutoMirrored.Outlined.ArrowBack,"뒤로")}
+            Text(artistCountries[country] ?: "Trending Artists",fontSize=27.sp,fontWeight=FontWeight.Bold,
+                color=OdifyPalette.text,modifier=Modifier.weight(1f))
+        }
+        if(country.isBlank()) {
+            artistCountries.forEach { (code,label) ->
+                OdifyBrowseRow(label,Icons.Outlined.Public) {country=code}
+            }
+        } else key(country) {
+            LazyVerticalGrid(columns=GridCells.Fixed(3),contentPadding=PaddingValues(top=8.dp,bottom=160.dp),
+                horizontalArrangement=Arrangement.spacedBy(12.dp),verticalArrangement=Arrangement.spacedBy(20.dp)) {
+                fun LazyGridScope.artistSection(label:String,names:List<String>) {
+                    item(span={GridItemSpan(maxLineSpan)}) {
+                        Text(label,fontSize=19.sp,fontWeight=FontWeight.Bold,color=OdifyPalette.text)
+                    }
+                    items(names.take(12),key={label+OdifyMusicMatching.artistKey(it)}) {name ->
+                        Column(Modifier.fillMaxWidth().clickable {onArtist(name)}.padding(vertical=4.dp),
+                            horizontalAlignment=Alignment.CenterHorizontally) {
+                            HomeArtistPortrait(name,portrait,Modifier.fillMaxWidth(.9f).aspectRatio(1f))
+                            Text(name,fontSize=12.sp,fontWeight=FontWeight.Medium,maxLines=2,
+                                overflow=TextOverflow.Ellipsis,color=OdifyPalette.text,
+                                textAlign=TextAlign.Center,modifier=Modifier.padding(top=8.dp))
+                        }
                     }
                 }
+                artistSection("인기 아티스트",ranking.value)
+                if(status.value.isNotBlank())item(span={GridItemSpan(maxLineSpan)}) {
+                    Column {
+                        Text(status.value,fontSize=13.sp,color=OdifyPalette.muted)
+                        if(status.value.contains("연결하면"))TextButton(onClick=onProfile){Text("Last.fm 연결")}
+                    }
+                }
+                if(suggestions.value.isNotEmpty())artistSection("추천 아티스트",suggestions.value)
             }
         }
     }

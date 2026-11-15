@@ -32,6 +32,30 @@ import androidx.compose.ui.geometry.Offset
 
 /** Office-safe regression suite. No play(), prepare(), audio decoding, or playback-service commands. */
 class OdifyCompanyUiTest {
+    @Test fun homeCarouselMovesToCountrySpecificArtistDiscovery() {
+        val owned=OdifySong("fixture:mix","A quiet moment","Artist","Collection","")
+        ActivityScenario.launch(MainActivity::class.java).use {scenario->
+            scenario.onActivity {activity->
+                activity.setContent {
+                    MaterialTheme {
+                        OdifyPersonalHome(listOf(owned),true,listOf(OdifyMix("daily","Your daily mix","",listOf(owned))),
+                            emptyList(),{},{},{},{},{_,_->},{},{},recommendArtists={country,_->
+                                if(country=="jp")listOf("Japanese recommendation") else emptyList()
+                            })
+                    }
+                }
+            }
+            val mix=Rect().also {waitFor("Your daily mix").getBoundsInScreen(it)}
+            val width=context.resources.displayMetrics.widthPixels.toFloat()
+            swipe(width*.82f,mix.centerY().toFloat(),width*.24f,mix.centerY().toFloat())
+            tap("Trending Artists")
+            tap("일본")
+            waitFor("인기 아티스트")
+            waitFor("Japanese recommendation")
+            back()
+            waitFor("한국")
+        }
+    }
     private val test=InstrumentationRegistry.getInstrumentation()
     private val context get()=test.targetContext
     private fun main(block:()->Unit)=test.runOnMainSync(block)

@@ -27,7 +27,13 @@ class OdifyMusicMatchingTest {
     @Test fun readsThePerformerAndTitleInAQuotedVideoBeforeTheStudioCredit() {
         val upload=YoutubeVideo("xB5Ia_Nnlvg","ILLIT(아일릿) '체포하겠어 (You're Under Arrest)' (4K) | STUDIO CHOOM ORIGINAL",
             "STUDIO CHOOM [스튜디오 춤]","")
-        assertEquals(OdifyMusicMatching.Credits("체포하겠어 (You're Under Arrest)","ILLIT"),OdifyMusicMatching.credits(upload))
+        val song=messy.copy(id="6818511627",title="You’re Under Arrest",artist="ILLIT",artistId="1734551937",album="BREAK EVEN - EP")
+        val remix=song.copy(id="6830467634",album="You're Under Arrest (Remixes)")
+        assertEquals(OdifyMusicMatching.Credits("체포하겠어","ILLIT"),OdifyMusicMatching.credits(upload))
+        assertEquals("ILLIT You're Under Arrest",OdifyMusicMatching.query(upload))
+        assertEquals(song,OdifyMusicMatching.choose(upload,listOf(remix,song)))
+        assertEquals(song,OdifyMusicMatching.choose(upload.copy(title="아일릿(ILLIT) - 체포하겠어 [가사]"),listOf(song)))
+        assertNull(OdifyMusicMatching.choose(upload.copy(title="Another Artist - 체포하겠어"),listOf(song)))
     }
     @Test fun lyricsUploadLinksToVerifiedRecordingAndKeepsProducerCredit() {
         val video=YoutubeVideo("lNNPWLC8sTo","임재현 - 사랑에 연습이 있었다면 (Prod. 2soo) // 가사","Lyrics uploader","")

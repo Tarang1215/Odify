@@ -153,7 +153,15 @@ private fun java.io.InputStream.readBytesBounded(limit:Int):ByteArray {
 @Composable
 internal fun ExploreCover(track:ExploreTrack,modifier:Modifier) {
     val context=LocalContext.current
-    val artwork=track.artwork
+    val fallback=remember(track.id,track.title,track.artist) {mutableStateOf("")}
+    LaunchedEffect(track.id,track.artwork,track.title,track.artist) {
+        if(track.artwork.isBlank() && track.id.startsWith("lastfm-")) {
+            try {fallback.value=OdifyMusicCatalog(context).recommendationArtwork(track.artist,track.title)}
+            catch(cancel:CancellationException){throw cancel}
+            catch(_:Exception){ }
+        }
+    }
+    val artwork=track.artwork.ifBlank {fallback.value}
     val cover=remember(artwork) {mutableStateOf(ExploreArtworkMemory.peek(artwork))}
     LaunchedEffect(artwork) {
         if(artwork.isBlank() || cover.value!=null)return@LaunchedEffect
@@ -198,8 +206,7 @@ private object ExploreArtworkMemory {
 @Composable
 fun OdifyExplore(index:OdifyChartMatching.Index,repository:OdifyExploreRepository,onProfile:()->Unit,onPlay:(List<OdifySong>,Int)->Unit,
     onMissingTrack:(ExploreTrack)->Unit,onSaveChart:(String,List<String>)->Unit,onSync:()->Unit,onAddTrack:(ExploreTrack,OdifySong?)->Unit,
-    pagerState:androidx.compose.foundation.pager.PagerState?=null,onArtist:(String)->Unit={},
-    loadArtistPortrait:suspend(String)->String?={null}) {
+    pagerState:androidx.compose.foundation.pager.PagerState?=null) {
     val countries=remember {listOf("kr","jp","us")}
     val pager=pagerState ?: rememberPagerState {countries.size}
     val selectedCountry=countries[pager.currentPage]
@@ -247,19 +254,20 @@ fun OdifyExplore(index:OdifyChartMatching.Index,repository:OdifyExploreRepositor
             val countryName=when(country) {"kr"->"한국";"jp"->"일본";else->"미국"}
             LazyColumn(Modifier.fillMaxSize(),state=listState,contentPadding=PaddingValues(24.dp,8.dp,24.dp,160.dp)) {
                 item {
-                    Row(verticalAlignment=Alignment.CenterVertically) {
+                    Row(verticalAlignment=Alignment.Top) {
                         Text("$countryName Top 100",fontSize=26.sp,fontWeight=FontWeight.Bold,color=OdifyPalette.text,modifier=Modifier.weight(1f))
-                        Box(Modifier.size(24.dp),contentAlignment=Alignment.Center) {
-                            if(busy)CircularProgressIndicator(Modifier.size(15.dp),strokeWidth=1.5.dp,color=OdifyPalette.muted)
+                        if(data!=null) {
+                            val timestamp=runCatching {java.time.Instant.parse(data.updated)}.getOrElse {
+                                runCatching {java.time.ZonedDateTime.parse(data.updated,java.time.format.DateTimeFormatter.RFC_1123_DATE_TIME).toInstant()}
+                                    .getOrDefault(java.time.Instant.ofEpochMilli(data.fetchedAt))}
+                            val updated=timestamp.atZone(java.time.ZoneId.systemDefault()).format(java.time.format.DateTimeFormatter.ofPattern("MM.dd HH:mm"))
+                            Text("$updated 갱신",fontSize=10.sp,color=OdifyPalette.muted,modifier=Modifier.padding(start=8.dp,top=4.dp))
+                        } else if(busy) {
+                            CircularProgressIndicator(Modifier.size(15.dp),strokeWidth=1.5.dp,color=OdifyPalette.muted)
                         }
                     }
                     if(data!=null) {
-                        val timestamp=runCatching {java.time.Instant.parse(data.updated)}.getOrElse {
-                            runCatching {java.time.ZonedDateTime.parse(data.updated,java.time.format.DateTimeFormatter.RFC_1123_DATE_TIME).toInstant()}
-                                .getOrDefault(java.time.Instant.ofEpochMilli(data.fetchedAt))}
-                        val updated=timestamp.atZone(java.time.ZoneId.systemDefault()).format(java.time.format.DateTimeFormatter.ofPattern("MM.dd HH:mm"))
-                        Text("$updated 갱신"+(if(data.cached)" · 저장된 차트" else ""),fontSize=10.sp,color=OdifyPalette.muted,modifier=Modifier.padding(top=4.dp))
-                        Text("${ready.size}/${visible.size}곡 재생 준비",fontSize=11.sp,color=OdifyPalette.muted,modifier=Modifier.padding(top=9.dp,bottom=10.dp))
+                        Spacer(Modifier.height(8.dp))
                         Row(horizontalArrangement=Arrangement.spacedBy(8.dp),verticalAlignment=Alignment.CenterVertically) {
                             FilledIconButton(onClick={onPlay(ready,0)},enabled=ready.isNotEmpty(),colors=IconButtonDefaults.filledIconButtonColors(
                                 containerColor=OdifyPalette.text,contentColor=OdifyPalette.background)) {Icon(Icons.Outlined.PlayArrow,"Top 100 재생")}
@@ -295,9 +303,11 @@ fun OdifyExplore(index:OdifyChartMatching.Index,repository:OdifyExploreRepositor
                         }
                     }
                 }
-                chartTracks(visible.take(10))
-                item(key="popular-artists") {OdifyPopularArtistsRow(country,refresh,onProfile,onArtist,loadArtistPortrait)}
-                chartTracks(visible.drop(10))
+                chartTracks(visible)
+                if(data!=null)item(key="playable-count") {
+                    Text("${ready.size}/${visible.size}곡 재생 준비",fontSize=11.sp,color=OdifyPalette.muted,
+                        modifier=Modifier.padding(vertical=20.dp))
+                }
             }
         }
     }
