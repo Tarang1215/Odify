@@ -61,8 +61,7 @@ fun OdifyPersonalHome(
         newTracks.filter {OdifyDiscovery.matches(mood,it.genres)}.take(30)}}
     var category by remember {mutableStateOf("daily")}
     val hero = mixes.firstOrNull {it.key==category} ?: mixes.firstOrNull()
-    val artists=remember(recent,catalogSongs) {(recent+catalogSongs).distinctBy {it.id}.filter {it.artist.isNotBlank()}
-        .groupBy {it.artist}.entries.take(8)}
+    val artists=remember(recent,catalogSongs) {OdifyDiscovery.artistGroups((recent+catalogSongs).distinctBy {it.id}).take(8)}
     // This finite feed has seven bounded sections. Keep their small rows alive
     // across vertical reversals instead of subcomposing the artist/carousel
     // trees again whenever they cross the viewport edge.
@@ -129,11 +128,11 @@ fun OdifyPersonalHome(
         if(artists.isNotEmpty()) Column {
             Text("More from your artists",fontSize=20.sp,fontWeight=FontWeight.Bold,color=homeInk,modifier=Modifier.padding(top=24.dp,bottom=13.dp))
             LazyRow(horizontalArrangement=Arrangement.spacedBy(16.dp)) {
-                items(artists,key={it.key}) {entry ->
-                    Column(Modifier.width(90.dp).clickable {selectedMix=OdifyMix("artist:${entry.key}",entry.key,"내 음악과 이 아티스트의 더 많은 곡 · 저장하지 않은 곡은 YouTube로",entry.value.distinctBy {it.id})},
+                items(artists,key={it.second.first().id}) {(artist,tracks) ->
+                    Column(Modifier.width(90.dp).clickable {selectedMix=OdifyMix("artist:$artist",artist,"내 음악과 이 아티스트의 더 많은 곡 · 저장하지 않은 곡은 YouTube로",tracks)},
                         horizontalAlignment=Alignment.CenterHorizontally) {
-                        HomeArtistPortrait(entry.key,loadArtistPortrait,Modifier.size(82.dp))
-                        Text(entry.key,fontSize=11.sp,color=homeInk,maxLines=1,overflow=TextOverflow.Ellipsis,modifier=Modifier.padding(top=8.dp))
+                        HomeArtistPortrait(artist,loadArtistPortrait,Modifier.size(82.dp))
+                        Text(artist,fontSize=11.sp,color=homeInk,maxLines=1,overflow=TextOverflow.Ellipsis,modifier=Modifier.padding(top=8.dp))
                     }
                 }
             }

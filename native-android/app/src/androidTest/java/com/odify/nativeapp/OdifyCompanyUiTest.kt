@@ -36,6 +36,107 @@ class OdifyCompanyUiTest {
     private val context get()=test.targetContext
     private fun main(block:()->Unit)=test.runOnMainSync(block)
 
+    @Test fun lastFmSettingsSaveAValidKeyAndAllThreeCountriesLoad() {
+        org.junit.Assume.assumeTrue(context.packageName.endsWith(".qa"))
+        org.junit.Assume.assumeTrue(InstrumentationRegistry.getArguments().getString("liveLastFm")=="true")
+        val input=File(context.filesDir,"lastfm-test-input")
+        val key=input.readText().trim()
+        check(input.delete())
+        try {
+            ActivityScenario.launch(MainActivity::class.java).use {scenario ->
+                scenario.onActivity {activity ->activity.setContent {MaterialTheme {OdifyLastFmSettingsCard()}}}
+                waitFor("Last.fm API 키가 필요해요")
+                typeName(key)
+                tap("연결 확인 및 저장")
+                waitFor("Last.fm 연결됨")
+                val store=OdifyLastFmKeyStore(context)
+                assertTrue("The settings screen did not persist the validated key",store.read()==key)
+                kotlinx.coroutines.runBlocking {
+                    val repository=OdifyPopularArtists(context)
+                    for(country in listOf("kr","jp","us")) {
+                        val ranking=repository.load(country,force=true)
+                        assertEquals(country,ranking.country)
+                        assertFalse("No artist ranking for "+country,ranking.artists.isEmpty())
+                    }
+                }
+            }
+        } finally {
+            OdifyLastFmKeyStore(context).clear()
+        }
+    }
+
+    @Test fun chartCoverChangesWhenTheHomeRowReceivesANewTrack() {
+        val first=ExploreTrack("first","First","Artist","https://is1-ssl.mzstatic.com/test/odify-red.jpg",emptyList(),1)
+        val second=first.copy(id="second",title="Second",artwork="https://is1-ssl.mzstatic.com/test/odify-blue.jpg")
+        val selected=mutableStateOf(first)
+        val colors=listOf(android.graphics.Color.RED,android.graphics.Color.BLUE)
+        val files=listOf(first,second).zip(colors).map { (track,color) ->
+            val bitmap=Bitmap.createBitmap(16,16,Bitmap.Config.ARGB_8888)
+            bitmap.eraseColor(color)
+            File(context.cacheDir,"explore_art_"+OdifyMusicMatching.cacheKey(track.artwork).take(24)+".jpg").also { file ->
+                try {file.outputStream().use {bitmap.compress(Bitmap.CompressFormat.PNG,100,it)}} finally {bitmap.recycle()}
+            }
+        }
+        fun centerShows(color:Int):Boolean {
+            repeat(40) {
+                val shot=test.uiAutomation.takeScreenshot() ?: return false
+                val actual=try {shot.getPixel(shot.width/2,shot.height/2)} finally {shot.recycle()}
+                if(actual==color)return true
+                Thread.sleep(100)
+            }
+            return false
+        }
+        try {
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                scenario.onActivity { activity -> activity.setContent {
+                    MaterialTheme {
+                        Box(Modifier.fillMaxSize(),contentAlignment=androidx.compose.ui.Alignment.Center) {
+                            ExploreCover(selected.value,Modifier.fillMaxSize())
+                        }
+                    }
+                } }
+                assertTrue(centerShows(colors.first()))
+                main {selected.value=second}
+                assertTrue(centerShows(colors.last()))
+            }
+        } finally {files.forEach {it.delete()}}
+    }
+
+    @Test fun searchCanRepeatBothReportedQueriesAfterSavingTheYoutubeResult() {
+        val korean = YoutubeVideo("lNNPWLC8sTo", "사랑에 연습이 있었다면", "임재현", "")
+        val japanese = YoutubeVideo("L483dymSxB0", "Kiseki", "GReeeeN", "")
+        val query = mutableStateOf(korean.title)
+        val saved = mutableStateOf<List<OdifySong>>(emptyList())
+        val search: suspend (String) -> List<YoutubeVideo> = { text ->
+            listOf(korean, japanese).filter { it.title == text }
+        }
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                activity.setContent {
+                    MaterialTheme {
+                        OdifyYoutubeSearch(query.value, true, {}, {}, { _, _ -> },
+                            saved.value, { _, _ -> }, {}, search = search)
+                    }
+                }
+            }
+            for (video in listOf(korean, japanese)) {
+                main { query.value = video.title }
+                waitFor(video.channel)
+                val libraryCopy = OdifySong("youtube:${video.videoId}", "Saved ${video.title}", video.channel,
+                    "YouTube", "").forYoutubePlayback(video.videoId)
+                main { saved.value = listOf(libraryCopy) }
+                waitFor(libraryCopy.title)
+                waitFor(video.channel)
+                main { query.value = ""; saved.value = emptyList() }
+                waitFor("노래나 아티스트를 검색해 주세요.")
+                main { query.value = video.title; saved.value = listOf(libraryCopy) }
+                waitFor(video.channel)
+                waitFor(libraryCopy.title)
+                main { saved.value = emptyList() }
+            }
+        }
+    }
+
     @Test fun nativeResumePreservesMixedQueueOccurrencesAndRejectsMismatchedOrExpiredState() {
         val name="company-native-resume";context.deleteSharedPreferences(name)
         try {

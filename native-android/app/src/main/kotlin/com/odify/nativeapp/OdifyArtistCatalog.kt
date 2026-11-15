@@ -63,7 +63,7 @@ internal class OdifyArtistCatalog(private val context:Context) {
         catch(failure:Exception) {cached.ifEmpty {throw failure}}
     }
     suspend fun tracks(artist:String,knownTitles:List<String> = emptyList()):List<ExploreTrack> = withContext(Dispatchers.IO) {
-        val name=artist.trim().take(120)
+        val name=OdifyMusicMatching.artistName(artist).take(120)
         require(name.isNotBlank())
         val hash=java.security.MessageDigest.getInstance("SHA-256").digest(name.toByteArray())
             .joinToString("") {"%02x".format(it)}
@@ -165,11 +165,26 @@ internal object OdifyDiscovery {
         OdifyMood("focus","몰입이 필요할 때","클래식 · 연주 · 앰비언트",listOf("classical","instrumental","ambient","lo-fi","클래식","연주")),
         OdifyMood("energy","기분을 올리고 싶을 때","팝 · 댄스 · 록의 에너지",listOf("pop","dance","electronic","rock","hip-hop","팝","댄스","록","힙합")),
         OdifyMood("night","늦은 밤의 리듬","R&B · 소울 · 얼터너티브",listOf("r&b","soul","alternative","알앤비","소울","얼터너티브")))
-    fun sameArtist(first:String,second:String):Boolean = OdifyMusicMatching.norm(first).let {it.isNotBlank() && it==OdifyMusicMatching.norm(second)}
+    fun sameArtist(first:String,second:String):Boolean = OdifyMusicMatching.artistKey(first).let {it.isNotBlank() && it==OdifyMusicMatching.artistKey(second)}
+    fun artistGroups(songs:List<OdifySong>):List<Pair<String,List<OdifySong>>> {
+        val named=songs.filter {it.artist.isNotBlank()}
+        val identities=named.filter {it.catalogArtistId.isNotBlank()}.groupBy {OdifyMusicMatching.artistKey(it.artist)}
+            .mapValues {(_,rows)->rows.map {it.catalogArtistId}.distinct().singleOrNull()}
+        return named.groupBy {song ->
+            val name=OdifyMusicMatching.artistKey(song.artist)
+            val identity=song.catalogArtistId.ifBlank {identities[name].orEmpty()}
+            if(identity.isBlank())"name:$name" else "id:$identity"
+        }.values.map {rows->OdifyMusicMatching.artistName(rows.first().artist) to rows}
+    }
     fun matches(mood:OdifyMood,genres:List<String>):Boolean = genres.any {genre ->mood.genres.any {genre.contains(it,true)}}
+    fun prioritize(tracks:List<ExploreTrack>,artists:List<OdifyPopularArtist>):List<ExploreTrack> {
+        if(artists.isEmpty())return tracks
+        val ranks=artists.associate {OdifyMusicMatching.artistKey(it.name) to it.rank}
+        return tracks.sortedBy {ranks[OdifyMusicMatching.artistKey(it.artist)] ?: Int.MAX_VALUE}
+    }
     fun newTracks(tracks:List<ExploreTrack>,owned:List<OdifySong>,preparedIndex:OdifyChartMatching.Index?=null):List<ExploreTrack> {
         val index=preparedIndex ?: OdifyChartMatching.buildIndex(owned)
-        return tracks.distinctBy {OdifyYouTubeMatcher.norm(it.artist) to OdifyYouTubeMatcher.norm(it.title)}
+        return tracks.distinctBy {OdifyMusicMatching.artistKey(it.artist) to OdifyMusicMatching.titleKey(it.title,it.artist)}
             .filter {index.resolve(it)==null}
     }
 }

@@ -8,6 +8,21 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class OdifyStreamingPlaylistTest {
+    @Test fun publicCatalogResolvesTheReportedSongToOfficialCover() {
+        org.junit.Assume.assumeTrue(InstrumentationRegistry.getArguments().getString("liveCatalog")=="true")
+        val context=InstrumentationRegistry.getInstrumentation().targetContext
+        val repository=OdifyStreamingLibrary(context,"odify_reported_recording_test")
+        val video=YoutubeVideo("lNNPWLC8sTo","임재현 - 사랑에 연습이 있었다면 (Prod. 2soo) // 가사","Lyrics upload","")
+        try {
+            repository.remember(video)
+            assertTrue(kotlinx.coroutines.runBlocking {OdifyMusicCatalog(context).enrich(repository,video)})
+            val display=requireNotNull(repository.find("youtube:"+video.videoId))
+            assertEquals("사랑에 연습이 있었다면",display.title)
+            assertEquals("임재현 (Prod. 2soo)",display.artist)
+            assertEquals("1352299660",display.catalogArtistId)
+            assertTrue(requireNotNull(display.artworkPath).contains("official_artwork"))
+        } finally {context.deleteSharedPreferences("odify_reported_recording_test")}
+    }
     @Test fun youtubeSongCanBeSavedResolvedAndRemovedWithoutChangingExistingPlaylists() {
         val context=InstrumentationRegistry.getInstrumentation().targetContext
         val playlists=OdifyPlaylists(context)

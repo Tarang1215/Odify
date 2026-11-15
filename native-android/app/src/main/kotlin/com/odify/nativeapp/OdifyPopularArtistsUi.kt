@@ -28,9 +28,9 @@ import kotlinx.coroutines.*
         ranking=null
         try {ranking=repository.load(country,refresh>0);message=""}
         catch(cancel:CancellationException){throw cancel}
-        catch(_:Exception){message=if(withContext(Dispatchers.IO){OdifyLastFmKeyStore(context).read()}==null)
+        catch(error:Exception){message=if(withContext(Dispatchers.IO){OdifyLastFmKeyStore(context).read()}==null)
             "Last.fm을 연결하면 이 나라에서 인기 있는 아티스트를 볼 수 있어요."
-            else "순위를 불러오지 못했어요. 연결을 확인하고 새로고침해 주세요."}
+            else (error as? OdifyLastFmError)?.message ?: "순위를 불러오지 못했어요. 연결을 확인하고 새로고침해 주세요."}
     }
     Column(Modifier.fillMaxWidth().padding(top=6.dp,bottom=20.dp)) {
         Text("인기 아티스트",fontSize=19.sp,fontWeight=FontWeight.SemiBold,color=OdifyPalette.text)
@@ -67,6 +67,8 @@ import kotlinx.coroutines.*
         Text(if(linked)"Last.fm 연결됨" else "Last.fm API 키가 필요해요",style=MaterialTheme.typography.labelMedium)
         OutlinedTextField(value=entered,onValueChange={entered=it.trim();message=""},label={Text("Last.fm API 키")},
             singleLine=true,visualTransformation=PasswordVisualTransformation(),enabled=!busy,modifier=Modifier.fillMaxWidth())
+        if(entered.isNotBlank() && !entered.matches(Regex("[a-fA-F0-9]{32}")))
+            Text("API 키 32자리를 붙여넣어 주세요.",style=MaterialTheme.typography.bodySmall,color=OdifyPalette.muted)
         Row(horizontalArrangement=Arrangement.spacedBy(6.dp)) {
             TextButton(enabled=!busy && entered.matches(Regex("[a-fA-F0-9]{32}")),onClick={scope.launch {
                 busy=true;message="연결을 확인하고 있어요."
@@ -75,7 +77,8 @@ import kotlinx.coroutines.*
                     withContext(Dispatchers.IO){OdifyLastFmKeyStore(context).save(entered)}
                     entered="";linked=true;message="연결했어요. 탐색에서 나라별 아티스트를 확인해 보세요."
                 } catch(cancel:CancellationException){throw cancel}
-                catch(_:Exception){message="키가 유효한지와 네트워크 연결을 확인해 주세요."}
+                catch(error:OdifyLastFmError){message=error.message.orEmpty()}
+                catch(_:Exception){message="API 키를 확인하거나 기기에 저장하지 못했어요."}
                 finally {busy=false}
             }}){Text(if(busy)"확인 중…" else "연결 확인 및 저장")}
             if(linked)TextButton(enabled=!busy,onClick={scope.launch {

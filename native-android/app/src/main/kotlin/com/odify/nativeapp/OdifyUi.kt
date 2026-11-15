@@ -128,7 +128,7 @@ fun OdifySplash() {
 }
 
 /** Bound decoded artwork retained across adjacent-track transitions. */
-private object OdifyCoverMemory {
+internal object OdifyCoverMemory {
     private val images = object : LinkedHashMap<String, ImageBitmap>(32, 0.75f, true) {
         override fun removeEldestEntry(
             eldest: MutableMap.MutableEntry<String, ImageBitmap>?
@@ -306,18 +306,26 @@ fun OdifyRoot(
     // thread when a LazyRow composes another artist during a drag.
     var artistTitlesReady by remember(songs) {mutableStateOf(false)}
     val artistTitles by produceState<Map<String,List<String>>>(emptyMap(),songs) {
-        value=withContext(Dispatchers.Default) {songs.groupBy {OdifyMusicMatching.norm(it.artist)}
+        value=withContext(Dispatchers.Default) {songs.groupBy {OdifyMusicMatching.artistKey(it.artist)}
             .mapValues {(_,rows)->rows.map {it.title}.distinct()}}
         artistTitlesReady=true
     }
     suspend fun titlesForArtist(artist:String):List<String> {
-        val key=OdifyMusicMatching.norm(artist)
+        val key=OdifyMusicMatching.artistKey(artist)
         val index=if(artistTitlesReady)artistTitles else snapshotFlow {if(artistTitlesReady)artistTitles else null}.first {it!=null}!!
         return index[key].orEmpty()
     }
     val discoveryCharts=remember {mutableStateMapOf<String,ExploreChart>()}
-    val discoveryTracks=remember(discoveryCharts.values.toList()) {
-        (0 until 100).flatMap {rank ->listOf("kr","jp","us").mapNotNull {discoveryCharts[it]?.tracks?.getOrNull(rank)}}
+    val lastFmRevision by OdifyLastFmKeyStore.revision.collectAsState()
+    val hotArtists by produceState<List<OdifyPopularArtist>>(emptyList(),lastFmRevision) {
+        value=emptyList()
+        try {value=OdifyPopularArtists(context.applicationContext).load("kr").artists}
+        catch(cancel:kotlinx.coroutines.CancellationException) {throw cancel}
+        catch(_:Exception) {}
+    }
+    val discoveryTracks=remember(discoveryCharts.values.toList(),hotArtists) {
+        val tracks=(0 until 100).flatMap {rank ->listOf("kr","jp","us").mapNotNull {discoveryCharts[it]?.tracks?.getOrNull(rank)}}
+        OdifyDiscovery.prioritize(tracks,hotArtists)
     }
     val chartIndex by produceState(OdifyChartMatching.buildIndex(emptyList()),songs) {
         value=withContext(Dispatchers.Default) {OdifyChartMatching.buildIndex(songs)}

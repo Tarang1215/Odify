@@ -9,7 +9,7 @@ object OdifySearchMatching {
         if (term.isEmpty()) return true
         return when (scope) {
             OdifySearchScope.Music -> listOf(song.title, song.artist, song.album, song.genre)
-                .any { it.contains(term, ignoreCase = true) }
+                .any { it.contains(term, ignoreCase = true) } || OdifyDiscovery.sameArtist(song.artist,term)
             OdifySearchScope.Lyrics -> song.lyrics.contains(term, ignoreCase = true)
         }
     }

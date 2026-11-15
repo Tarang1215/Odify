@@ -153,13 +153,15 @@ private fun java.io.InputStream.readBytesBounded(limit:Int):ByteArray {
 @Composable
 internal fun ExploreCover(track:ExploreTrack,modifier:Modifier) {
     val context=LocalContext.current
-    val cover by produceState<ImageBitmap?>(ExploreArtworkMemory.peek(track.artwork),track.artwork) {
-        if(value!=null)return@produceState
-        value=withContext(Dispatchers.IO) {
+    val artwork=track.artwork
+    val cover=remember(artwork) {mutableStateOf(ExploreArtworkMemory.peek(artwork))}
+    LaunchedEffect(artwork) {
+        if(artwork.isBlank() || cover.value!=null)return@LaunchedEffect
+        cover.value=withContext(Dispatchers.IO) {
             runCatching {
-                val url=URL(track.artwork)
+                val url=URL(artwork)
                 require(url.protocol=="https" && (url.host.endsWith(".mzstatic.com") || url.host=="cdnimg.melon.co.kr"))
-                val key=java.security.MessageDigest.getInstance("SHA-256").digest(track.artwork.toByteArray()).take(12).joinToString("") {"%02x".format(it)}
+                val key=OdifyMusicMatching.cacheKey(artwork).take(24)
                 val file=File(context.cacheDir,"explore_art_$key.jpg")
                 val bytes=if(file.exists()) file.readBytes() else {
                     val conn=url.openConnection() as HttpURLConnection
@@ -174,12 +176,12 @@ internal fun ExploreCover(track:ExploreTrack,modifier:Modifier) {
                 var sample=1
                 while(options.outWidth/sample>256 || options.outHeight/sample>256)sample*=2
                 BitmapFactory.decodeByteArray(bytes,0,bytes.size,BitmapFactory.Options().apply {inSampleSize=sample})
-                    ?.asImageBitmap()?.also {ExploreArtworkMemory.put(track.artwork,it)}
+                    ?.asImageBitmap()?.also {ExploreArtworkMemory.put(artwork,it)}
             }.getOrNull()
         }
     }
     Box(modifier.clip(RoundedCornerShape(13.dp)).background(OdifyPalette.surface),contentAlignment=Alignment.Center) {
-        cover?.let {Image(it,null,Modifier.fillMaxSize(),contentScale=ContentScale.Crop)}
+        cover.value?.let {Image(it,null,Modifier.fillMaxSize(),contentScale=ContentScale.Crop)}
             ?: Icon(Icons.Outlined.MusicNote,null,tint=Color(0xFF999CA2))
     }
 }

@@ -48,7 +48,7 @@ object OdifyRecommendations {
             val weight = (if (song.id in liked) 3.0 else 0.0) +
                 if (signal != null) ln(1.0 + signal.count) * exp(-(age ?: 0.0) / 21.0) else 0.0
             if (weight > 0) {
-                val artist = OdifyYouTubeMatcher.norm(song.artist)
+                val artist = OdifyMusicMatching.artistKey(song.artist)
                 val genre = OdifyYouTubeMatcher.norm(song.genre)
                 if (artist.isNotEmpty()) artists[artist] = artists.getOrDefault(artist, 0.0) + weight
                 if (genre.isNotEmpty()) genres[genre] = genres.getOrDefault(genre, 0.0) + weight
@@ -66,14 +66,14 @@ object OdifyRecommendations {
             .sortedByDescending {signals[it.id]?.count ?: 0}.take(30)
         val offline=shortTracks.filter {it.isOfflineSaved}.shuffled(kotlin.random.Random(day+17)).take(30)
         val scored = catalog.map { song ->
-            val score = artists.getOrDefault(OdifyYouTubeMatcher.norm(song.artist), 0.0) * 2 +
+            val score = artists.getOrDefault(OdifyMusicMatching.artistKey(song.artist), 0.0) * 2 +
                 genres.getOrDefault(OdifyYouTubeMatcher.norm(song.genre), 0.0) +
                 (if (song.id in liked) 1.0 else 0.0)
             song to score / (1.0 + (signals[song.id]?.count ?: 0) * .15)
         }.filter { it.second > 0 }.sortedWith(compareByDescending<Pair<OdifySong, Double>> { it.second }.thenBy { it.first.id })
         val artistCounts = HashMap<String, Int>()
         val daily = scored.mapNotNull { (song, _) ->
-            val artist = OdifyYouTubeMatcher.norm(song.artist).ifBlank { song.id }
+            val artist = OdifyMusicMatching.artistKey(song.artist).ifBlank { song.id }
             if (artistCounts.getOrDefault(artist, 0) >= 3) null else {
                 artistCounts[artist] = artistCounts.getOrDefault(artist, 0) + 1
                 song

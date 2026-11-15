@@ -6,13 +6,19 @@ import org.junit.Test
 
 /** Metadata-only fixtures. No production key, audio or real ranking is fabricated. */
 class OdifyCountryArtistsTest {
+    @Test fun failedHttpResponsesKeepLastFmErrorCodes() {
+        val failure=runCatching {OdifyPopularArtists.response("""{"error":10,"message":"Invalid API key"}""",403)}
+            .exceptionOrNull() as OdifyLastFmError
+        assertEquals(10,failure.code)
+        assertEquals("Last.fm API 키를 확인해 주세요.",failure.message)
+    }
     @Test fun keepsProviderOrderRatherThanInventingCountryRanksFromListenerCounts() {
         val raw="""{"topartists":{"artist":[{"name":"First","listeners":"1","url":"https://www.last.fm/music/First"},{"name":"Second","listeners":"999999"},{"name":"FIRST"},{"name":""}]}}"""
         val result=OdifyPopularArtists.parse(raw,"jp",123,true)
         assertEquals(listOf("First","Second"),result.artists.map {it.name})
         assertEquals(listOf(1,2),result.artists.map {it.rank});assertEquals("jp",result.country)
         assertEquals(123L,result.fetchedAt);assertTrue(result.cached)
-        assertEquals("South Korea",OdifyPopularArtists.countryName("kr"))
+        assertEquals("Korea, Republic of",OdifyPopularArtists.countryName("kr"))
         assertEquals("United States",OdifyPopularArtists.countryName("us"))
         assertTrue(runCatching {OdifyPopularArtists.parse(raw,"unknown",123)}.isFailure)
     }

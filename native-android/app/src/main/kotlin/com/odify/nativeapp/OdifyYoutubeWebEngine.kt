@@ -1,25 +1,11 @@
 package com.odify.nativeapp
 
-import android.annotation.SuppressLint
-import android.media.AudioAttributes
-import android.media.AudioFocusRequest
-import android.media.AudioManager
-import android.webkit.WebChromeClient
-import android.webkit.WebResourceRequest
-import android.webkit.WebSettings
-import android.webkit.WebView
-import android.webkit.WebViewClient
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
-import org.json.JSONObject
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
@@ -41,22 +27,31 @@ internal fun OdifyYoutubeWebHost(modifier:Modifier=Modifier) {
     }}
 }
 
-internal suspend fun youtubeArtwork(context:android.content.Context,id:String):String?=withContext(Dispatchers.IO) {
-    require(Regex("[A-Za-z0-9_-]{11}").matches(id))
+private val youtubeArtworkDispatcher = Dispatchers.IO.limitedParallelism(4)
+
+internal suspend fun youtubeArtwork(context:android.content.Context,id:String):String?=withContext(youtubeArtworkDispatcher) {
+    if (!Regex("[A-Za-z0-9_-]{11}").matches(id)) return@withContext null
     runCatching {
         val file=File(context.cacheDir,"youtube_search_$id.jpg")
-        if(!file.isFile) {
+        if(!file.isFile || file.length() !in 1L..400_000L) {
             val connection=URL("https://i.ytimg.com/vi/$id/mqdefault.jpg").openConnection() as HttpURLConnection
             val bytes=try {
                 connection.connectTimeout=8000;connection.readTimeout=8000;connection.instanceFollowRedirects=false
                 check(connection.responseCode==200)
                 connection.inputStream.use {input ->
                     val out=java.io.ByteArrayOutputStream();val buffer=ByteArray(8192)
-                    while(true) {val count=input.read(buffer);if(count<0) break;require(out.size()+count<=400_000);out.write(buffer,0,count)}
+                    while(true) {ensureActive();val count=input.read(buffer);if(count<0) break;require(out.size()+count<=400_000);out.write(buffer,0,count)}
                     out.toByteArray()
                 }
             } finally {connection.disconnect()}
-            file.writeBytes(bytes)
+            ensureActive()
+            val staged = File.createTempFile("youtube_search_", ".tmp", context.cacheDir)
+            try {
+                staged.writeBytes(bytes)
+                check(staged.renameTo(file))
+            } finally {
+                staged.delete()
+            }
         }
         file.absolutePath
     }.getOrNull()

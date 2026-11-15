@@ -75,23 +75,21 @@ class OdifyPlaybackService : MediaSessionService() {
                 .setMediaSourceFactory(DefaultMediaSourceFactory(authenticatedUpstream))
                 .build()
         }
-        player.apply {
-            setAudioAttributes(
-                AudioAttributes.Builder()
-                    .setUsage(C.USAGE_MEDIA)
-                    .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
-                    .build(), true
-            )
-            setHandleAudioBecomingNoisy(true)
-            setWakeMode(C.WAKE_MODE_LOCAL)
-        }
+        val audioAttributes = AudioAttributes.Builder()
+            .setUsage(C.USAGE_MEDIA)
+            .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
+            .build()
+        player.setAudioAttributes(audioAttributes, false)
+        player.setWakeMode(C.WAKE_MODE_LOCAL)
+        val focusedPlayer = OdifyNativeAudioFocus(this, player, audioAttributes.audioAttributesV21.audioAttributes)
         val open=android.app.PendingIntent.getActivity(this,8001,
             Intent(this,MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
             android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE)
-        session = MediaSession.Builder(this, player).setSessionActivity(open).build()
+        session = MediaSession.Builder(this, focusedPlayer).setSessionActivity(open).build()
+        focusedPlayer.attach()
         OdifyWidgetPlayback.bind(this,"native",available={player.currentMediaItem!=null}) {action ->
             when(action) {
-                "toggle" -> OdifyPlaybackCommands.toggle(player)
+                "toggle" -> OdifyPlaybackCommands.toggle(focusedPlayer)
                 "previous" -> player.seekToPreviousMediaItem()
                 "next" -> player.seekToNextMediaItem()
             }
@@ -149,7 +147,7 @@ class OdifyPlaybackService : MediaSessionService() {
                 if (item == null) return
                 if(item.mediaMetadata.extras?.getBoolean("odify.youtubeStream")==true) {
                     val autoStart=player.playWhenReady
-                    player.pause()
+                    focusedPlayer.pause()
                     val following=(player.currentMediaItemIndex+1 until player.mediaItemCount).map {queueSong(player.getMediaItemAt(it))}
                     val previous=(0 until player.currentMediaItemIndex).map {queueSong(player.getMediaItemAt(it))}
                     OdifyYoutubeRuntime.play(applicationContext,OdifyStreamingLibrary(applicationContext).video(queueSong(item)),following,

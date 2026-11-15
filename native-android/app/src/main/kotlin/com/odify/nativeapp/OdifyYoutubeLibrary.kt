@@ -11,6 +11,7 @@ import com.google.android.gms.auth.api.identity.Identity
 import com.google.android.gms.common.api.Scope
 import com.google.android.gms.tasks.Tasks
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.net.HttpURLConnection
@@ -111,14 +112,15 @@ class OdifyYoutubeLibrary(private val context:Context) {
         val response = get("search?part=snippet&type=video&videoCategoryId=10&maxResults=$limit&q=${enc(text)}")
         val items = response.optJSONArray("items") ?: org.json.JSONArray()
         val result = (0 until items.length()).mapNotNull { i ->
-            val item = items.getJSONObject(i)
+            val item = items.optJSONObject(i) ?: return@mapNotNull null
             val id = item.optJSONObject("id")?.optString("videoId").orEmpty()
             if (!Regex("[A-Za-z0-9_-]{11}").matches(id)) null else {
-                val info = item.getJSONObject("snippet")
+                val info = item.optJSONObject("snippet") ?: return@mapNotNull null
                 YoutubeVideo(id, android.text.Html.fromHtml(info.optString("title"), 0).toString(),
                     info.optString("channelTitle"), "")
             }
         }.distinctBy { it.videoId }
+        ensureActive()
         synchronized(searches) { searches[cacheKey] = System.currentTimeMillis() to result }
         result
     }

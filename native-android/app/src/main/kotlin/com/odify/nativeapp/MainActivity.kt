@@ -672,6 +672,7 @@ private fun NativeOdify() {
     }
 
     fun playFrom(originalItems: List<OdifySong>, index: Int) {
+        externalLookupJob?.cancel()
         val items=originalItems.map(audioOverrides::resolve)
         val player = controller
         if (player == null) {
@@ -685,7 +686,7 @@ private fun NativeOdify() {
             OdifyYoutubeRuntime.play(context,OdifyStreamingLibrary(context).video(items[index]),items.drop(index+1),presentation=items[index],previous=items.take(index))
             return
         }
-        if(youtubeVideo!=null) OdifyYoutubeRuntime.stop(context)
+        if(OdifyYoutubeRuntime.session.value.video!=null) OdifyYoutubeRuntime.stop(context)
         player.setMediaItems(items.queuedMediaItems(context), index, 0L)
         player.prepare()
         player.play()
@@ -751,7 +752,7 @@ private fun NativeOdify() {
             youtubeStatus = youtubeStatus,
             onConnectYoutube = { connectYoutube() },
             onExternalYoutubeStarted = { requestPlaybackNotifications();controller?.pause() },
-            onPlayYoutubeVideo = { queue,index -> playYoutubeVideo(queue,index) },
+            onPlayYoutubeVideo = { queue,index -> externalLookupJob?.cancel();playYoutubeVideo(queue,index) },
             onExternalTrack = { artist, title,chartId -> playExternalTrack(artist, title,chartId) },
             phoneFolderStatus = phoneFolderStatus,
             onChoosePhoneFolder = { phoneFolderPicker.launch(null) },

@@ -24,7 +24,7 @@ internal object OdifyAutoplayPolicy {
     fun shouldExtend(playIntent:Boolean,repeat:Boolean,hasFollowing:Boolean)=playIntent && !repeat && !hasFollowing
     fun following(current:OdifySong,catalog:List<OdifySong>,queue:List<OdifySong>,recent:Set<String>,
         liked:Set<String> = emptySet(),signals:Map<String,ListeningSignal> = emptyMap()):List<OdifySong> {
-        fun key(song:OdifySong)=OdifyMusicMatching.norm(song.artist)+"|"+OdifyArtistTracks.titleKey(song.title,song.artist)
+        fun key(song:OdifySong)=OdifyMusicMatching.artistKey(song.artist)+"|"+OdifyArtistTracks.titleKey(song.title,song.artist)
         val excluded=(queue+current+catalog.filter {it.id in recent}).map(::key).toSet()
         val candidates=LinkedHashMap<String,OdifySong>()
         fun quality(song:OdifySong)=(if(!song.isYoutubeStream)100 else 0)+(if(!song.isCloud)10 else 0)+
@@ -35,15 +35,15 @@ internal object OdifyAutoplayPolicy {
             val old=candidates[identity]
             if(old==null || quality(song)>quality(old))candidates[identity]=song
         }
-        val artist=OdifyMusicMatching.norm(current.artist);val genre=OdifyMusicMatching.norm(current.genre)
-        fun score(song:OdifySong)=(if(artist.isNotBlank() && OdifyMusicMatching.norm(song.artist)==artist)6.0 else 0.0)+
+        val artist=OdifyMusicMatching.artistKey(current.artist);val genre=OdifyMusicMatching.norm(current.genre)
+        fun score(song:OdifySong)=(if(artist.isNotBlank() && OdifyMusicMatching.artistKey(song.artist)==artist)6.0 else 0.0)+
             (if(genre.isNotBlank() && OdifyMusicMatching.norm(song.genre)==genre)4.0 else 0.0)+
             (if(song.id in liked)2.0 else 0.0)+1.0/(1+(signals[song.id]?.count ?: 0))
         val ranked=candidates.values.map {it to score(it)}
             .sortedWith(compareByDescending<Pair<OdifySong,Double>> {it.second}.thenBy {it.first.id}).map {it.first}
         val counts=HashMap<String,Int>();val selected=ArrayList<OdifySong>()
         for(song in ranked) {
-            val name=OdifyMusicMatching.norm(song.artist).ifBlank {song.id}
+            val name=OdifyMusicMatching.artistKey(song.artist).ifBlank {song.id}
             if(counts.getOrDefault(name,0)>=2)continue
             counts[name]=counts.getOrDefault(name,0)+1;selected.add(song)
             if(selected.size==6)break

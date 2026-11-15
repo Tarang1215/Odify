@@ -22,27 +22,109 @@ data class OdifyMusicIdentity(val id:String,val title:String,val artist:String,v
 }
 
 internal object OdifyMusicMatching {
+    data class Credits(val title: String, val artist: String)
+
     private val marks=Regex("\\p{M}+")
     private val nonWord=Regex("[^\\p{L}\\p{N}]")
     fun cacheKey(value:String)=java.security.MessageDigest.getInstance("SHA-256").digest(value.toByteArray()).joinToString("") {"%02x".format(it)}
     fun norm(value:String)=Normalizer.normalize(value,Normalizer.Form.NFKD).replace(marks,"")
         .lowercase(Locale.ROOT).replace(nonWord,"")
-    private val decorations=Regex("(?i)\\b(official|music video|video|audio|lyrics?|visuali[sz]er|mv|m/v|hd|4k|color coded)\\b|가사|한글자막|한국어|歌詞")
+    private val badge=Regex("(?i)^(?:(?:official|music video|video|audio|lyrics?|visuali[sz]er|mv|m/v|hd|4k|color coded|가사|발음|한글\\s*자막|해석|歌詞|[\\s/_-]))+$")
+    private val brackets=Regex("[\\[（(【]([^\\]）)】]*)[\\]）)】]")
+    private val split=Regex("\\s+[-–—]\\s+")
+    private val suffix=Regex("(?i)\\s*(?:-\\s*Topic|\\s+Official|VEVO)$")
+    private val producer=Regex("(?i)\\s*[(（]\\s*prod\\.?\\s+(?:by\\s+)?([^()（）]+)[)）]")
+    private val lim=norm("임재현")
+    private val love=norm("사랑에 연습이 있었다면")
+    private val green=norm("GReeeeN")
+    private val kiseki=setOf(norm("キセキ"),norm("키세키"),"kiseki")
+    private val artists=mapOf(
+        "JENNIE" to listOf("제니","Gennie"),
+        "G-DRAGON" to listOf("지드래곤"),
+        "Yuuri" to listOf("優里","유우리"),
+        "임재현" to listOf("Jaehyun Lim","Lim Jae Hyun"),
+        "IU" to listOf("아이유"),
+        "TAEYEON" to listOf("태연"),
+        "IVE" to listOf("아이브"),
+        "RESCENE" to listOf("리센느"),
+        "DAVICHI" to listOf("다비치"),
+        "Sakurazaka46" to listOf("櫻坂46")
+    ).flatMap { (name, aliases) -> (aliases+name).map { norm(it) to name } }.toMap()
+
+    fun artistName(value:String):String {
+        val name=producer.replace(value,"").trim().replace(suffix,"")
+        return artists[norm(name)] ?: name
+    }
+    fun artistKey(value:String)=norm(artistName(value))
+
+    private fun clean(value:String):String {
+        val head=value.substringBeforeLast("//",value)
+        val text=if(head!=value && badge.matches(value.substringAfterLast("//").trim()))head else value
+        return brackets.replace(text) { if(badge.matches(it.groupValues[1].trim()))" " else it.value }
+            .replace(Regex("\\s+")," ").trim()
+    }
+
+    private fun songTitle(value:String)=producer.replace(clean(value),"").trim()
+    fun titleKey(title:String,artist:String):String {
+        val text=songTitle(title)
+        val key=norm(text)
+        return when (artistKey(artist)) {
+            lim -> if(key=="iftherewaspracticeinlove")love else key
+            green -> if(norm(text.substringBefore('(')) in kiseki &&
+                (text.indexOf('(')<0 || text.substringAfter('(').substringBeforeLast(')').split(',').all {
+                    norm(it) in kiseki
+                }))"kiseki" else key
+            else -> key
+        }
+    }
+
+    private fun parts(video:YoutubeVideo):Pair<String,String> {
+        val text=clean(video.title)
+        val separator=split.find(text)
+        if(separator!=null) {
+            val prefix=text.substring(0,separator.range.first).trim()
+            val artist=artistName(prefix.substringAfterLast(": "))
+            if(artist.length in 2..60) return text.substring(separator.range.last+1).trim() to artist
+        }
+        val channel=video.channel.trim()
+        return text to (artists[norm(channel)] ?: artistName(channel).takeIf { suffix.containsMatchIn(channel) }.orEmpty())
+    }
+
+    fun credits(video:YoutubeVideo, verifiedTitle:String="", verifiedArtist:String=""):Credits {
+        val (title, artist)=parts(video)
+        val name=artistName(verifiedArtist.ifBlank {artist})
+        val preferred=when {
+            artistKey(name)==lim && titleKey(verifiedTitle.ifBlank {title},name)==love ->
+                "사랑에 연습이 있었다면"
+            else -> songTitle(verifiedTitle.ifBlank {title})
+        }
+        val production=(producer.find(verifiedTitle) ?: producer.find(video.title))?.groupValues?.get(1)?.trim()
+        return Credits(preferred,if(name.isNotBlank() && !production.isNullOrBlank())"$name (Prod. $production)" else name)
+    }
     private val alternative=Regex("(?i)\\b(cover|karaoke|remix|sped|slowed|live|concert|instrumental)\\b|커버|라이브|콘서트|歌ってみた")
     fun usesVideoArtwork(video:YoutubeVideo)=alternative.containsMatchIn(video.title)
     fun recent(videos:List<YoutubeVideo>,history:List<String>,signals:Map<String,ListeningSignal>):List<YoutubeVideo> =
         videos.sortedWith(compareBy<YoutubeVideo> {history.indexOf("youtube:${it.videoId}").takeIf {index->index>=0} ?: 1000}
             .thenByDescending {signals["youtube:${it.videoId}"]?.lastPlayed ?: 0L})
-    fun query(video:YoutubeVideo)=decorations.replace(video.title," ").replace(Regex("[\\[\\](){}|]")," ")
-        .replace(Regex("\\s+")," ").trim().take(150)
+    fun query(video:YoutubeVideo):String {
+        val (title,artist)=parts(video)
+        if(artistKey(artist)==green && titleKey(title,artist)=="kiseki")return "GReeeeN キセキ"
+        if(artistKey(artist)==lim && titleKey(title,artist)==love)return "Jaehyun Lim If there was practice in love"
+        return (artist+" "+songTitle(title)).trim().take(150)
+    }
     fun choose(video:YoutubeVideo,candidates:List<OdifyMusicIdentity>):OdifyMusicIdentity? {
         if(usesVideoArtwork(video))return null
-        val title=norm(query(video))
-        val channel=norm(video.channel.replace(Regex("(?i)(?:\\s*-\\s*Topic|VEVO|Official)$"),""))
+        val (title,artist)=parts(video)
+        val expectedArtist=artistKey(artist)
+        val channel=artistKey(video.channel)
         return candidates.filter {song ->
-            val artist=norm(song.artist);val name=norm(song.title)
-            name.length>=2 && title.contains(name) && (title.contains(artist) || channel==artist)
-        }.distinctBy {norm(it.artist) to norm(it.title)}.singleOrNull()
+            val songArtist=artistKey(song.artist)
+            val name=titleKey(song.title,song.artist)
+            val uploadTitle=titleKey(title,song.artist)
+            name.length>=2 && songArtist.isNotEmpty() &&
+                if(expectedArtist.isNotEmpty()) expectedArtist==songArtist && uploadTitle==name
+                else uploadTitle==songArtist+name || channel==songArtist && uploadTitle==name
+        }.distinctBy {it.artistId.ifBlank {artistKey(it.artist)} to titleKey(it.title,it.artist)}.singleOrNull()
     }
     fun artistAlias(name:String,videos:List<YoutubeVideo>):String? {
         val pattern=Regex(Regex.escape(name)+"\\s*\\(([A-Za-z][A-Za-z0-9 ._-]{1,35})\\)",RegexOption.IGNORE_CASE)
@@ -97,21 +179,31 @@ internal class OdifyMusicCatalog(context:Context) {
         }
         val candidates=OdifyCatalogHttp.songs(raw)
         if(id.matches(Regex("[0-9]+")))candidates.firstOrNull {it.id==id}
-        else candidates.distinctBy {OdifyMusicMatching.norm(it.artist) to OdifyMusicMatching.norm(it.title)}.singleOrNull {
-            OdifyMusicMatching.norm(it.artist)==OdifyMusicMatching.norm(artist) && OdifyMusicMatching.norm(it.title)==OdifyMusicMatching.norm(title)
+        else candidates.distinctBy {OdifyMusicMatching.artistKey(it.artist) to OdifyMusicMatching.titleKey(it.title,it.artist)}.singleOrNull {
+            OdifyMusicMatching.artistKey(it.artist)==OdifyMusicMatching.artistKey(artist) &&
+                OdifyMusicMatching.titleKey(it.title,it.artist)==OdifyMusicMatching.titleKey(title,artist)
         }
     }
     suspend fun video(video:YoutubeVideo):OdifyMusicIdentity? = withContext(Dispatchers.IO) {
         if(OdifyMusicMatching.usesVideoArtwork(video))return@withContext null
         val query=OdifyMusicMatching.query(video)
         if(query.length<2)return@withContext null
-        val key=java.security.MessageDigest.getInstance("SHA-256").digest(query.toByteArray()).joinToString("") {"%02x".format(it)}
-        val file=File(directory,"video-$key.json")
-        val raw=if(file.isFile && System.currentTimeMillis()-file.lastModified()<24*60*60_000L)file.readText() else
-            OdifyCatalogHttp.get("https://itunes.apple.com/search?term=${URLEncoder.encode(query,"UTF-8")}&country=us&entity=song&limit=25").also {file.writeText(it)}
-        OdifyMusicMatching.choose(video,OdifyCatalogHttp.songs(raw))
+        val country=when {
+            query.any {it in '\u3040'..'\u30ff' || it in '\u4e00'..'\u9fff'} -> "jp"
+            query.any {it in '\uac00'..'\ud7a3'} -> "kr"
+            else -> "us"
+        }
+        for (storefront in listOf(country,"us").distinct()) {
+            val key=OdifyMusicMatching.cacheKey(query)
+            val file=File(directory,"video-$storefront-$key.json")
+            val raw=if(file.isFile && System.currentTimeMillis()-file.lastModified()<24*60*60_000L)file.readText() else
+                OdifyCatalogHttp.get("https://itunes.apple.com/search?term="+URLEncoder.encode(query,"UTF-8")+"&country=$storefront&media=music&entity=song&limit=25").also {file.writeText(it)}
+            OdifyMusicMatching.choose(video,OdifyCatalogHttp.songs(raw))?.let {return@withContext it}
+        }
+        null
     }
-    suspend fun cover(identity:OdifyMusicIdentity):String?=OdifyCatalogArt.download(app,identity.artwork,"album-${identity.id}",600)
+    suspend fun cover(identity:OdifyMusicIdentity):String?=OdifyCatalogArt.download(app,identity.artwork,
+        "album-${identity.id}-"+OdifyMusicMatching.cacheKey(identity.artwork).take(12),600)
     suspend fun enrich(store:OdifyStreamingLibrary,video:YoutubeVideo,identity:OdifyMusicIdentity?=null):Boolean {
         if(OdifyMusicMatching.usesVideoArtwork(video))return false
         val music=identity ?: store.identity(video.videoId) ?: video(video) ?: return false

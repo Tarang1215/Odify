@@ -79,7 +79,7 @@ internal object OdifyYoutubeRuntime {
         ContextCompat.startForegroundService(context,Intent(context,OdifyYoutubePlaybackService::class.java).setAction("previous"))
     }
     fun stop(context:Context) {
-        service?.command("odifyPause()")
+        service?.disposeRenderer()
         OdifyYoutubeCheckpoint(context).clear()
         context.stopService(Intent(context,OdifyYoutubePlaybackService::class.java))
         session.value=YoutubeSessionState()
@@ -460,15 +460,16 @@ class OdifyYoutubePlaybackService:Service() {
                 if(latest.entryKey==current.entryKey)handingOff=false
                 return@runCatching
             }
-            command("odifyPause()")
             nativeController?.release();nativeController=player
             val present=listOfNotNull(latest.presentation ?: latest.video?.let {OdifyStreamingLibrary(this).find("youtube:${it.videoId}")})
             val queue=latest.previous+present+latest.following
             val index=if(back)latest.previous.lastIndex else latest.previous.size+present.size
             if(index !in queue.indices){handingOff=false;return@runCatching}
+            val mediaItems = queue.queuedMediaItems(this)
+            disposeRenderer()
             player.shuffleModeEnabled=latest.shuffle
             player.repeatMode=if(latest.repeat)androidx.media3.common.Player.REPEAT_MODE_ONE else androidx.media3.common.Player.REPEAT_MODE_OFF
-            player.pause();player.setMediaItems(queue.queuedMediaItems(this),index,0L);player.prepare()
+            player.pause();player.setMediaItems(mediaItems,index,0L);player.prepare()
             if(latest.playIntent)player.play()
             checkpoint.clear()
             card?.dismiss();stopForeground(STOP_FOREGROUND_REMOVE);foreground=false
@@ -476,11 +477,18 @@ class OdifyYoutubePlaybackService:Service() {
             handler.postDelayed({if(OdifyYoutubeRuntime.session.value.video==null)stopSelf()},2000)
         }.onFailure {handingOff=false;publish(OdifyYoutubeRuntime.session.value.playback.copy(error="Drive 다음 곡을 연결하지 못했습니다."))}},ContextCompat.getMainExecutor(this))
     }
-    override fun onDestroy() {
-        if(OdifyYoutubeRuntime.session.value.video==null || pausedByCommand || OdifyYoutubeRuntime.session.value.playback.error.isNotBlank())checkpoint.inactive()
+    internal fun disposeRenderer() {
         generation++;handler.removeCallbacksAndMessages(null)
         OdifyYoutubeRuntime.view.value=null
-        browser?.let {(it.parent as? ViewGroup)?.removeView(it);it.stopLoading();it.loadUrl("about:blank");it.destroy()};browser=null
+        val web = browser ?: return
+        browser = null
+        (web.parent as? ViewGroup)?.removeView(web)
+        web.stopLoading()
+        web.destroy()
+    }
+    override fun onDestroy() {
+        if(OdifyYoutubeRuntime.session.value.video==null || pausedByCommand || OdifyYoutubeRuntime.session.value.playback.error.isNotBlank())checkpoint.inactive()
+        disposeRenderer()
         nativeController?.release();nativeController=null
         metadataScope.cancel();card?.close();card=null
         OdifyWidgetPlayback.unbind(this,"youtube")

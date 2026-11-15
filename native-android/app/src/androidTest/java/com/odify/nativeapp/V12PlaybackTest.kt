@@ -3,6 +3,8 @@ package com.odify.nativeapp
 import android.content.ComponentName
 import android.content.ContentValues
 import android.content.Intent
+import android.media.AudioFocusRequest
+import android.media.AudioManager
 import android.net.Uri
 import android.provider.MediaStore
 import androidx.test.core.app.ActivityScenario
@@ -72,15 +74,98 @@ class V12PlaybackTest {
         }
         fail(message)
     }
-    private fun wave(): ByteArray {
+    private fun wave(silent: Boolean = false): ByteArray {
         val samples = 44100 * 20
         return ByteBuffer.allocate(44 + samples * 2).order(ByteOrder.LITTLE_ENDIAN).apply {
             put("RIFF".toByteArray()); putInt(36 + samples * 2)
             put("WAVEfmt ".toByteArray()); putInt(16); putShort(1); putShort(1)
             putInt(44100); putInt(88200); putShort(2); putShort(16)
             put("data".toByteArray()); putInt(samples * 2)
-            repeat(samples) { putShort((kotlin.math.sin(it * 2.0 * Math.PI * 440 / 44100) * 1000).toInt().toShort()) }
+            if (!silent) repeat(samples) { putShort((kotlin.math.sin(it * 2.0 * Math.PI * 440 / 44100) * 1000).toInt().toShort()) }
         }.array()
+    }
+
+    @Test fun duckRequestPausesAndResumesWhileFullLossRequiresExplicitPlay() {
+        val audio = context.getSystemService(AudioManager::class.java)
+        val file = File.createTempFile("focus-test", ".wav", context.cacheDir).apply { writeBytes(wave(silent = true)) }
+        val duck = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK).build()
+        val full = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN).build()
+        try {
+            ActivityScenario.launch(MainActivity::class.java).use {
+                val player = MediaController.Builder(context, SessionToken(context,
+                    ComponentName(context, OdifyPlaybackService::class.java))).buildAsync().get(20, TimeUnit.SECONDS)
+                try {
+                    main {
+                        player.setMediaItem(OdifySong("test:focus", "Silent fixture", "", "", file.path).mediaItem())
+                        player.prepare()
+                        player.play()
+                    }
+                    eventually("Playback did not advance before interruption") { player.isPlaying && player.currentPosition > 200 }
+                    assertEquals(AudioManager.AUDIOFOCUS_REQUEST_GRANTED, audio.requestAudioFocus(duck))
+                    eventually("Duck request did not pause playback") { !player.isPlaying && !player.playWhenReady }
+                    main { assertEquals(1f, player.volume, 0f) }
+                    audio.abandonAudioFocusRequest(duck)
+                    eventually("Focus gain did not resume playback") { player.isPlaying }
+
+                    assertEquals(AudioManager.AUDIOFOCUS_REQUEST_GRANTED, audio.requestAudioFocus(duck))
+                    eventually("Second duck request did not pause playback") { !player.playWhenReady }
+                    main { player.pause() }
+                    Thread.sleep(200)
+                    audio.abandonAudioFocusRequest(duck)
+                    Thread.sleep(400)
+                    main { assertFalse("Explicit pause must cancel auto-resume", player.playWhenReady); player.play() }
+                    eventually("Playback did not restart after explicit pause") { player.isPlaying }
+
+                    assertEquals(AudioManager.AUDIOFOCUS_REQUEST_GRANTED, audio.requestAudioFocus(full))
+                    eventually("Full loss did not pause playback") { !player.isPlaying && !player.playWhenReady }
+                    audio.abandonAudioFocusRequest(full)
+                    Thread.sleep(400)
+                    main { assertFalse(player.playWhenReady); player.play() }
+                    eventually("Explicit play did not regain focus") { player.isPlaying }
+                } finally {
+                    main { player.pause(); player.clearMediaItems(); player.release() }
+                }
+            }
+        } finally {
+            audio.abandonAudioFocusRequest(duck)
+            audio.abandonAudioFocusRequest(full)
+            context.stopService(Intent(context, OdifyPlaybackService::class.java))
+            file.delete()
+        }
+    }
+
+    @Test fun pausedYoutubeHandoffDisposesRendererBeforePreparingLocalSource() {
+        val file = File.createTempFile("handoff-test", ".wav", context.cacheDir).apply { writeBytes(wave(silent = true)) }
+        val local = OdifySong("test:handoff", "Silent handoff", "", "", file.path)
+        try {
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                val player = MediaController.Builder(context, SessionToken(context,
+                    ComponentName(context, OdifyPlaybackService::class.java))).buildAsync().get(20, TimeUnit.SECONDS)
+                try {
+                    scenario.onActivity { activity ->
+                        OdifyYoutubeRuntime.play(activity, YoutubeVideo("abcdefghijk", "Handoff fixture", "", ""),
+                            listOf(local), autoStart = false)
+                    }
+                    eventually("Paused YouTube renderer did not initialize") { OdifyYoutubeRuntime.view.value != null }
+                    main { OdifyYoutubeRuntime.next(context) }
+                    eventually("Local source did not replace the YouTube renderer") {
+                        OdifyYoutubeRuntime.view.value == null && OdifyYoutubeRuntime.session.value.video == null &&
+                            player.currentMediaItem?.mediaId == local.id && player.playbackState == Player.STATE_READY
+                    }
+                    main { assertFalse(player.playWhenReady) }
+                } finally {
+                    main {
+                        player.pause()
+                        player.clearMediaItems()
+                        player.release()
+                        OdifyYoutubeRuntime.stop(context)
+                    }
+                }
+            }
+        } finally {
+            context.stopService(Intent(context, OdifyPlaybackService::class.java))
+            file.delete()
+        }
     }
 
     @Test fun realServicePlaysFileAndContentUrisAndKeepsDuplicateQueueIdentity() {

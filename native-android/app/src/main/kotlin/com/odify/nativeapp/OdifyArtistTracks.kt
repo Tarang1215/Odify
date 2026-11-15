@@ -11,9 +11,9 @@ internal object OdifyArtistTracks {
     private fun decoration(text:String)=text.isNotBlank() && (badge.matches(text.trim()) || remaster.matches(text.trim()))
     internal fun titleKey(title:String,artist:String,aliases:List<String> = emptyList()):String {
         var value=title.trim()
-        val names=(aliases+artist).map(OdifyMusicMatching::norm).filter(String::isNotBlank).toSet()
+        val names=(aliases+artist).map(OdifyMusicMatching::artistKey).filter(String::isNotBlank).toSet()
         separator.find(value)?.let {first ->
-            if(OdifyMusicMatching.norm(value.substring(0,first.range.first)) in names)
+            if(OdifyMusicMatching.artistKey(value.substring(0,first.range.first)) in names)
                 value=value.substring(first.range.last+1).trim()
         }
         value=brackets.replace(value) {match ->if(decoration(match.groupValues[1]))" " else match.value}
@@ -22,7 +22,7 @@ internal object OdifyArtistTracks {
             if(!decoration(value.substring(last.range.last+1)))break
             value=value.substring(0,last.range.first).trim()
         }
-        return OdifyMusicMatching.norm(value)
+        return OdifyMusicMatching.titleKey(value,artist)
     }
     fun owned(songs:List<OdifySong>,artist:String,aliases:List<String> = emptyList()):List<OdifySong> {
         val result=LinkedHashMap<String,OdifySong>()

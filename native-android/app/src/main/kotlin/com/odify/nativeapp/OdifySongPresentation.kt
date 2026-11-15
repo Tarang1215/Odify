@@ -9,7 +9,6 @@ import java.util.Locale
  */
 object OdifySongPresentation {
     private val md5=Regex("[a-f0-9]{32}")
-    private val whitespace=Regex("\\s+")
     private val fileCode=Regex("odf[0-9]{6}",RegexOption.IGNORE_CASE)
     fun visible(items: List<OdifySong>, showDuplicates: Boolean = false): List<OdifySong> {
         if (showDuplicates) return items
@@ -23,10 +22,8 @@ object OdifySongPresentation {
         }
         val buckets = LinkedHashMap<String, OdifySong>()
         for (song in bytes.values) {
-            val title = song.title.trim().lowercase(Locale.ROOT)
-                .replace(whitespace, " ")
-            val artist = song.artist.trim().lowercase(Locale.ROOT)
-                .replace(whitespace, " ")
+            val title = OdifyMusicMatching.titleKey(song.title,song.artist)
+            val artist = OdifyMusicMatching.artistKey(song.artist)
             val normalized = if (artist.isNotBlank()) "$artist|$title"
                 else if (fileCode.matches(title))
                     "filecode:$title"

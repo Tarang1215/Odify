@@ -38,32 +38,46 @@ internal class OdifyStreamingLibrary(private val context:Context, name:String="o
         val old=data.optJSONObject("recording")
         val row=JSONObject().put("id",music.id).put("title",music.title).put("artist",music.artist).put("album",music.album)
             .put("artwork",music.artwork).put("artistId",music.artistId).put("artistUrl",music.artistUrl).put("trackUrl",music.trackUrl)
-            .put("duration",music.durationMs).put("cover",cover ?: old?.takeIf {it.optString("id")==music.id}?.optString("cover").orEmpty())
+            .put("duration",music.durationMs).put("matchVersion",2).put("cover",cover ?: old?.takeIf {
+                it.optString("id")==music.id && it.optString("artwork")==music.artwork
+            }?.optString("cover").orEmpty())
         if(old?.toString()==row.toString())return
         prefs.edit().putString(videoId,data.put("recording",row).toString()).apply();version.value++
     }
     fun unverified(limit:Int=6):List<YoutubeVideo> = prefs.all.entries.mapNotNull {(id,raw) ->
         if(!id.matches(Regex("[A-Za-z0-9_-]{11}")))return@mapNotNull null
         val data=runCatching {JSONObject(raw as String)}.getOrNull() ?: return@mapNotNull null
-        if(verified(id))return@mapNotNull null
+        if(recording(id,data)?.optString("cover")?.let {it.isNotBlank() && File(it).isFile}==true)return@mapNotNull null
         YoutubeVideo(id,data.optString("title"),data.optString("artist"),"")
     }.take(limit)
-    fun verified(videoId:String):Boolean=prefs.getString(videoId,null)?.let {runCatching {JSONObject(it).optJSONObject("recording")?.optString("cover")?.let {path->path.isNotBlank() && File(path).isFile}==true}.getOrDefault(false)} ?: false
+    fun verified(videoId:String):Boolean=prefs.getString(videoId,null)?.let {runCatching {
+        recording(videoId,JSONObject(it))?.optString("cover")?.let {path->path.isNotBlank() && File(path).isFile}==true
+    }.getOrDefault(false)} ?: false
     fun identity(videoId:String):OdifyMusicIdentity?=prefs.getString(videoId,null)?.let {raw ->runCatching {
-        val row=JSONObject(raw).optJSONObject("recording") ?: return@runCatching null
-        OdifyMusicIdentity(row.getString("id"),row.getString("title"),row.getString("artist"),row.optString("album"),
-            row.optString("artwork"),row.optString("artistId"),row.optString("artistUrl"),row.optString("trackUrl"),row.optLong("duration"))
+        recording(videoId,JSONObject(raw))?.let(::identity)
     }.getOrNull()}
+    private fun identity(row:JSONObject)=OdifyMusicIdentity(row.optString("id"),row.optString("title"),row.optString("artist"),
+        row.optString("album"),row.optString("artwork"),row.optString("artistId"),row.optString("artistUrl"),
+        row.optString("trackUrl"),row.optLong("duration"))
+    private fun recording(videoId:String,data:JSONObject):JSONObject? {
+        val row=data.optJSONObject("recording") ?: return null
+        val video=YoutubeVideo(videoId,data.optString("title"),data.optString("artist"),"")
+        return row.takeIf { it.optInt("matchVersion")>=2 || (data.optJSONArray("charts")?.length() ?: 0)>0 ||
+            OdifyMusicMatching.choose(video,listOf(identity(it)))!=null }
+    }
     private fun decode(videoId:String,raw:String,record:JSONObject?):OdifySong?=runCatching {
         val data=JSONObject(raw)
         val local=record?.optString("local_path")?.takeIf {it.isNotBlank()}?.let {File(it)}?.takeIf {it.isFile}
         val charts=data.optJSONArray("charts")
-        val music=data.optJSONObject("recording")
-        OdifySong("youtube:"+videoId,music?.optString("title") ?: data.getString("title"),music?.optString("artist") ?: data.optString("artist"),music?.optString("album") ?: "YouTube",(local ?: placeholder()).absolutePath,
+        val music=recording(videoId,data)
+        val credits=OdifyMusicMatching.credits(YoutubeVideo(videoId,data.getString("title"),data.optString("artist"),""),
+            music?.optString("title").orEmpty(),music?.optString("artist").orEmpty())
+        OdifySong("youtube:"+videoId,credits.title,credits.artist,music?.optString("album") ?: "YouTube",(local ?: placeholder()).absolutePath,
             if(music!=null)music.optString("cover").takeIf {it.isNotBlank() && File(it).isFile}
             else File(context.cacheDir,"youtube_search_$videoId.jpg").takeIf {it.isFile}?.absolutePath,
             durationMs=maxOf(data.optLong("duration"),record?.optLong("duration_ms") ?: 0).takeIf {it>0} ?: music?.optLong("duration") ?: 0,
-            chartAliases=(0 until (charts?.length() ?: 0)).map {charts!!.getString(it)})
+            chartAliases=(0 until (charts?.length() ?: 0)).map {charts!!.getString(it)},
+            catalogArtistId=music?.optString("artistId").orEmpty())
     }.getOrNull()
     fun find(id:String):OdifySong? {
         if(!id.startsWith("youtube:"))return null

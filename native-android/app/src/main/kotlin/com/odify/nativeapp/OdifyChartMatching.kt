@@ -6,7 +6,7 @@ object OdifyChartMatching {
         private val metadata:Map<Pair<String,String>,OdifySong>,
         private val untagged:Map<String,OdifySong>) {
         fun resolve(track:ExploreTrack):OdifySong?=chartIds[track.id] ?:
-            metadata[OdifyYouTubeMatcher.norm(track.artist) to OdifyYouTubeMatcher.norm(track.title)] ?:
+            metadata[OdifyMusicMatching.artistKey(track.artist) to OdifyMusicMatching.titleKey(track.title,track.artist)] ?:
             untagged[OdifyYouTubeMatcher.norm(track.title)]
     }
     fun buildIndex(songs:List<OdifySong>):Index {
@@ -20,7 +20,7 @@ object OdifyChartMatching {
         val metadata=LinkedHashMap<Pair<String,String>,OdifySong>()
         // A byte-identical offline preference must not discard the cloud copy's tags.
         for(song in songs) {
-            val artist=OdifyYouTubeMatcher.norm(song.artist);val title=OdifyYouTubeMatcher.norm(song.title)
+            val artist=OdifyMusicMatching.artistKey(song.artist);val title=OdifyMusicMatching.titleKey(song.title,song.artist)
             if(artist.isNotBlank() && title.isNotBlank()) metadata.putIfAbsent(artist to title,byHash[song.contentMd5] ?: song)
         }
         // Personal files often have no artist tag. Only one exact-title recording
