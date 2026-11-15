@@ -395,7 +395,8 @@ Box(
                         song,
                         Modifier.fillMaxSize().offset {
                             IntOffset(albumSlide.roundToInt(), 0)
-                        }.clickable(onClickLabel="앨범 커버에서 가사 열기") {showLyrics=true},
+                        }.clickable {showLyrics=true}
+                            .semantics {contentDescription="앨범 커버에서 가사 열기"},
                         radius = RoundedCornerShape(22.dp),
                         fallbackKey = song.id.hashCode()
                     )

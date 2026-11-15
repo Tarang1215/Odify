@@ -784,7 +784,11 @@ class OdifyCompanyUiTest {
             swipeFooter(false);waitFor("음원 출처: Local")
             swipeFooter(true);waitFor("다음 곡: Track 1")
             performancePhase("footer")
-            tap("Collection");waitFor("앨범커버 보기");Thread.sleep(300);capture("lyrics");tap("앨범커버 보기")
+            val artwork=Rect().also {waitFor("앨범 커버에서 가사 열기").getBoundsInScreen(it)}
+            android.os.ParcelFileDescriptor.AutoCloseInputStream(test.uiAutomation.executeShellCommand(
+                "input tap ${artwork.centerX()} ${artwork.centerY()}"
+            )).use {it.readBytes()}
+            waitFor("앨범커버 보기");Thread.sleep(300);capture("lyrics");tap("앨범커버 보기")
             performancePhase("lyrics")
             tap("곡 옵션 열기");waitFor("음원 교체");waitForOpenSurface();capture("player-options")
             if(!benchmark) {
