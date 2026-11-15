@@ -17,7 +17,7 @@ import java.util.Locale
 /** Recording identity is independent of its chosen YouTube transport. */
 data class OdifyMusicIdentity(val id:String,val title:String,val artist:String,val album:String,
     val artwork:String,val artistId:String,val artistUrl:String,val trackUrl:String,
-    val durationMs:Long=0,val genre:String="") {
+    val durationMs:Long=0,val genre:String="",val albumUrl:String="",val compilation:Boolean=false) {
     fun track(rank:Int=0)=ExploreTrack(id,title,artist,artwork,listOf(genre).filter(String::isNotBlank),rank,music=this)
 }
 
@@ -34,6 +34,10 @@ internal object OdifyMusicMatching {
     private val split=Regex("\\s+[-–—]\\s+")
     private val suffix=Regex("(?i)\\s*(?:-\\s*Topic|\\s+Official|VEVO)$")
     private val producer=Regex("(?i)\\s*[(（]\\s*prod\\.?\\s+(?:by\\s+)?([^()（）]+)[)）]")
+    private val featuring=Regex("(?i)\\s+[\\[(（]?\\s*(?:feat(?:uring)?|ft)\\.?\\s+.+$")
+    private val quotedTitle=Regex("""^(.+?)\s+['‘"“](.+)['’"”]$""")
+    private val creditedAlias=Regex("""^([^()]+)\s*\(([^()]+)\)$""")
+    private val channelCredit=Regex("(?i)\\s*[|｜]\\s*STUDIO CHOOM(?: ORIGINAL)?$")
     private val lim=norm("임재현")
     private val love=norm("사랑에 연습이 있었다면")
     private val green=norm("GReeeeN")
@@ -45,6 +49,7 @@ internal object OdifyMusicMatching {
         "임재현" to listOf("Jaehyun Lim","Lim Jae Hyun"),
         "IU" to listOf("아이유"),
         "TAEYEON" to listOf("태연"),
+        "ILLIT" to listOf("아일릿"),
         "IVE" to listOf("아이브"),
         "RESCENE" to listOf("리센느"),
         "DAVICHI" to listOf("다비치"),
@@ -60,11 +65,11 @@ internal object OdifyMusicMatching {
     private fun clean(value:String):String {
         val head=value.substringBeforeLast("//",value)
         val text=if(head!=value && badge.matches(value.substringAfterLast("//").trim()))head else value
-        return brackets.replace(text) { if(badge.matches(it.groupValues[1].trim()))" " else it.value }
+        return brackets.replace(channelCredit.replace(text,"")) { if(badge.matches(it.groupValues[1].trim()))" " else it.value }
             .replace(Regex("\\s+")," ").trim()
     }
 
-    private fun songTitle(value:String)=producer.replace(clean(value),"").trim()
+    private fun songTitle(value:String)=featuring.replace(producer.replace(clean(value),""),"").trim()
     fun titleKey(title:String,artist:String):String {
         val text=songTitle(title)
         val key=norm(text)
@@ -85,6 +90,13 @@ internal object OdifyMusicMatching {
             val prefix=text.substring(0,separator.range.first).trim()
             val artist=artistName(prefix.substringAfterLast(": "))
             if(artist.length in 2..60) return text.substring(separator.range.last+1).trim() to artist
+        }
+        quotedTitle.matchEntire(text)?.let {quoted->
+            val credit=quoted.groupValues[1].trim()
+            val aliases=creditedAlias.matchEntire(credit)
+            val artist=if(aliases!=null && artistKey(aliases.groupValues[1])==artistKey(aliases.groupValues[2]))
+                artistName(aliases.groupValues[1]) else artistName(credit)
+            if(artist.length in 2..60)return quoted.groupValues[2] to artist
         }
         val channel=video.channel.trim()
         return text to (artists[norm(channel)] ?: artistName(channel).takeIf { suffix.containsMatchIn(channel) }.orEmpty())
@@ -124,7 +136,7 @@ internal object OdifyMusicMatching {
             name.length>=2 && songArtist.isNotEmpty() &&
                 if(expectedArtist.isNotEmpty()) expectedArtist==songArtist && uploadTitle==name
                 else uploadTitle==songArtist+name || channel==songArtist && uploadTitle==name
-        }.distinctBy {it.artistId.ifBlank {artistKey(it.artist)} to titleKey(it.title,it.artist)}.singleOrNull()
+        }.sortedBy {it.compilation}.distinctBy {it.artistId.ifBlank {artistKey(it.artist)} to titleKey(it.title,it.artist)}.singleOrNull()
     }
     fun artistAlias(name:String,videos:List<YoutubeVideo>):String? {
         val pattern=Regex(Regex.escape(name)+"\\s*\\(([A-Za-z][A-Za-z0-9 ._-]{1,35})\\)",RegexOption.IGNORE_CASE)
@@ -157,7 +169,9 @@ internal object OdifyCatalogHttp {
         val id=row.optString("trackId");val title=row.optString("trackName");val artist=row.optString("artistName")
         if(row.optString("kind")!="song" || !id.matches(Regex("[0-9]+")) || title.isBlank() || artist.isBlank())return null
         return OdifyMusicIdentity(id,title,artist,row.optString("collectionName"),row.optString("artworkUrl100"),
-            row.optString("artistId"),row.optString("artistViewUrl"),row.optString("trackViewUrl"),row.optLong("trackTimeMillis"),row.optString("primaryGenreName"))
+            row.optString("artistId"),row.optString("artistViewUrl"),row.optString("trackViewUrl"),row.optLong("trackTimeMillis"),row.optString("primaryGenreName"),
+            albumUrl=row.optString("collectionViewUrl"),
+            compilation=row.optString("collectionArtistName").equals("Various Artists",true))
     }
     fun songs(raw:String):List<OdifyMusicIdentity> {
         val rows=JSONObject(raw).getJSONArray("results")
@@ -179,7 +193,7 @@ internal class OdifyMusicCatalog(context:Context) {
         }
         val candidates=OdifyCatalogHttp.songs(raw)
         if(id.matches(Regex("[0-9]+")))candidates.firstOrNull {it.id==id}
-        else candidates.distinctBy {OdifyMusicMatching.artistKey(it.artist) to OdifyMusicMatching.titleKey(it.title,it.artist)}.singleOrNull {
+        else candidates.sortedBy {it.compilation}.distinctBy {OdifyMusicMatching.artistKey(it.artist) to OdifyMusicMatching.titleKey(it.title,it.artist)}.singleOrNull {
             OdifyMusicMatching.artistKey(it.artist)==OdifyMusicMatching.artistKey(artist) &&
                 OdifyMusicMatching.titleKey(it.title,it.artist)==OdifyMusicMatching.titleKey(title,artist)
         }

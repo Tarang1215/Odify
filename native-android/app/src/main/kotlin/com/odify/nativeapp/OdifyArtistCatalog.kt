@@ -16,22 +16,39 @@ import java.net.URLEncoder
 /** Public song metadata only. No previews, audio URLs, or playback on lookup. */
 internal class OdifyArtistCatalog(private val context:Context) {
     private val directory=File(context.cacheDir,"artist_catalog").apply {mkdirs()}
-    private val portraitRequests=Semaphore(2)
-    suspend fun portrait(artist:String,knownTitles:List<String> = emptyList()):String? = portraitRequests.withPermit {
-        withContext(Dispatchers.IO) {
-            val key="artist-"+OdifyMusicMatching.cacheKey(artist)
+    private val portraitRequests=Semaphore(4)
+    suspend fun portrait(artist:String,knownTitles:List<String> = emptyList()):String? = withContext(Dispatchers.IO) {
+            val key="artist-"+OdifyMusicMatching.cacheKey(OdifyMusicMatching.artistKey(artist))
             val file=File(directory,"$key-photo.txt")
             val saved=runCatching {file.readText().takeIf {File(it).isFile}}.getOrNull()
             if(saved!=null && System.currentTimeMillis()-file.lastModified()<7*24*60*60_000L)return@withContext saved
-            try {
-                val identity=tracks(artist,knownTitles).firstNotNullOfOrNull {it.music} ?: return@withContext saved
-                val url=URL(identity.artistUrl)
-                if(url.protocol!="https" || url.host!="music.apple.com" || !identity.artistId.matches(Regex("[0-9]+")))return@withContext saved
-                val address=OdifyArtistPortrait.address(OdifyCatalogHttp.get(identity.artistUrl,4_000_000)) ?: return@withContext saved
-                OdifyCatalogArt.download(context,address,"$key-${System.currentTimeMillis()/(7*24*60*60_000L)}",400)
-                    ?.also {file.writeText(it)} ?: saved
-            } catch(cancel:CancellationException){throw cancel} catch(_:Exception){saved}
+            portraitRequests.withPermit {
+                try {
+                    val address=portraitPage(artist) ?: if(knownTitles.isNotEmpty())
+                        tracks(artist,knownTitles).firstNotNullOfOrNull {it.music}?.artistUrl else null
+                    if(address.isNullOrBlank())return@withPermit saved
+                    val url=URL(address)
+                    if(url.protocol!="https" || url.host!="music.apple.com" || !url.path.contains("/artist/"))return@withPermit saved
+                    val photo=OdifyArtistPortrait.address(OdifyCatalogHttp.get(address,4_000_000)) ?: return@withPermit saved
+                    OdifyCatalogArt.download(context,photo,"$key-${System.currentTimeMillis()/(7*24*60*60_000L)}",240)
+                        ?.also {file.writeText(it)} ?: saved
+                } catch(cancel:CancellationException){throw cancel} catch(_:Exception){saved}
+            }
+    }
+    private fun portraitPage(artist:String):String? {
+        val country=when {
+            artist.any {it in '\u3040'..'\u30ff' || it in '\u4e00'..'\u9fff'} -> "jp"
+            artist.any {it in '\uac00'..'\ud7a3'} -> "kr"
+            else -> "us"
         }
+        val term=URLEncoder.encode(OdifyMusicMatching.artistName(artist).take(120),"UTF-8")
+        val rows=JSONObject(request("https://itunes.apple.com/search?term=$term&country=$country&media=music&entity=musicArtist&attribute=artistTerm&limit=8"))
+            .getJSONArray("results")
+        val exact=(0 until rows.length()).mapNotNull {rows.optJSONObject(it)}
+            .filter {OdifyDiscovery.sameArtist(it.optString("artistName"),artist)}
+            .distinctBy {it.optString("artistId")}
+        return (exact.singleOrNull() ?: exact.singleOrNull {it.optString("artistName")==OdifyMusicMatching.artistName(artist)})
+            ?.optString("artistLinkUrl")?.takeIf {it.isNotBlank()}
     }
     suspend fun moodTracks(key:String):List<ExploreTrack> = withContext(Dispatchers.IO) {
         val mood=OdifyDiscovery.moods.first {it.key==key}

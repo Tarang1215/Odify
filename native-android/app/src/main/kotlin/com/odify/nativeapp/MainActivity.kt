@@ -628,6 +628,46 @@ private fun NativeOdify() {
     }
 
     var externalLookupJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    fun resolveOptionTrack(track:OdifySong,ready:(OdifySong)->Unit) {
+        if(!track.id.startsWith("chart:") && !track.id.startsWith("youtube:")) {ready(track);return}
+        scope.launch {
+            try {
+                val song=withContext(Dispatchers.IO) {
+                    val store=OdifyStreamingLibrary(context)
+                    if(track.id.startsWith("youtube:")) {
+                        store.find(track.id) ?: run {
+                            store.remember(YoutubeVideo(track.id.removePrefix("youtube:"),track.title,track.artist,""))
+                            store.find(track.id)
+                        }
+                    } else {
+                        if(!youtubeConnected)return@withContext null
+                        val results=OdifyYoutubeLibrary(context.applicationContext)
+                            .search(OdifyYoutubeQuickPlay.query(track.artist,track.title))
+                        val video=OdifyYoutubeQuickPlay.matching(results,track.artist,track.title) ?: return@withContext null
+                        store.remember(video)
+                        store.associateChart(video.videoId,track.id.removePrefix("chart:"))
+                        store.find("youtube:"+video.videoId)
+                    }
+                }
+                if(song!=null)ready(song) else Toast.makeText(context,"이 곡의 재생 가능한 음원을 찾지 못했어요.",Toast.LENGTH_SHORT).show()
+            } catch(cancel:kotlinx.coroutines.CancellationException){throw cancel}
+            catch(_:Exception){Toast.makeText(context,"음원을 확인하지 못했어요. 연결 상태를 확인해 주세요.",Toast.LENGTH_SHORT).show()}
+        }
+    }
+    fun queueNext(original:OdifySong) {
+        val song=audioOverrides.resolve(original)
+        val currentWeb=OdifyYoutubeRuntime.session.value
+        if(currentWeb.video!=null) {
+            OdifyYoutubeRuntime.session.update {if(it.video!=null)it.withNext(song) else it}
+        } else {
+            val player=controller ?: return
+            if(player.currentMediaItem==null)return
+            player.shuffleModeEnabled=false
+            if(player.repeatMode==Player.REPEAT_MODE_ONE)player.repeatMode=Player.REPEAT_MODE_OFF
+            player.addMediaItem(player.currentMediaItemIndex+1,listOf(song).queuedMediaItems(context).single())
+        }
+        Toast.makeText(context,"다음 재생에 추가했어요.",Toast.LENGTH_SHORT).show()
+    }
     fun playYoutubeVideo(queue: List<YoutubeVideo>, index: Int) {
         if(index !in queue.indices) return
         requestPlaybackNotifications()
@@ -649,19 +689,21 @@ private fun NativeOdify() {
         Toast.makeText(context,"재생할 음원을 찾고 있어요…",Toast.LENGTH_SHORT).show()
         externalLookupJob?.cancel()
         externalLookupJob = scope.launch {
+            val recommendation=chartId.startsWith("recommendation:")
             val query = OdifyYoutubeQuickPlay.query(artist, title)
             val selected = if (youtubeConnected) runCatching {
-                OdifyYoutubeQuickPlay.first(OdifyYoutubeLibrary(context.applicationContext).search(query))
+                val results=OdifyYoutubeLibrary(context.applicationContext).search(query)
+                if(recommendation)OdifyYoutubeQuickPlay.matching(results,artist,title) else OdifyYoutubeQuickPlay.first(results)
             }.getOrNull() else null
             if (!kotlinx.coroutines.currentCoroutineContext().isActive) return@launch
             if(selected!=null) {
                 val store=OdifyStreamingLibrary(context);store.remember(selected)
-                if(chartId.isNotBlank()) {
+                if(chartId.isNotBlank() && !recommendation) {
                     store.associateChart(selected.videoId,chartId)
                     OdifyStreamingRequests(context).enqueue(selected,0,"chart_tap")
                     OdifyPhoneDownloads.schedule(context)
                 }
-                try {
+                if(!recommendation)try {
                     musicCatalog.recording(artist,title,chartId)?.let {musicCatalog.enrich(store,selected,it)}
                 } catch(cancel:kotlinx.coroutines.CancellationException){throw cancel} catch(_:Exception){}
                 playYoutubeVideo(listOf(selected),0);return@launch
@@ -805,6 +847,8 @@ private fun NativeOdify() {
                 }
             },
             onPlayYoutubeMatched = { matchedQueue,index -> playFrom(matchedQueue,index) },
+            onResolveOptionTrack=::resolveOptionTrack,
+            onPlayNext=::queueNext,
             onSelectQueue = { index ->
                 val latest=OdifyYoutubeRuntime.session.value
                 if(latest.video!=null) {if(index==0) webCommand("odifySeek(0);odifyPlay()") else if(index-1 in latest.following.indices) playFrom(latest.following,index-1)}
@@ -903,6 +947,7 @@ private fun NativeOdify() {
                         withContext(Dispatchers.IO) {
                             when {
                                 track.id.startsWith("gdrive:") -> driveCatalog.hideTrack(track)
+                                track.id.startsWith("youtube:") -> OdifyStreamingLibrary(context).hide(track)
                                 track.isPhoneFolder -> phoneFolder.hideTrack(track)
                                 else -> library.delete(track)
                             }

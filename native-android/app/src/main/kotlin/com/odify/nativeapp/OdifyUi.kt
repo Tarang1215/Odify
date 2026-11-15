@@ -296,7 +296,9 @@ fun OdifyRoot(
     onReplaceAudio: (OdifySong,YoutubeVideo)->Unit,
     onRemove: (OdifySong) -> Unit,
     onEdit: (OdifySong, String, String, String) -> Unit,
-    onChooseArtwork: (OdifySong) -> Unit
+    onChooseArtwork: (OdifySong) -> Unit,
+    onResolveOptionTrack:(OdifySong,(OdifySong)->Unit)->Unit={track,ready->ready(track)},
+    onPlayNext:(OdifySong)->Unit={}
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val pageBackdrop = rememberOdifyBackdrop()
@@ -363,6 +365,11 @@ fun OdifyRoot(
     val playlistVisible=remember {MutableTransitionState(false)}
     playlistVisible.targetState=openedPlaylist!=null
     var playlistDialogTrack by remember { mutableStateOf<OdifySong?>(null) }
+    var trackOptions by remember {mutableStateOf<OdifyTrackMenu?>(null)}
+    var removedTrack by remember {mutableStateOf<OdifySong?>(null)}
+    var openedAlbum by remember {mutableStateOf<List<OdifySong>?>(null)}
+    val actionScope=rememberCoroutineScope()
+    val uriHandler=androidx.compose.ui.platform.LocalUriHandler.current
     var replacementTrack by remember {mutableStateOf<OdifySong?>(null)}
     var openLibraryPlaylists by rememberSaveable { mutableIntStateOf(0) }
     fun createPlaylist(name: String): String = runCatching {
@@ -420,6 +427,7 @@ fun OdifyRoot(
     var history by remember {
         mutableStateOf(prefs.getString("history", "")!!.split("|").filter { it.isNotBlank() })
     }
+    var lessSuggested by remember {mutableStateOf(prefs.getStringSet("less_suggested_recordings",emptySet()).orEmpty().toSet())}
     var navVisible by remember { mutableStateOf(true) }
     var compactPlayer by rememberSaveable { mutableStateOf(false) }
     var expansionOrigin by remember { mutableStateOf<Rect?>(null) }
@@ -440,8 +448,31 @@ fun OdifyRoot(
     val displayed = remember(recent, songs) {
         OdifySongPresentation.visible(if (recent.isNotEmpty()) recent else songs.asReversed())
     }
-    val mixes = remember(songs, liked, listeningSignals) {
-        OdifyRecommendations.mixes(songs, liked, listeningSignals)
+    val recommendable=remember(songs,lessSuggested) {
+        songs.filter {OdifyRecommendations.key(it.title,it.artist) !in lessSuggested}
+    }
+    val mixes = remember(recommendable, liked, listeningSignals) {
+        OdifyRecommendations.mixes(recommendable, liked, listeningSignals)
+    }
+    val taste by produceState(emptyList<OdifyTasteSeed>(),recommendable,liked,listeningSignals) {
+        value=withContext(Dispatchers.Default) {OdifyRecommendations.seeds(recommendable,liked,listeningSignals,System.currentTimeMillis())}
+    }
+    val seeds=remember(taste) {taste.take(4).map {it.song.title to OdifyMusicMatching.artistName(it.song.artist)}}
+    val relatedRepository=remember(context) {OdifyRelatedTracks(context.applicationContext)}
+    val related by produceState(OdifyRelatedMusic(),seeds,lastFmRevision,youtubeConnected) {
+        value=OdifyRelatedMusic()
+        if(youtubeConnected && seeds.isNotEmpty()) {
+            delay(450)
+            value=relatedRepository.load(seeds)
+        }
+    }
+    val recommendations by produceState(emptyList<OdifyRecommendation>(),songs,taste,listeningSignals,
+        discoveryTracks,related,youtubeConnected,lessSuggested) {
+        value=withContext(Dispatchers.Default) {
+            OdifyRecommendations.recommend(songs,taste,listeningSignals,
+                if(youtubeConnected)discoveryTracks else emptyList(),
+                if(youtubeConnected)related else OdifyRelatedMusic(),System.currentTimeMillis(),lessSuggested)
+        }
     }
     fun saveMix(mix: OdifyMix) {
         runCatching { playlistStore.saveMix(mix.name, mix.songs.map { it.id }) }
@@ -464,6 +495,33 @@ fun OdifyRoot(
     fun toggleLike(id: String) {
         liked = if (id in liked) liked - id else liked + id
         prefs.edit().putStringSet("likes", liked).apply()
+    }
+
+    fun showAlbum(track:OdifySong) {
+        val album=OdifyMusicMatching.norm(track.album)
+        val matches=if(album.isBlank() || album=="youtube")emptyList() else songs.filter {
+            OdifyMusicMatching.norm(it.album)==album && OdifyDiscovery.sameArtist(track.artist,it.artist)
+        }
+        if(matches.isNotEmpty()) {openedAlbum=OdifySongPresentation.visible(matches);return}
+        actionScope.launch {
+            val address=try {
+                OdifyMusicCatalog(context).recording(OdifyMusicMatching.artistName(track.artist),track.title,
+                    track.id.removePrefix("chart:")).let {it?.albumUrl.orEmpty()}
+            } catch(cancel:kotlinx.coroutines.CancellationException){throw cancel} catch(_:Exception){""}
+            val link=runCatching {java.net.URI(address)}.getOrNull()
+            if(link?.scheme=="https" && link.host=="music.apple.com" && link.path.contains("/album/")) {
+                if(runCatching {uriHandler.openUri(address)}.isSuccess)return@launch
+            }
+            android.widget.Toast.makeText(context,"공식 앨범을 찾지 못했어요.",android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    fun forgetRecent(track:OdifySong) {
+        val key=OdifyRecommendations.key(track.title,track.artist)
+        val ids=songs.filter {OdifyRecommendations.key(it.title,it.artist)==key}.map {it.id}.toSet()+track.id
+        history=history.filterNot {it in ids}
+        prefs.edit().putString("history",history.joinToString("|")).apply()
+        listeningStore.forget(ids)
     }
     LaunchedEffect(playback.mediaId) {
         playback.mediaId?.takeIf { it in songIndex }?.let { key ->
@@ -560,6 +618,9 @@ fun OdifyRoot(
                     onPlay = ::playList,
                     catalogSongs=songs,
                     discoveryTracks=discoveryTracks,
+                    recommendations=recommendations,
+                    onTrackOptions={song,recent->trackOptions=OdifyTrackMenu(song,recent)},
+                    onPlayRecommendation={track -> onExternalTrack(track.artist,track.title,"recommendation:"+track.id)},
                     loadArtistTracks={artist ->artistCatalog.tracks(artist,titlesForArtist(artist))},
                     ownedIndex=chartIndex,
                     onPlayOnline={track ->
@@ -587,8 +648,7 @@ fun OdifyRoot(
                     index=chartIndex,repository=exploreRepository,onPlay=::playList,onSync=onDriveSync,
                     onArtist={artist ->searchQuery=artist;navigateTo(OdifyTab.Search)},
                     loadArtistPortrait={artist ->artistCatalog.portrait(artist)},
-                    onAddTrack={track,owned -> playlistDialogTrack=owned ?:
-                        OdifySong("chart:${track.id}",track.title,track.artist,"","")},
+                    onAddTrack={track,owned -> trackOptions=OdifyTrackMenu(owned ?: track.optionSong())},
                     onProfile = { navigateTo(OdifyTab.Profile) },
                     onMissingTrack = { track -> onExternalTrack(track.artist, track.title,track.id) },
                     onSaveChart = { name,ids ->
@@ -605,7 +665,7 @@ fun OdifyRoot(
                     searchScope = searchScope, onScopeChange = { searchScope = it },
                     youtubeConnected = youtubeConnected, onConnectYoutube = onConnectYoutube,
                     onExternalYoutubeStarted = onExternalYoutubeStarted,
-                    onPlayYoutubeVideo = onPlayYoutubeVideo, onAddSong = { playlistDialogTrack=it })
+                    onPlayYoutubeVideo = onPlayYoutubeVideo, onAddSong = { trackOptions=OdifyTrackMenu(it) })
                 OdifyTab.Library -> OdifyLibraryScreen(
                     songs = songs, liked = liked, onPlay = ::playList,
                     onImport = onImport, onRemove = onRemove, onEdit = onEdit,
@@ -646,6 +706,7 @@ fun OdifyRoot(
                 val playlist=openedPlaylist ?: retainedPlaylist ?: return@AnimatedVisibility
                 val tracks=remember(playlist,songs) {playlistStore.resolved(playlist,songs)}
                 OdifyPlaylistDetail(playlist,tracks,playback.mediaId,onDismiss={selectedPlaylistId=null},onPlay=::playList,
+                    onTrackOptions={trackOptions=OdifyTrackMenu(it,playlistId=playlist.id)},
                     onRename={renamePlaylist(playlist.id,it)},
                     onCoverChange={uri ->
                         val result=withContext(Dispatchers.IO) {runCatching {playlistStore.changeCover(playlist.id,uri);""}.getOrElse {it.message ?: "커버를 저장하지 못했습니다."}}
@@ -802,6 +863,38 @@ fun OdifyRoot(
                 onSelect={ index -> onSelectQueue(index); queueOpen=false },
                 onClose={ queueOpen=false },glow=sharedGlow,visible=queueOpen,anchor=queueAnchor
             )
+        }
+        val menu=trackOptions
+        if(menu!=null) {
+            val target=menu.song
+            val owned=songIndex[target.id]
+            OdifyTrackOptions(menu,target.id in liked,onDismiss={trackOptions=null},
+                onFavorite={trackOptions=null;onResolveOptionTrack(target) {toggleLike(it.id)}},
+                onPlaylist={trackOptions=null;onResolveOptionTrack(target) {playlistDialogTrack=it}},
+                onNext=if(playback.mediaId!=null){{trackOptions=null;onResolveOptionTrack(target,onPlayNext)}} else null,
+                onAlbum=if(target.artist.isNotBlank()){{trackOptions=null;showAlbum(target)}} else null,
+                onLess={
+                    trackOptions=null
+                    lessSuggested=lessSuggested+OdifyRecommendations.key(target.title,target.artist)
+                    prefs.edit().putStringSet("less_suggested_recordings",lessSuggested).apply()
+                },
+                onForget=if(menu.recent){{trackOptions=null;forgetRecent(target)}} else null,
+                onRemoveFromPlaylist=menu.playlistId?.let {id->{trackOptions=null;playlistStore.removeSong(id,target.id);playlistVersion++}},
+                onDelete=owned?.let {item->{trackOptions=null;removedTrack=item}})
+        }
+        removedTrack?.let {target->
+            OdifyGlassAlertDialog(onDismissRequest={removedTrack=null},title={Text("보관함에서 삭제할까요?")},
+                text={Text(target.title)},confirmButton={TextButton(onClick={removedTrack=null;onRemove(target)}){Text("삭제")}},
+                dismissButton={TextButton(onClick={removedTrack=null}){Text("취소")}})
+        }
+        OdifyRetainedGlassSheet(openedAlbum,onDismiss={openedAlbum=null},maxHeightFraction=.72f) {album->
+            Text(album.first().album,fontSize=20.sp,fontWeight=FontWeight.SemiBold,modifier=Modifier.padding(vertical=12.dp))
+            LazyColumn(Modifier.heightIn(max=360.dp)) {
+                items(album,key={it.id}) {track->
+                    ListItem(headlineContent={Text(track.title)},supportingContent={Text(track.artist)},
+                        modifier=Modifier.clickable {playList(album,album.indexOf(track));openedAlbum=null})
+                }
+            }
         }
         playlistDialogTrack?.let { target ->
             OdifyPlaylistPicker(

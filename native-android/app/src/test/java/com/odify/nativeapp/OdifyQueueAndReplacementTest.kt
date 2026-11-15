@@ -6,6 +6,20 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class OdifyQueueAndReplacementTest {
+    @Test fun playNextPreservesCurrentVideoAndExistingQueueEntryKeys() {
+        val video=YoutubeVideo("abcdefghijk","Current","Artist","")
+        val queued=OdifySong("queued","Later","Artist","","")
+        val next=OdifySong("next","Next","Artist","","")
+        val state=YoutubeSessionState(video=video,following=listOf(queued),followingKeys=listOf("queued-key"),repeat=true,shuffle=true)
+        val result=state.withNext(next)
+        assertEquals(state.entryKey,result.entryKey)
+        assertEquals(video,result.video)
+        assertEquals(listOf(next,queued),result.following)
+        assertEquals("queued-key",result.followingKeys.last())
+        assertEquals(2,result.followingKeys.toSet().size)
+        assertFalse(result.shuffle)
+        assertFalse(result.repeat)
+    }
     private fun song(id:String)=OdifySong(id,id,"Artist","Album","/audio/$id.mp3")
 
     @Test fun rapidMovesUseCurrentQueueAndDistinguishDuplicateSongs() {

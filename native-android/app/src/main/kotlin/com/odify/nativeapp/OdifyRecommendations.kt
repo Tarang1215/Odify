@@ -5,6 +5,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import kotlin.math.exp
 import kotlin.math.ln
+import kotlin.math.pow
 
 data class ListeningSignal(val count: Int, val lastPlayed: Long)
 data class OdifyMix(val key: String, val name: String, val reason: String, val songs: List<OdifySong>)
@@ -12,8 +13,10 @@ data class OdifyMix(val key: String, val name: String, val reason: String, val s
 /** Bounded device-only listening history. A seek or a brief preview is not a play. */
 class OdifyListeningStore(context: Context) {
     val preferences = context.getSharedPreferences("odify_listening_v1", Context.MODE_PRIVATE)
+    private companion object { val writeLock=Any() }
 
-    @Synchronized fun record(entry: String, songId: String, at: Long = System.currentTimeMillis()) {
+    fun record(entry: String, songId: String, at: Long = System.currentTimeMillis()) = synchronized(writeLock) {
+        if(at<=preferences.getLong("forgotten:$songId",Long.MIN_VALUE))return@synchronized
         val existing = runCatching { JSONArray(preferences.getString("events", "[]")) }.getOrDefault(JSONArray())
         val cutoff = at - 60L * 24 * 60 * 60 * 1000
         val events = (0 until existing.length()).mapNotNull { existing.optJSONObject(it) }
@@ -26,6 +29,18 @@ class OdifyListeningStore(context: Context) {
         preferences.edit().putString("events", next.toString()).apply()
     }
 
+    fun forget(songIds:Set<String>,at:Long=System.currentTimeMillis()) = synchronized(writeLock) {
+        val existing=runCatching {JSONArray(preferences.getString("events","[]"))}.getOrDefault(JSONArray())
+        val events=JSONArray()
+        for(index in 0 until existing.length()) {
+            val event=existing.optJSONObject(index) ?: continue
+            if(event.optString("song") !in songIds)events.put(event)
+        }
+        val edit=preferences.edit().putString("events",events.toString())
+        songIds.forEach {edit.putLong("forgotten:$it",at)}
+        edit.apply()
+    }
+
     fun signals(at: Long = System.currentTimeMillis()): Map<String, ListeningSignal> {
         val data = runCatching { JSONArray(preferences.getString("events", "[]")) }.getOrDefault(JSONArray())
         val events = (0 until data.length()).mapNotNull { data.optJSONObject(it) }
@@ -35,8 +50,114 @@ class OdifyListeningStore(context: Context) {
     }
 }
 
+data class OdifyRecommendation(val track:ExploreTrack,val owned:OdifySong?)
+internal data class OdifyTasteSeed(val song:OdifySong,val weight:Double)
+internal data class OdifyRelatedMusic(
+    val bySeed:Map<String,List<ExploreTrack>> = emptyMap(),
+    val tags:Map<String,List<String>> = emptyMap()
+)
+
 /** Explainable mixes drawn only from accessible Drive/local songs, never invented tracks. */
 object OdifyRecommendations {
+    private const val DAY=86_400_000.0
+    private val moodTerms=mapOf(
+        "calm" to setOf("chill","mellow","calm","relaxing","soft","잔잔한","편안한"),
+        "wistful" to setOf("sad","melancholic","nostalgic","emotional","감성","슬픈","애절한"),
+        "energetic" to setOf("upbeat","energetic","danceable","powerful","신나는","경쾌한"),
+        "dreamy" to setOf("dreamy","atmospheric","ethereal","몽환적","몽환")
+    ).mapValues {(_,terms)->terms.map(OdifyMusicMatching::norm).toSet()}
+
+    internal fun key(title:String,artist:String)=
+        OdifyMusicMatching.artistKey(artist)+"|"+OdifyMusicMatching.titleKey(title,artist)
+
+    private fun age(at:Long,now:Long)=(now-at).coerceAtLeast(0)/DAY
+
+    internal fun seeds(songs:List<OdifySong>,liked:Set<String>,signals:Map<String,ListeningSignal>,now:Long):List<OdifyTasteSeed> {
+        val perArtist=HashMap<String,Int>()
+        val albums=HashSet<Pair<String,String>>()
+        return songs.asSequence().filter {it.title.isNotBlank() && it.artist.isNotBlank()}
+            .map { song ->
+                val libraryWeight=when {
+                    song.id.startsWith("youtube:") -> 0.0
+                    song.isOfflineSaved -> 0.8
+                    song.isCloud -> 0.25
+                    else -> 0.45
+                }
+                val listening=signals[song.id]?.let {2.5*ln(1.0+it.count)*0.5.pow(age(it.lastPlayed,now)/14)} ?: 0.0
+                OdifyTasteSeed(song,libraryWeight+listening+if(song.id in liked)4.0 else 0.0)
+            }.filter {it.weight>0}.sortedByDescending {it.weight}
+            .distinctBy {key(it.song.title,it.song.artist)}
+            .filter {
+                val artist=OdifyMusicMatching.artistKey(it.song.artist)
+                val album=OdifyMusicMatching.norm(it.song.album)
+                val count=perArtist[artist] ?: 0
+                if(count>=2 || album.isNotBlank() && album!="youtube" && !albums.add(artist to album))false
+                else {perArtist[artist]=count+1;true}
+            }.take(12).toList()
+    }
+
+    internal fun recommend(
+        songs:List<OdifySong>, seeds:List<OdifyTasteSeed>, signals:Map<String,ListeningSignal>,
+        online:List<ExploreTrack>, related:OdifyRelatedMusic, now:Long, excluded:Set<String> = emptySet()
+    ):List<OdifyRecommendation> {
+        if(seeds.isEmpty())return emptyList()
+        val catalog=OdifySongPresentation.visible(songs)
+        val index=OdifyChartMatching.buildIndex(songs)
+        val consideredSignals=songs.asSequence().filter {it.artist.isNotBlank() && signals[it.id]!=null}
+            .groupBy {key(it.title,it.artist)}.mapValues {(_,copies)->copies.maxOf {signals.getValue(it.id).lastPlayed}}
+        val relationships=HashMap<String,Double>()
+        val maxWeight=seeds.first().weight
+        fun tags(track:ExploreTrack)=track.genres+related.tags[key(track.title,track.artist)].orEmpty()
+        fun mood(features:Set<String>)=moodTerms.filterValues {terms->terms.any {it in features}}.keys
+        fun features(tags:List<String>)=tags.flatMap {it.split('/', ';', ',')}.map(OdifyMusicMatching::norm)
+            .filter {it.length>2 && it !in setOf("music","favorites","favourite","seenlive")}.toSet()
+        val profiles=seeds.map {seed->
+            val id=key(seed.song.title,seed.song.artist)
+            val descriptors=features(listOf(seed.song.genre)+related.tags[id].orEmpty())
+            related.bySeed[id].orEmpty().forEachIndexed {rank,track->
+                val relatedKey=key(track.title,track.artist)
+                relationships.merge(relatedKey,seed.weight/maxWeight/(1+rank*.25),Double::plus)
+            }
+            Triple(seed,descriptors,mood(descriptors))
+        }
+        val candidates=linkedMapOf<String,OdifyRecommendation>()
+        for(song in catalog) {
+            val track=ExploreTrack(song.id,song.title,song.artist,"",listOf(song.genre),0)
+            val id=key(song.title,song.artist)
+            if(song.title.isNotBlank() && song.artist.isNotBlank())candidates.putIfAbsent(id,OdifyRecommendation(track,song))
+        }
+        for(track in online+seeds.flatMap {related.bySeed[key(it.song.title,it.song.artist)].orEmpty()}) {
+            if(track.title.isBlank() || track.artist.isBlank())continue
+            val id=key(track.title,track.artist)
+            val owned=index.resolve(track)
+            if(owned!=null && key(owned.title,owned.artist) in candidates)continue
+            candidates.putIfAbsent(id,OdifyRecommendation(track,owned))
+        }
+        val ranked=candidates.entries.mapNotNull { (id,candidate)->
+            if(id in excluded)return@mapNotNull null
+            val track=candidate.track
+            val descriptors=features(tags(track))
+            val moods=mood(descriptors)
+            val artist=OdifyMusicMatching.artistKey(track.artist)
+            val affinity=profiles.maxOf { (seed,preferred,preferredMoods)->
+                val sameArtist=if(artist==OdifyMusicMatching.artistKey(seed.song.artist))1.15 else 0.0
+                val sameMood=if(moods.any {it in preferredMoods})1.0 else 0.0
+                val sameDescriptors=(descriptors intersect preferred).size.coerceAtMost(3)*.65
+                (sameArtist+sameMood+sameDescriptors)*seed.weight/maxWeight
+            }
+            val relatedScore=(relationships[id] ?: 0.0).coerceAtMost(2.0)*2.0
+            if(affinity+relatedScore<=0)return@mapNotNull null
+            val recency=consideredSignals[id]?.let {1.4*0.5.pow(age(it,now)/2)} ?: 0.0
+            candidate to (affinity+relatedScore-recency+if(candidate.owned==null)0.35 else 0.0)
+        }.sortedByDescending {it.second}
+        val counts=HashMap<String,Int>()
+        return ranked.mapNotNull { (candidate,_)->
+            val artist=OdifyMusicMatching.artistKey(candidate.track.artist)
+            val count=counts[artist] ?: 0
+            if(count>=2)null else {counts[artist]=count+1;candidate}
+        }.take(20)
+    }
+
     fun mixes(songs: List<OdifySong>, liked: Set<String>, signals: Map<String, ListeningSignal>,
               now: Long = System.currentTimeMillis()): List<OdifyMix> {
         val catalog = OdifySongPresentation.visible(songs).sortedBy { it.id }

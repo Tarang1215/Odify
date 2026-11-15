@@ -156,6 +156,7 @@ class OdifyPlaybackService : MediaSessionService() {
                     return
                 }
                 val entry = java.util.UUID.randomUUID().toString()
+                val beganAt=System.currentTimeMillis()
                 // Count actual playing time; seeking to 30 seconds cannot fabricate a listen.
                 listeningJob = listeningScope.launch {
                     var listened = 0L
@@ -166,7 +167,7 @@ class OdifyPlaybackService : MediaSessionService() {
                         if (wasPlaying && player.isPlaying) listened +=
                             (android.os.SystemClock.elapsedRealtime() - started).coerceAtMost(1500L)
                     }
-                    listeningStore.record(entry, item.mediaId)
+                    listeningStore.record(entry,item.mediaId,beganAt)
                 }
             }
         })

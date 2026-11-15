@@ -8,6 +8,22 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class OdifyStreamingPlaylistTest {
+    @Test fun reportedDjKhaledUploadGetsTheGratefulCoverFromThePublicCatalog() {
+        org.junit.Assume.assumeTrue(InstrumentationRegistry.getArguments().getString("liveCatalog")=="true")
+        val context=InstrumentationRegistry.getInstrumentation().targetContext
+        val name="odify_grateful_catalog_test"
+        val repository=OdifyStreamingLibrary(context,name)
+        val video=YoutubeVideo("DtCphp8M5Dg","DJ Khaled - I'm the One ft. Justin Bieber, Chance the Rapper, Lil Wayne (Lyrics)","7clouds Rap","")
+        try {
+            repository.remember(video)
+            assertTrue(kotlinx.coroutines.runBlocking {OdifyMusicCatalog(context).enrich(repository,video)})
+            val display=requireNotNull(repository.find("youtube:"+video.videoId))
+            assertEquals("I'm the One",display.title)
+            assertEquals("DJ Khaled",display.artist)
+            assertEquals("Grateful",display.album)
+            assertTrue(requireNotNull(display.artworkPath).contains("official_artwork"))
+        } finally {context.deleteSharedPreferences(name)}
+    }
     @Test fun publicCatalogResolvesTheReportedSongToOfficialCover() {
         org.junit.Assume.assumeTrue(InstrumentationRegistry.getArguments().getString("liveCatalog")=="true")
         val context=InstrumentationRegistry.getInstrumentation().targetContext

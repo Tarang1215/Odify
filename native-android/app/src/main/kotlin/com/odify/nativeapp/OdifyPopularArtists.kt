@@ -75,7 +75,8 @@ internal class OdifyPopularArtists(private val context:Context) {
         val root=response(request("chart.gettopartists","",apiKey,1))
         check(root.optJSONObject("artists")?.optJSONArray("artist")?.length()==1) {"Last.fm 응답을 확인하지 못했어요."}
     }
-    private fun request(method:String,parameters:String,apiKey:String,limit:Int=30):String {
+    companion object {
+    internal fun request(method:String,parameters:String,apiKey:String,limit:Int=30):String {
         require(apiKey.matches(Regex("[a-fA-F0-9]{32}"))) {"API 키 형식을 확인해 주세요."}
         val address="https://ws.audioscrobbler.com/2.0/?method=$method$parameters&limit=$limit&format=json&api_key=$apiKey"
         val connection=URL(address).openConnection() as HttpURLConnection
@@ -97,7 +98,6 @@ internal class OdifyPopularArtists(private val context:Context) {
             throw OdifyLastFmError(-1,"Last.fm에 연결하지 못했어요. 네트워크를 확인해 주세요.")
         } finally {connection.disconnect()}
     }
-    companion object {
         private val cacheLock=Mutex()
         fun countryName(code:String)=when(code) {"kr"->"Korea, Republic of";"jp"->"Japan";"us"->"United States";else->error("지원하지 않는 국가입니다.")}
         internal fun response(raw:String,httpCode:Int=200):JSONObject {

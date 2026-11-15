@@ -38,7 +38,7 @@ internal class OdifyStreamingLibrary(private val context:Context, name:String="o
         val old=data.optJSONObject("recording")
         val row=JSONObject().put("id",music.id).put("title",music.title).put("artist",music.artist).put("album",music.album)
             .put("artwork",music.artwork).put("artistId",music.artistId).put("artistUrl",music.artistUrl).put("trackUrl",music.trackUrl)
-            .put("duration",music.durationMs).put("matchVersion",2).put("cover",cover ?: old?.takeIf {
+            .put("albumUrl",music.albumUrl).put("duration",music.durationMs).put("matchVersion",3).put("cover",cover ?: old?.takeIf {
                 it.optString("id")==music.id && it.optString("artwork")==music.artwork
             }?.optString("cover").orEmpty())
         if(old?.toString()==row.toString())return
@@ -58,7 +58,7 @@ internal class OdifyStreamingLibrary(private val context:Context, name:String="o
     }.getOrNull()}
     private fun identity(row:JSONObject)=OdifyMusicIdentity(row.optString("id"),row.optString("title"),row.optString("artist"),
         row.optString("album"),row.optString("artwork"),row.optString("artistId"),row.optString("artistUrl"),
-        row.optString("trackUrl"),row.optLong("duration"))
+        row.optString("trackUrl"),row.optLong("duration"),albumUrl=row.optString("albumUrl"))
     private fun recording(videoId:String,data:JSONObject):JSONObject? {
         val row=data.optJSONObject("recording") ?: return null
         val video=YoutubeVideo(videoId,data.optString("title"),data.optString("artist"),"")
@@ -108,9 +108,15 @@ internal class OdifyStreamingLibrary(private val context:Context, name:String="o
         prefs.edit().putString(videoId,data.put("charts",charts).toString()).apply();version.value++
     }
     fun downloads():List<OdifySong> = prefs.all.keys.mapNotNull {find("youtube:"+it)}.filterNot {it.isYoutubeStream}
+    fun hide(videoSong:OdifySong) {
+        val videoId=videoSong.id.removePrefix("youtube:")
+        val hidden=prefs.getStringSet("hidden_video_ids",emptySet()).orEmpty()
+        if(videoId !in hidden){prefs.edit().putStringSet("hidden_video_ids",hidden+videoId).apply();version.value++}
+    }
     fun all():List<OdifySong> {
         val saved=savedRows()
-        return prefs.all.entries.filter {Regex("[A-Za-z0-9_-]{11}").matches(it.key)}
+        val hidden=prefs.getStringSet("hidden_video_ids",emptySet()).orEmpty()
+        return prefs.all.entries.filter {it.key !in hidden && Regex("[A-Za-z0-9_-]{11}").matches(it.key)}
             .mapNotNull {(id,raw)->(raw as? String)?.let {decode(id,it,saved[id])}}
     }
 }

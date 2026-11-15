@@ -2,8 +2,10 @@ package com.odify.nativeapp
 
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -66,6 +68,7 @@ internal fun rememberVideoSearch(
     return state.value
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun OdifyYoutubeSearch(query:String,connected:Boolean,onConnect:()->Unit,
     onExternalStarted:()->Unit,onPlayVideo:(List<YoutubeVideo>,Int)->Unit,
@@ -87,9 +90,10 @@ internal fun OdifyYoutubeSearch(query:String,connected:Boolean,onConnect:()->Uni
                 })+song.artist,
                     maxLines=1,overflow=TextOverflow.Ellipsis,color=OdifyPalette.muted)},
                 leadingContent={AlbumArt(song,Modifier.size(52.dp),radius=RoundedCornerShape(12.dp),fallbackKey=song.id.hashCode())},
-                trailingContent={IconButton(onClick={onAddSong(song)}) {Icon(Icons.Default.PlaylistAdd,"플레이리스트에 추가",tint=OdifyPalette.muted)}},
+                trailingContent={OdifyTrackOptionsButton(song.title) {onAddSong(song)}},
                 colors=ListItemDefaults.colors(containerColor=OdifyPalette.background),
-                modifier=Modifier.clip(RoundedCornerShape(14.dp)).clickable {onPlayLocal(libraryResults,index)})
+                modifier=Modifier.clip(RoundedCornerShape(14.dp)).combinedClickable(
+                    onClick={onPlayLocal(libraryResults,index)},onLongClick={onAddSong(song)},onLongClickLabel="곡 옵션"))
         }
         if(showYoutube) {
             item {
@@ -104,9 +108,15 @@ internal fun OdifyYoutubeSearch(query:String,connected:Boolean,onConnect:()->Uni
             }
             items(videos,key={OdifySearchRowKeys.youtube(it.videoId)}) {video ->
                 val credits=remember(video) {OdifyMusicMatching.credits(video)}
-                Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable {
-                    streaming.remember(video);onPlayVideo(listOf(video),0)
-                }.padding(vertical=9.dp),verticalAlignment=Alignment.CenterVertically) {
+                val options={
+                    streaming.remember(video)
+                    streaming.find("youtube:"+video.videoId)?.let(onAddSong)
+                    Unit
+                }
+                Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).combinedClickable(
+                    onClick={streaming.remember(video);onPlayVideo(listOf(video),0)},
+                    onLongClick=options,onLongClickLabel="곡 옵션"
+                ).padding(vertical=8.dp),verticalAlignment=Alignment.CenterVertically) {
                     YoutubeSearchCover(video.videoId,Modifier.size(52.dp))
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
@@ -114,10 +124,7 @@ internal fun OdifyYoutubeSearch(query:String,connected:Boolean,onConnect:()->Uni
                         Text(credits.artist.ifBlank {video.channel},maxLines=1,overflow=TextOverflow.Ellipsis,
                             style=MaterialTheme.typography.bodySmall,color=OdifyPalette.muted)
                     }
-                    IconButton(onClick={
-                        streaming.remember(video)
-                        streaming.find("youtube:"+video.videoId)?.let(onAddSong)
-                    }) {Icon(Icons.Default.PlaylistAdd,"플레이리스트에 추가",tint=OdifyPalette.muted)}
+                    OdifyTrackOptionsButton(credits.title,options)
                 }
             }
         }

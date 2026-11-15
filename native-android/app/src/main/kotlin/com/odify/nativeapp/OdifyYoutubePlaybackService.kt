@@ -30,6 +30,8 @@ internal data class YoutubeSessionState(val video:YoutubeVideo?=null,
         if(from !in following.indices || to !in following.indices || from==to)return this
         return copy(following=following.moved(from,to),followingKeys=followingKeys.moved(from,to),shuffle=false)
     }
+    fun withNext(song:OdifySong):YoutubeSessionState =
+        copy(following=listOf(song)+following,followingKeys=listOf(java.util.UUID.randomUUID().toString())+followingKeys,shuffle=false,repeat=false)
 }
 
 internal fun <T> List<T>.moved(from:Int,to:Int):List<T> =
@@ -112,6 +114,8 @@ class OdifyYoutubePlaybackService:Service() {
     private var handingOff=false
     private var nativeController:MediaController?=null
     private var listenClock=OdifyListenClock()
+    private var listenRecorded=false
+    private var listeningBeganAt=0L
     private var collectionQueued=false
     private val wake by lazy {(getSystemService(POWER_SERVICE) as PowerManager).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK,"Odify:YoutubeAudio").apply {setReferenceCounted(false)}}
     private val noisy=object:BroadcastReceiver(){override fun onReceive(c:Context?,i:Intent?){command("odifyPause()")}}
@@ -175,7 +179,7 @@ class OdifyYoutubePlaybackService:Service() {
         if(!autoStart)checkpoint.inactive()
         progressAt=SystemClock.elapsedRealtime();progressPosition=resumeMillis
         generation++;val request=generation;activeId=video.videoId;activeEntry=OdifyYoutubeRuntime.session.value.entryKey;consumedEnd=false;handingOff=false
-        if(!recovering){listenClock=OdifyListenClock();collectionQueued=false}
+        if(!recovering){listenClock=OdifyListenClock();collectionQueued=false;listenRecorded=false;listeningBeganAt=System.currentTimeMillis()}
         OdifyStreamingLibrary(this).remember(video)
         val web=browser ?: object:WebView(applicationContext) {
             // Preserve the playback document while the owning foreground service
@@ -365,6 +369,12 @@ class OdifyYoutubePlaybackService:Service() {
         if(state.error.isNotBlank() && checkpointAt!=0L){checkpoint.inactive();checkpointAt=0L}
         prepareFollowing()
         val listened=listenClock.observe(activeId.orEmpty(),SystemClock.elapsedRealtime(),state.playing)
+        if(!listenRecorded && listened>=30_000) {
+            listenRecorded=true
+            val id=value.presentation?.id ?: "youtube:"+video.videoId
+            val beganAt=listeningBeganAt
+            metadataScope.launch(Dispatchers.IO) {OdifyListeningStore(applicationContext).record(value.entryKey,id,beganAt)}
+        }
         if(!collectionQueued && listened>=20_000 && state.duration>0) {
             runCatching {
                 OdifyStreamingLibrary(this).remember(video,state.duration)

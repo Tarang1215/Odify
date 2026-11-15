@@ -22,10 +22,12 @@ import androidx.compose.animation.core.tween
 import kotlinx.coroutines.launch
 
 /** A library destination; the root keeps its live glass mini-player above this page. */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable internal fun OdifyPlaylistDetail(playlist:OdifyPlaylist,tracks:List<OdifySong>,
     currentSongId:String?,onDismiss:()->Unit,onPlay:(List<OdifySong>,Int)->Unit,
     onDelete:()->Unit,onRemoveSong:(String)->Unit,
-    onRename:(String)->String={""},onCoverChange:suspend(android.net.Uri?)->String={""}) {
+    onRename:(String)->String={""},onCoverChange:suspend(android.net.Uri?)->String={""},
+    onTrackOptions:((OdifySong)->Unit)?=null) {
     val cover=playlist.coverSong(tracks)
     val tint=rememberArtworkPalette(cover?.artworkPath).first()
     var menu by remember(playlist.id) {mutableStateOf(false)}
@@ -110,8 +112,10 @@ import kotlinx.coroutines.launch
             }
             itemsIndexed(tracks,key={_,song -> song.id}) {index,song ->
                 val current=song.id==currentSongId
+                val options={if(onTrackOptions==null)trackMenu=song else onTrackOptions(song)}
                 Row(Modifier.fillMaxWidth().height(68.dp).background(Color.White.copy(alpha=if(current).08f else 0f),RoundedCornerShape(14.dp))
-                    .clickable {onPlay(tracks,index)}.padding(start=4.dp,end=2.dp),verticalAlignment=Alignment.CenterVertically) {
+                    .combinedClickable(onClick={onPlay(tracks,index)},onLongClick=options,onLongClickLabel="곡 옵션")
+                    .padding(start=4.dp,end=2.dp),verticalAlignment=Alignment.CenterVertically) {
                     Text((index+1).toString(),fontSize=11.sp,color=Color.White.copy(alpha=.42f),modifier=Modifier.width(24.dp))
                     AlbumArt(song,Modifier.size(42.dp),RoundedCornerShape(9.dp))
                     Column(Modifier.weight(1f).padding(start=12.dp,end=4.dp)) {
@@ -119,7 +123,7 @@ import kotlinx.coroutines.launch
                         Text(song.artist+(if(song.durationMs>0)" · ${song.durationMs/60000}:${(song.durationMs/1000%60).toString().padStart(2,'0')}" else ""),
                             fontSize=11.sp,color=Color.White.copy(alpha=.56f),maxLines=1,overflow=TextOverflow.Ellipsis,modifier=Modifier.padding(top=4.dp))
                     }
-                    IconButton(onClick={trackMenu=song},modifier=Modifier.size(44.dp)) {Icon(Icons.Default.MoreHoriz,"${song.title} 곡 옵션",Modifier.size(20.dp),tint=Color.White.copy(alpha=.65f))}
+                    IconButton(onClick=options,modifier=Modifier.size(44.dp)) {Icon(Icons.Default.MoreHoriz,"${song.title} 곡 옵션",Modifier.size(20.dp),tint=Color.White.copy(alpha=.65f))}
                 }
             }
         }

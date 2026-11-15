@@ -194,6 +194,7 @@ private object ExploreArtworkMemory {
     @Synchronized fun put(key:String,value:ImageBitmap) {entries[key]=value}
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun OdifyExplore(index:OdifyChartMatching.Index,repository:OdifyExploreRepository,onProfile:()->Unit,onPlay:(List<OdifySong>,Int)->Unit,
     onMissingTrack:(ExploreTrack)->Unit,onSaveChart:(String,List<String>)->Unit,onSync:()->Unit,onAddTrack:(ExploreTrack,OdifySong?)->Unit,
@@ -205,11 +206,10 @@ fun OdifyExplore(index:OdifyChartMatching.Index,repository:OdifyExploreRepositor
     val scope=rememberCoroutineScope()
     var refresh by remember {mutableIntStateOf(0)}
     Column(Modifier.fillMaxSize()) {
-        Column(Modifier.padding(start=22.dp,end=22.dp,top=14.dp,bottom=8.dp)) {
+        Column(Modifier.padding(start=24.dp,end=24.dp,top=16.dp,bottom=8.dp)) {
             Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text("Explore",fontSize=29.sp,fontWeight=FontWeight.Bold,color=OdifyPalette.text,letterSpacing=(-.8).sp)
-                    Text("A world of good music.",fontSize=12.sp,color=OdifyPalette.muted)
                 }
                 IconButton(onClick=onProfile) {Icon(Icons.Outlined.PersonOutline,"프로필 및 설정")}
             }
@@ -245,8 +245,7 @@ fun OdifyExplore(index:OdifyChartMatching.Index,repository:OdifyExploreRepositor
             val matched=remember(data,index) {data?.tracks.orEmpty().associate {it.id to index.resolve(it)}}
             val ready=remember(visible,matched) {visible.mapNotNull {matched[it.id]}.distinctBy {it.contentMd5.ifBlank {it.id}}}
             val countryName=when(country) {"kr"->"한국";"jp"->"일본";else->"미국"}
-            LazyColumn(Modifier.fillMaxSize(),state=listState,contentPadding=PaddingValues(22.dp,8.dp,22.dp,160.dp)) {
-                item(key="popular-artists") {OdifyPopularArtistsRow(country,refresh,onProfile,onArtist,loadArtistPortrait)}
+            LazyColumn(Modifier.fillMaxSize(),state=listState,contentPadding=PaddingValues(24.dp,8.dp,24.dp,160.dp)) {
                 item {
                     Row(verticalAlignment=Alignment.CenterVertically) {
                         Text("$countryName Top 100",fontSize=26.sp,fontWeight=FontWeight.Bold,color=OdifyPalette.text,modifier=Modifier.weight(1f))
@@ -279,22 +278,26 @@ fun OdifyExplore(index:OdifyChartMatching.Index,repository:OdifyExploreRepositor
                     } else Spacer(Modifier.height(24.dp))
                     error?.let {Text(it,fontSize=13.sp,color=OdifyPalette.muted,modifier=Modifier.padding(vertical=16.dp))}
                 }
-                items(visible,key={it.id}) {track ->
+                fun LazyListScope.chartTracks(tracks:List<ExploreTrack>) = items(tracks,key={it.id}) {track ->
                     val song=matched[track.id]
-                    Row(Modifier.fillMaxWidth().clickable {
-                        if(song!=null)onPlay(ready,ready.indexOfFirst {it.id==song.id}.coerceAtLeast(0)) else onMissingTrack(track)
-                    }.padding(vertical=9.dp),verticalAlignment=Alignment.CenterVertically) {
+                    Row(Modifier.fillMaxWidth().combinedClickable(
+                        onClick={if(song!=null)onPlay(ready,ready.indexOfFirst {it.id==song.id}.coerceAtLeast(0)) else onMissingTrack(track)},
+                        onLongClick={onAddTrack(track,song)},onLongClickLabel="곡 옵션"
+                    ).padding(vertical=8.dp),verticalAlignment=Alignment.CenterVertically) {
                         Text(track.rank.toString().padStart(2,'0'),fontSize=12.sp,color=OdifyPalette.muted,modifier=Modifier.width(30.dp))
                         ExploreCover(track,Modifier.size(52.dp))
                         Column(Modifier.weight(1f).padding(start=12.dp,end=6.dp)) {
                             Text(track.title,fontSize=13.sp,fontWeight=FontWeight.SemiBold,maxLines=1,overflow=TextOverflow.Ellipsis,color=OdifyPalette.text)
-                            Text(track.artist,fontSize=10.sp,color=OdifyPalette.muted,maxLines=1,overflow=TextOverflow.Ellipsis)
+                            Text(track.artist,fontSize=12.sp,color=OdifyPalette.muted,maxLines=1,overflow=TextOverflow.Ellipsis)
                         }
                         IconButton(onClick={onAddTrack(track,song)},modifier=Modifier.size(40.dp)) {
-                            Icon(Icons.Outlined.PlaylistAdd,"${track.title} 플레이리스트에 추가",tint=OdifyPalette.text,modifier=Modifier.size(21.dp))
+                            Icon(Icons.Outlined.MoreHoriz,"${track.title} 곡 옵션",tint=OdifyPalette.muted,modifier=Modifier.size(20.dp))
                         }
                     }
                 }
+                chartTracks(visible.take(10))
+                item(key="popular-artists") {OdifyPopularArtistsRow(country,refresh,onProfile,onArtist,loadArtistPortrait)}
+                chartTracks(visible.drop(10))
             }
         }
     }

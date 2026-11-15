@@ -11,8 +11,12 @@ internal object OdifyAutoplay {
         val songs=OdifyLibrary(app).songs()+DriveCatalog(app).tracks()+OdifyPhoneFolder(app).tracks()+OdifyStreamingLibrary(app).all()
         val prefs=app.getSharedPreferences("odify_native_ui",0)
         val history=prefs.getString("history","").orEmpty().split("|").toSet()
-        val available=songs.filter {it.isYoutubeStream || it.isCloud || !it.sourceUri.isNullOrBlank() ||
-            it.filePath.isNotBlank() && java.io.File(it.filePath).isFile}
+        val excluded=prefs.getStringSet("less_suggested_recordings",emptySet()).orEmpty()
+        val available=songs.filter {song->
+            OdifyRecommendations.key(song.title,song.artist) !in excluded &&
+                (song.isYoutubeStream || song.isCloud || !song.sourceUri.isNullOrBlank() ||
+                    song.filePath.isNotBlank() && java.io.File(song.filePath).isFile)
+        }
         val planned=OdifyAutoplayPolicy.following(current,available,queue,history,
             prefs.getStringSet("likes",emptySet()).orEmpty(),OdifyListeningStore(app).signals())
         val overrides=OdifyAudioOverrides(app)

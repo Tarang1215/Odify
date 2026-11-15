@@ -172,7 +172,7 @@ fun OdifyNowPlaying(
     val lyricsProgress by animateFloatAsState(if(showLyrics)1f else 0f,
         tween(380,easing=FastOutSlowInEasing),label="lyrics-cover-morph")
     val coverVisible by remember(song.id) {derivedStateOf {lyricsProgress<.999f || !showLyrics}}
-    val lyricsVisible by remember(song.id) {derivedStateOf {availableLyrics.isNotBlank() && (showLyrics || lyricsProgress>.001f)}}
+    val lyricsVisible by remember(song.id) {derivedStateOf {showLyrics || lyricsProgress>.001f}}
     var lyricsMenu by remember(song.id) {mutableStateOf(false)}
     var lyricsEditor by remember(song.id) {mutableStateOf(false)}
     var albumSlide by remember(song.id) { mutableFloatStateOf(0f) }
@@ -245,7 +245,7 @@ fun OdifyNowPlaying(
                             tint = playerWhite)
                     }
                     if(showLyrics) {
-                        AlbumArt(song,Modifier.size(40.dp),RoundedCornerShape(8.dp))
+                        AlbumArt(song,Modifier.size(40.dp).clickable(onClickLabel="앨범커버 보기") {showLyrics=false},RoundedCornerShape(8.dp))
                         Spacer(Modifier.width(10.dp))
                         Column(Modifier.weight(1f)) {
                             Text(song.title,color=playerWhite,fontSize=13.sp,maxLines=1,overflow=TextOverflow.Ellipsis,fontWeight=FontWeight.SemiBold)
@@ -395,7 +395,7 @@ Box(
                         song,
                         Modifier.fillMaxSize().offset {
                             IntOffset(albumSlide.roundToInt(), 0)
-                        },
+                        }.clickable(onClickLabel="앨범 커버에서 가사 열기") {showLyrics=true},
                         radius = RoundedCornerShape(22.dp),
                         fallbackKey = song.id.hashCode()
                     )
@@ -492,7 +492,7 @@ Box(
                         .onGloballyPositioned {lyricsAnchor=it.positionOnScreen()+Offset(it.size.width/2f,it.size.height/2f)}
                         .odifyGlass(playerBackdrop,CircleShape,glow,transparencyOverride=.78f)
                         .semantics {contentDescription=if(showLyrics)"앨범커버 보기" else "가사 열기"}
-                        .combinedClickable(onClick={if(availableLyrics.isNotBlank())showLyrics=!showLyrics else lyricsMenu=true},onLongClick={lyricsMenu=true}),
+                        .combinedClickable(onClick={if(showLyrics || availableLyrics.isNotBlank())showLyrics=!showLyrics else lyricsMenu=true},onLongClick={lyricsMenu=true}),
                         contentAlignment=Alignment.Center) {
                         Icon(if(showLyrics)Icons.Default.Album else Icons.Default.Subtitles,null,tint=playerWhite,modifier=Modifier.size(21.dp))
                     }

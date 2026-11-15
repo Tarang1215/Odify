@@ -34,7 +34,7 @@ import kotlinx.coroutines.*
     }
     Column(Modifier.fillMaxWidth().padding(top=6.dp,bottom=20.dp)) {
         Text("인기 아티스트",fontSize=19.sp,fontWeight=FontWeight.SemiBold,color=OdifyPalette.text)
-        Text("Last.fm · 선택한 나라의 청취 인기",fontSize=10.sp,color=OdifyPalette.muted,modifier=Modifier.padding(top=4.dp,bottom=12.dp))
+        Spacer(Modifier.height(12.dp))
         val data=ranking
         if(data==null) {
             Text(message,fontSize=12.sp,color=OdifyPalette.muted)
@@ -44,13 +44,11 @@ import kotlinx.coroutines.*
                 items(data.artists,key={it.name}) {artist ->
                     Column(Modifier.width(92.dp).clickable {onArtist(artist.name)},horizontalAlignment=Alignment.CenterHorizontally) {
                         HomeArtistPortrait(artist.name,portrait,Modifier.size(78.dp))
-                        Text("${artist.rank}. ${artist.name}",fontSize=11.sp,fontWeight=FontWeight.Medium,maxLines=2,
+                        Text(artist.name,fontSize=12.sp,fontWeight=FontWeight.Medium,maxLines=2,
                             overflow=TextOverflow.Ellipsis,color=OdifyPalette.text,modifier=Modifier.padding(top=9.dp))
                     }
                 }
             }
-            val date=java.text.SimpleDateFormat("MM.dd HH:mm",java.util.Locale.KOREA).format(java.util.Date(data.fetchedAt))
-            Text("$date 조회"+(if(data.cached)" · 저장된 순위" else ""),fontSize=10.sp,color=OdifyPalette.muted,modifier=Modifier.padding(top=10.dp))
         }
     }
 }

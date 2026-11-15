@@ -137,8 +137,10 @@ fun OdifyLyricsPanel(song: OdifySong, positionMs: Long,
         }
         if (text.isBlank()) {
             Box(Modifier.fillMaxSize(),contentAlignment=Alignment.Center) {
-                Text("가사 없음\n가사 추가에서 LRC 파일·온라인 검색·직접 입력을 선택하세요.",
-                    color=Color(0xFFBCC4D2),lineHeight=21.sp,fontSize=12.sp)
+                Column(horizontalAlignment=Alignment.CenterHorizontally) {
+                    Text("가사 없음",color=Color(0xFFBCC4D2),fontSize=13.sp)
+                    TextButton(onClick={draft=text;editing=true}) {Text("가사 추가·수정",color=Color.White)}
+                }
             }
         } else if (parsed.isTimed) {
             LazyColumn(state=listState,modifier=Modifier.fillMaxSize(),

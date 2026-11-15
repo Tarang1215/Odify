@@ -36,6 +36,38 @@ class OdifyCompanyUiTest {
     private val context get()=test.targetContext
     private fun main(block:()->Unit)=test.runOnMainSync(block)
 
+    @Test fun dailyRecommendationsShowAndRouteBothOnlineAndOwnedTracks() {
+        val owned=OdifySong("local:recommendation","Owned recommendation","Artist A","","")
+        val remote=ExploreTrack("lastfm-fixture","Online recommendation","Artist B","",listOf("mellow"),1)
+        val local=ExploreTrack(owned.id,owned.title,owned.artist,"",emptyList(),2)
+        var selected=""
+        var options=""
+        ActivityScenario.launch(MainActivity::class.java).use {scenario ->
+            scenario.onActivity {activity ->activity.setContent {
+                MaterialTheme {
+                    OdifyPersonalHome(emptyList(),false,
+                        listOf(OdifyMix("daily","Your daily mix","",listOf(owned))),emptyList(),
+                        {},{},{},{}, {queue,index->selected=queue[index].id}, {}, {},
+                        recommendations=listOf(OdifyRecommendation(remote,null),OdifyRecommendation(local,owned)),
+                        onPlayRecommendation={selected=it.id},onTrackOptions={song,_->options=song.id})
+                }
+            } }
+            tap("Your daily mix")
+            waitFor(owned.title)
+            var row:AccessibilityNodeInfo?=waitFor(remote.title)
+            while(row!=null && !row.isLongClickable)row=row.parent
+            assertTrue(row?.performAction(AccessibilityNodeInfo.ACTION_LONG_CLICK)==true)
+            main {assertEquals("chart:"+remote.id,options)}
+            Thread.sleep(550)
+            tap("Your daily mix")
+            tap(remote.title)
+            main {assertEquals(remote.id,selected)}
+            tap("Your daily mix")
+            tap(owned.title)
+            main {assertEquals(owned.id,selected)}
+        }
+    }
+
     @Test fun lastFmSettingsSaveAValidKeyAndAllThreeCountriesLoad() {
         org.junit.Assume.assumeTrue(context.packageName.endsWith(".qa"))
         org.junit.Assume.assumeTrue(InstrumentationRegistry.getArguments().getString("liveLastFm")=="true")
@@ -752,7 +784,7 @@ class OdifyCompanyUiTest {
             swipeFooter(false);waitFor("음원 출처: Local")
             swipeFooter(true);waitFor("다음 곡: Track 1")
             performancePhase("footer")
-            tap("가사 열기");waitFor("앨범커버 보기");Thread.sleep(300);capture("lyrics");tap("앨범커버 보기")
+            tap("Collection");waitFor("앨범커버 보기");Thread.sleep(300);capture("lyrics");tap("앨범커버 보기")
             performancePhase("lyrics")
             tap("곡 옵션 열기");waitFor("음원 교체");waitForOpenSurface();capture("player-options")
             if(!benchmark) {

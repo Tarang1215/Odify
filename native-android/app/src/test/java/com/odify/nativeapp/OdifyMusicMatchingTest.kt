@@ -13,6 +13,22 @@ class OdifyMusicMatchingTest {
         assertEquals(listOf(unknown,recent),OdifyMusicMatching.recent(listOf(unknown,recent),emptyList(),emptyMap()))
     }
     private val messy=OdifyMusicIdentity("1","Messy","ROSÉ","F1 The Album","https://cover","1406242696","","",180000)
+    @Test fun normalizesFeaturedCreditsAndPrefersTheOriginalAlbumOverCompilations() {
+        val upload=YoutubeVideo("DtCphp8M5Dg","DJ Khaled - I'm the One ft. Justin Bieber, Chance the Rapper, Lil Wayne (Lyrics)","7clouds Rap","")
+        val original=messy.copy(id="1244229849",title="I'm the One (feat. Justin Bieber, Quavo, Chance the Rapper & Lil Wayne)",
+            album="Grateful",artist="DJ Khaled",artistId="157749142")
+        val compilation=original.copy(id="1409917803",album="NOW Party Anthems",compilation=true)
+        val differentArtist=original.copy(id="1485036623",title="I'm the One",artist="Descendents",artistId="2152")
+        assertEquals("DJ Khaled I'm the One",OdifyMusicMatching.query(upload))
+        assertEquals(original,OdifyMusicMatching.choose(upload,listOf(compilation,differentArtist,original)))
+        assertEquals(OdifyMusicMatching.Credits("I'm the One","DJ Khaled"),OdifyMusicMatching.credits(upload,original.title,original.artist))
+    }
+
+    @Test fun readsThePerformerAndTitleInAQuotedVideoBeforeTheStudioCredit() {
+        val upload=YoutubeVideo("xB5Ia_Nnlvg","ILLIT(아일릿) '체포하겠어 (You're Under Arrest)' (4K) | STUDIO CHOOM ORIGINAL",
+            "STUDIO CHOOM [스튜디오 춤]","")
+        assertEquals(OdifyMusicMatching.Credits("체포하겠어 (You're Under Arrest)","ILLIT"),OdifyMusicMatching.credits(upload))
+    }
     @Test fun lyricsUploadLinksToVerifiedRecordingAndKeepsProducerCredit() {
         val video=YoutubeVideo("lNNPWLC8sTo","임재현 - 사랑에 연습이 있었다면 (Prod. 2soo) // 가사","Lyrics uploader","")
         val verified=messy.copy(id="1684467058",title="If there was practice in love",artist="Jaehyun Lim",artistId="1352299660")
