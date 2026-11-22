@@ -62,6 +62,11 @@ class OdifyMasterDatabase(private val context: Context) {
         else runCatching { parseCsv(cache.readText(Charsets.UTF_8)) }.getOrDefault(emptyList())
     }
 
+    internal suspend fun verifiedDriveAudio(videoId:String):String? = loadCached().asSequence()
+        .filter {it.verified && OdifyArtworkFallback.extractVideoId(it.youtubeUrl)==videoId}
+        .map {it.driveId}.filter {it.matches(Regex("[A-Za-z0-9_-]{10,200}"))}
+        .distinct().take(2).toList().singleOrNull()
+
     suspend fun exportSnapshot(): ByteArray? = withContext(Dispatchers.IO) {
         cache.takeIf { it.isFile }?.readBytes()
     }

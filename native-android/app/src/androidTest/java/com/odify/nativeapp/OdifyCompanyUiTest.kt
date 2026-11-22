@@ -742,6 +742,51 @@ class OdifyCompanyUiTest {
         swipe(bounds.centerX().toFloat(),start,bounds.centerX().toFloat(),end)
     }
 
+    @Test fun artistListScrollsAndTimedLyricsReturnToCover() {
+        val song=OdifySong("fixture:artist-scroll","Cover fixture","Artist fixture","Album","",
+            lyrics="[00:00.00]Timed lyric fixture\n[01:00.00]Second lyric",durationMs=120000)
+        val showPlayer=mutableStateOf(false)
+        ActivityScenario.launch(MainActivity::class.java).use {scenario ->
+            scenario.onActivity {activity->activity.setContent {
+                MaterialTheme(colorScheme=darkColorScheme()) {
+                    Surface(Modifier.fillMaxSize()) {
+                        if(showPlayer.value) OdifyNowPlaying(song=song,glow=Color.Gray,previousSong=null,nextSong=null,
+                            playing=false,position=0,duration=120000,liked=false,shuffleEnabled=false,repeatOne=false,
+                            onDismiss={},onToggle={},onPrevious={},onNext={},onSeek={error("A short tap must return to cover")},
+                            onLike={},onShuffle={},onRepeat={},onShowQueue={},onAddToPlaylist={},onSaveDevice={},
+                            onAudioRequest={_,_,_->},onReplaceAudio={})
+                        else OdifyPersonalHome(emptyList(),false,emptyList(),emptyList(),{},{},{},{},{_,_->},{},{},
+                            catalogSongs=listOf(song),loadArtistTracks={artist->(1..60).map {index->
+                                ExploreTrack("artist-$index","Online fixture $index",artist,"",emptyList(),index)
+                            }})
+                    }
+                }
+            }}
+            tap("Artist fixture");waitFor("내 음악 1곡 · 온라인 60곡");waitForOpenSurface()
+            val header=Rect().also {waitFor("컬렉션 닫기").getBoundsInScreen(it)}
+            val metrics=context.resources.displayMetrics
+            val center=metrics.widthPixels/2f
+            val bottom=metrics.heightPixels*.84f
+            val top=header.bottom.toFloat()
+            swipe(center,bottom,center,top)
+            assertNull("Swiping the collapsed artist sheet should move its content",node("컬렉션 닫기"))
+            tap("전체 화면으로 펼치기")
+            waitFor("작은 창으로 접기")
+            repeat(6) {if(node("컬렉션 닫기")==null)swipe(center,top,center,bottom)}
+            waitFor("컬렉션 닫기")
+            tap("컬렉션 닫기")
+            main {showPlayer.value=true}
+            for(label in listOf("앨범 커버에서 가사 열기","Timed lyric fixture")) {
+                val bounds=Rect().also {waitFor(label).getBoundsInScreen(it)}
+                android.os.ParcelFileDescriptor.AutoCloseInputStream(test.uiAutomation.executeShellCommand(
+                    "input tap ${bounds.centerX()} ${bounds.centerY()}"
+                )).use {it.readBytes()}
+                Thread.sleep(450)
+            }
+            waitFor("앨범 커버에서 가사 열기")
+        }
+    }
+
     @Test fun playerSheetsQueueDragPlaylistAndCountryChangesNeverInvokePlayback() {
         val benchmark=InstrumentationRegistry.getArguments().getString("benchmark")=="true"
         val cover=File(context.cacheDir,"company-fixture-cover.png")

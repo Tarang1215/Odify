@@ -376,12 +376,20 @@ class OdifyYoutubePlaybackService:Service() {
             metadataScope.launch(Dispatchers.IO) {OdifyListeningStore(applicationContext).record(value.entryKey,id,beganAt)}
         }
         if(!collectionQueued && listened>=20_000 && state.duration>0) {
-            runCatching {
-                OdifyStreamingLibrary(this).remember(video,state.duration)
-                OdifyStreamingRequests(this).enqueue(video,state.duration)
-                OdifyPhoneDownloads.schedule(this)
-                collectionQueued=true
-            }.onFailure {android.util.Log.w("OdifyCollection","Could not save pending collection request",it)}
+            collectionQueued=true
+            metadataScope.launch(Dispatchers.IO) {
+                try {
+                    val app=applicationContext
+                    OdifyStreamingLibrary(app).remember(video,state.duration)
+                    val driveId=OdifyMasterDatabase(app).verifiedDriveAudio(video.videoId)
+                    if(driveId!=null && DriveCatalog(app).filename(driveId)!=null) {
+                        OdifyStreamingRequests(app).enqueue(video,state.duration,driveAudioId=driveId)
+                        OdifyPhoneDownloads.schedule(app,driveOnly=true)
+                        android.util.Log.i("OdifyCollection","20-second threshold reached; verified Drive source queued")
+                    } else android.util.Log.i("OdifyCollection","20-second threshold reached; no verified Drive source")
+                } catch(cancel:CancellationException) {throw cancel}
+                catch(error:Exception) {android.util.Log.w("OdifyCollection","Could not save pending collection request",error)}
+            }
         }
         val needsForeground=OdifyPlaybackContinuity.foreground(state) || state.ended &&
             (value.following.isNotEmpty() || autoplayJob?.isActive==true)

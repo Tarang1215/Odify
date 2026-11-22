@@ -2,8 +2,10 @@ package com.odify.nativeapp
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -34,11 +36,13 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /** An LRC-first lyrics area that replaces the square artwork on demand. */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun OdifyLyricsPanel(song: OdifySong, positionMs: Long,
                      onSeek: (Long) -> Unit, modifier: Modifier = Modifier,
                      editRequested:Boolean=false,visible:Boolean=true,
-                     onEditorClosed:()->Unit={},onLyricsChanged:(String)->Unit={},immersive:Boolean=false) {
+                     onEditorClosed:()->Unit={},onLyricsChanged:(String)->Unit={},immersive:Boolean=false,
+                     onReturnToCover:(()->Unit)?=null) {
     val context = LocalContext.current
     val repo = remember { OdifyLyricsRepository(context.applicationContext) }
     val scope = rememberCoroutineScope()
@@ -117,7 +121,8 @@ fun OdifyLyricsPanel(song: OdifySong, positionMs: Long,
                 .82f to Color.White,1f to Color.Transparent),blendMode=BlendMode.DstIn)
         } else modifier
     if(visible) Column(
-        viewport.padding(horizontal=if(immersive) 4.dp else 14.dp,vertical=if(immersive) 0.dp else 14.dp)
+        viewport.then(if(onReturnToCover!=null)Modifier.clickable(onClickLabel="앨범커버 보기",onClick=onReturnToCover) else Modifier)
+            .padding(horizontal=if(immersive) 4.dp else 14.dp,vertical=if(immersive) 0.dp else 14.dp)
     ) {
         if(!immersive) {
         Row(verticalAlignment=Alignment.CenterVertically) {
@@ -152,7 +157,9 @@ fun OdifyLyricsPanel(song: OdifySong, positionMs: Long,
                         fontWeight=if(index==active) FontWeight.Bold else FontWeight.Normal,
                         fontSize=if(immersive) {if(index==active) 20.sp else 17.sp} else {if(index==active) 16.sp else 13.sp},
                         lineHeight=if(immersive) 29.sp else 21.sp,textAlign=TextAlign.Center,modifier=Modifier.fillMaxWidth()
-                            .clickable { onSeek(line.milliseconds) })
+                            .then(if(onReturnToCover==null) Modifier.clickable {onSeek(line.milliseconds)}
+                                else Modifier.combinedClickable(onClickLabel="앨범커버 보기",onClick=onReturnToCover,
+                                    onLongClickLabel="이 가사 위치로 이동",onLongClick={onSeek(line.milliseconds)})))
                 }
             }
         } else {

@@ -395,7 +395,7 @@ Box(
                         song,
                         Modifier.fillMaxSize().offset {
                             IntOffset(albumSlide.roundToInt(), 0)
-                        }.clickable {showLyrics=true}
+                        }.clickable(enabled=!showLyrics,onClickLabel="가사 열기") {showLyrics=true}
                             .semantics {contentDescription="앨범 커버에서 가사 열기"},
                         radius = RoundedCornerShape(22.dp),
                         fallbackKey = song.id.hashCode()
@@ -428,7 +428,8 @@ Box(
                             alpha=lyricsProgress;translationY=with(densityForLyrics){14.dp.toPx()}*(1f-lyricsProgress)
                         }) {
                             OdifyLyricsPanel(song.copy(lyrics=availableLyrics),position,onSeek,Modifier.fillMaxSize(),immersive=true,
-                                editRequested=lyricsEditor,onEditorClosed={lyricsEditor=false},onLyricsChanged={availableLyrics=it})
+                                editRequested=lyricsEditor,onEditorClosed={lyricsEditor=false},onLyricsChanged={availableLyrics=it},
+                                onReturnToCover=if(showLyrics) ({showLyrics=false}) else null)
                         }
                     }
                 }

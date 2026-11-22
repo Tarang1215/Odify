@@ -126,12 +126,19 @@ internal class OdifyStreamingLibrary(private val context:Context, name:String="o
 internal class OdifyStreamingRequests(private val context:Context,fileName:String="youtube_collection_requests.json") {
     companion object {private val lock=Any()}
     private val file=File(context.filesDir,fileName)
-    fun enqueue(video:YoutubeVideo,duration:Long,reason:String="listened_20s",retry:Boolean=false)=synchronized(lock) {
+    fun enqueue(video:YoutubeVideo,duration:Long,reason:String="listened_20s",retry:Boolean=false,
+        driveAudioId:String?=null)=synchronized(lock) {
         require(Regex("[A-Za-z0-9_-]{11}").matches(video.videoId))
         val rows=read()
         val old=(0 until rows.length()).map {rows.getJSONObject(it)}.firstOrNull {it.optString("video_id")==video.videoId}
         if(old!=null) {
+            if(driveAudioId!=null && old.optString("status")=="SAVED_PHONE" &&
+                old.optString("local_path").takeIf {it.isNotBlank()}?.let {File(it).isFile}==true) return@synchronized
+            if(driveAudioId!=null && old.optString("drive_audio_id")==driveAudioId &&
+                old.optString("status") in setOf("QUEUED_PHONE","DOWNLOADING_PHONE")) return@synchronized
             if(duration>0) old.put("duration_ms",duration)
+            if(driveAudioId!=null) old.put("drive_audio_id",driveAudioId).put("reason",reason)
+                .put("status","QUEUED_PHONE").put("error","").put("progress",0)
             if(retry && old.optString("status") !in setOf("SAVED_PHONE","DOWNLOADING_PHONE","SKIPPED_AGE"))
                 old.put("status","QUEUED_PHONE").put("error","").put("progress",0)
             save(rows);return@synchronized
@@ -139,13 +146,14 @@ internal class OdifyStreamingRequests(private val context:Context,fileName:Strin
         rows.put(JSONObject().put("video_id",video.videoId).put("title",video.title).put("artist",video.channel)
             .put("video_url","https://www.youtube.com/watch?v=${video.videoId}").put("duration_ms",duration)
             .put("requested_at",java.time.Instant.now().toString()).put("status","QUEUED_PHONE")
-            .put("drive_upload",false).put("reason",reason).put("progress",0))
+            .put("drive_upload",false).put("reason",reason).put("progress",0).put("drive_audio_id",driveAudioId))
         save(rows)
     }
-    fun retryFailed()=synchronized(lock) {
+    fun retryFailed(matches:(JSONObject)->Boolean={true})=synchronized(lock) {
         val rows=read()
         for(i in 0 until rows.length()) {
             val row=rows.getJSONObject(i)
+            if(!matches(row))continue
             if(row.optString("status") in setOf("HELD_PHONE","HELD_SOURCE","HELD_SPACE"))
                 row.put("status","QUEUED_PHONE").put("error","").put("progress",0)
         }

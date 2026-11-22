@@ -52,6 +52,7 @@ private val artistCountries=linkedMapOf("kr" to "한국","jp" to "일본","us" t
             suggestions.value=recommend(country,ranking.value.map(OdifyMusicMatching::artistKey).toSet())
         }
     }
+    PrefetchArtistPortraits(ranking.value.take(12)+suggestions.value.take(12),active && country.isNotBlank(),portrait)
     Column(Modifier.fillMaxSize().padding(horizontal=24.dp)) {
         Row(Modifier.fillMaxWidth().padding(top=12.dp,bottom=12.dp),verticalAlignment=Alignment.CenterVertically) {
             IconButton(onClick=back) {Icon(Icons.AutoMirrored.Outlined.ArrowBack,"뒤로")}

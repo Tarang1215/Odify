@@ -17,9 +17,10 @@ import java.net.URL
 class OdifyArtworkFallback(private val context: Context) {
     private val prefs = context.getSharedPreferences("odify_thumbnail_retry", 0)
     private val folder = File(context.filesDir, "yt_art").apply { mkdirs() }
+    companion object {
     private val videoId = Regex("^[A-Za-z0-9_-]{11}$")
 
-    private fun extractVideoId(url: String): String? {
+    internal fun extractVideoId(url: String): String? {
         val uri = runCatching { android.net.Uri.parse(url) }.getOrNull() ?: return null
         val host = uri.host?.lowercase() ?: return null
         val candidate = when (host) {
@@ -31,6 +32,7 @@ class OdifyArtworkFallback(private val context: Context) {
             else -> null
         }
         return candidate?.takeIf { videoId.matches(it) }
+    }
     }
 
     suspend fun warm(

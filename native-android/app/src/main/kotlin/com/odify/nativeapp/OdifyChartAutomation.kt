@@ -66,7 +66,6 @@ class OdifyChartRefreshWorker(context:Context,parameters:WorkerParameters):Corou
         val today=java.time.LocalDate.now().toString()
         var used=if(prefs.getString("budget_day","")==today)prefs.getInt("lookups",0) else 0
         val rows=requests.read()
-        var scheduled=false
         if(OdifyYoutubeAuth.connected) for(i in 0 until rows.length()) {
             val row=rows.getJSONObject(i)
             if(used>=12 || isStopped)break
@@ -77,11 +76,10 @@ class OdifyChartRefreshWorker(context:Context,parameters:WorkerParameters):Corou
                     OdifyYoutubeQuickPlay.query(row.getString("artist"),row.getString("title")))) ?: continue
                 streaming.remember(video);streaming.associateChart(video.videoId,row.getString("chart_id"))
                 OdifyStreamingRequests(context).enqueue(video,0,"new_chart_entry")
-                requests.resolved(row.getString("chart_id"),video.videoId);scheduled=true
+                requests.resolved(row.getString("chart_id"),video.videoId)
             } catch(cancel:kotlinx.coroutines.CancellationException){throw cancel}
             catch(failure:Exception){prefs.edit().putString("error",failure.message ?: "음원 검색 연결 오류").apply();break}
         }
-        if(scheduled)OdifyPhoneDownloads.schedule(context)
         prefs.edit().putLong("last_refresh",System.currentTimeMillis()).putInt("refreshed",refreshed).apply()
         if(refreshed>0)Result.success() else Result.retry()
     }

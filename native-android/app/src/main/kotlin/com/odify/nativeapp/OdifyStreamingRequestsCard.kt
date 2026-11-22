@@ -16,7 +16,7 @@ import kotlinx.coroutines.withContext
     val context=LocalContext.current
     val repo=remember {OdifyStreamingRequests(context.applicationContext)}
     val scope=rememberCoroutineScope()
-    var message by remember {mutableStateOf("20초 이상 들은 YouTube 곡을 휴대폰에 자동 저장합니다. Drive 업로드는 보류 중입니다.")}
+    var message by remember {mutableStateOf("YouTube에서 20초 이상 들으면, 보관함에 연결된 검증된 Drive 원본을 이 기기에 저장합니다.")}
     var recent by remember {mutableStateOf<List<org.json.JSONObject>>(emptyList())}
     val status by produceState("",repo) {
         while(true) {

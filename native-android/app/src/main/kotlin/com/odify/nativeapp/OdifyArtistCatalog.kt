@@ -2,8 +2,13 @@ package com.odify.nativeapp
 
 import android.content.Context
 import android.util.AtomicFile
+import android.util.LruCache
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
@@ -17,23 +22,64 @@ import java.net.URLEncoder
 internal class OdifyArtistCatalog(private val context:Context) {
     private val directory=File(context.cacheDir,"artist_catalog").apply {mkdirs()}
     private val portraitRequests=Semaphore(4)
+    private val portraitScope=CoroutineScope(SupervisorJob()+Dispatchers.IO)
+    private val pendingPortraits=mutableMapOf<String,Deferred<String?>>()
+    private val portraitRetries=LruCache<String,Long>(256)
+    private val portraitMaxAge=7*24*60*60_000L
+
     suspend fun portrait(artist:String,knownTitles:List<String> = emptyList()):String? = withContext(Dispatchers.IO) {
-            val key="artist-"+OdifyMusicMatching.cacheKey(OdifyMusicMatching.artistKey(artist))
-            val file=File(directory,"$key-photo.txt")
-            val saved=runCatching {file.readText().takeIf {File(it).isFile}}.getOrNull()
-            if(saved!=null && System.currentTimeMillis()-file.lastModified()<7*24*60*60_000L)return@withContext saved
-            portraitRequests.withPermit {
-                try {
-                    val address=portraitPage(artist) ?: if(knownTitles.isNotEmpty())
-                        tracks(artist,knownTitles).firstNotNullOfOrNull {it.music}?.artistUrl else null
-                    if(address.isNullOrBlank())return@withPermit saved
-                    val url=URL(address)
-                    if(url.protocol!="https" || url.host!="music.apple.com" || !url.path.contains("/artist/"))return@withPermit saved
-                    val photo=OdifyArtistPortrait.address(OdifyCatalogHttp.get(address,4_000_000)) ?: return@withPermit saved
-                    OdifyCatalogArt.download(context,photo,"$key-${System.currentTimeMillis()/(7*24*60*60_000L)}",240)
-                        ?.also {file.writeText(it)} ?: saved
-                } catch(cancel:CancellationException){throw cancel} catch(_:Exception){saved}
+        val name=OdifyMusicMatching.artistKey(artist)
+        if(name.isBlank())return@withContext null
+        val key="artist-"+OdifyMusicMatching.cacheKey(name)
+        val file=File(directory,"$key-photo.txt")
+        val pointer=AtomicFile(file)
+        fun savedPhoto()=runCatching {pointer.readFully().decodeToString().takeIf {File(it).isFile}}.getOrNull()
+        val saved=savedPhoto()
+        val now=System.currentTimeMillis()
+        if(saved!=null && now-file.lastModified()<portraitMaxAge)return@withContext saved
+        val request=synchronized(pendingPortraits) {
+            pendingPortraits[key] ?: if(now<(portraitRetries.get(key) ?: 0L)) null else
+                portraitScope.async {
+                    portraitRequests.withPermit {
+                        val cached=savedPhoto()
+                        if(cached!=null && System.currentTimeMillis()-file.lastModified()<portraitMaxAge) return@withPermit cached
+                        val updated=try {fetchPortrait(artist,knownTitles,key,pointer)}
+                        catch(cancel:CancellationException) {throw cancel}
+                        catch(_:Exception) {null}
+                        if(updated==null)portraitRetries.put(key,System.currentTimeMillis()+5*60_000L)
+                        updated ?: cached
+                    }
+                }.also { job ->
+                    pendingPortraits[key]=job
+                    job.invokeOnCompletion {synchronized(pendingPortraits) {pendingPortraits.remove(key,job)}}
+                }
+        }
+        saved ?: request?.await()
+    }
+
+    private suspend fun fetchPortrait(artist:String,knownTitles:List<String>,key:String,pointer:AtomicFile):String? {
+        val address=portraitPage(artist) ?: knownTitles.takeIf {it.isNotEmpty()}
+            ?.let {tracks(artist,it).firstNotNullOfOrNull {track->track.music}?.artistUrl} ?: return null
+        val url=URL(address)
+        if(url.protocol!="https" || url.host!="music.apple.com" || !url.path.contains("/artist/"))return null
+        val photo=OdifyArtistPortrait.address(OdifyCatalogHttp.get(address,4_000_000)) ?: return null
+        val path=OdifyCatalogArt.download(context,photo,"$key-${System.currentTimeMillis()/portraitMaxAge}",240) ?: return null
+        val previous=runCatching {pointer.readFully().decodeToString()}.getOrNull()
+        val output=pointer.startWrite()
+        try {
+            output.write(path.encodeToByteArray())
+            pointer.finishWrite(output)
+        } catch(error:Exception) {
+            pointer.failWrite(output)
+            throw error
+        }
+        if(previous!=null && previous!=path) {
+            val old=File(previous)
+            if(old.parentFile==File(context.cacheDir,"official_artwork") && old.name.startsWith("$key-")) {
+                old.delete()
             }
+        }
+        return path
     }
     private fun portraitPage(artist:String):String? {
         val country=when {

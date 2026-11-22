@@ -18,10 +18,10 @@ import java.io.File
 
 internal object OdifyPhoneDownloads {
     val version=MutableStateFlow(0L)
-    fun schedule(context:Context,update:Boolean=false) {
+    fun schedule(context:Context,update:Boolean=false,driveOnly:Boolean=false) {
         WorkManager.getInstance(context).enqueueUniqueWork("odify-phone-audio",ExistingWorkPolicy.APPEND_OR_REPLACE,
             OneTimeWorkRequestBuilder<OdifyPhoneDownloadWorker>()
-                .setInputData(workDataOf("update" to update))
+                .setInputData(workDataOf("update" to update,"driveOnly" to driveOnly))
                 .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()).build())
     }
 }
@@ -45,26 +45,38 @@ class OdifyPhoneDownloadWorker(context:Context,params:WorkerParameters):Coroutin
     override suspend fun doWork():Result=withContext(Dispatchers.IO) {
         val requests=OdifyStreamingRequests(applicationContext)
         try {
+            val force=inputData.getBoolean("update",false)
+            if(force)requests.retryFailed {it.optString("drive_audio_id").isNotBlank()}
             val entries=requests.read()
             val pending=setOf("QUEUED_PC","QUEUED_PHONE","DOWNLOADING_PHONE")
-            if(!inputData.getBoolean("update",false) && (0 until entries.length()).none {entries.getJSONObject(it).optString("status") in pending})
+            val rows=(0 until entries.length()).map {entries.getJSONObject(it)}
+            val driveRows=rows.filter {it.optString("drive_audio_id").isNotBlank() && it.optString("status") in pending}
+            fun legacyManual(row:org.json.JSONObject)=row.optString("drive_audio_id").isBlank() &&
+                row.optString("reason") in setOf("manual","audio_replacement")
+            val legacyPending=!inputData.getBoolean("driveOnly",false) &&
+                rows.any {legacyManual(it) && it.optString("status") in pending}
+            if(driveRows.isEmpty() && !force && !legacyPending)
                 return@withContext Result.success()
             setForeground(getForegroundInfo())
+            for(row in driveRows) {
+                if(isStopped)return@withContext Result.success()
+                saveDriveAudio(requests,row)
+            }
+            if(!force && !legacyPending)return@withContext Result.success()
             YoutubeDL.init(applicationContext);FFmpeg.init(applicationContext)
             val engine=applicationContext.getSharedPreferences("odify_phone_engine_v1",0)
-            val force=inputData.getBoolean("update",false)
             if(engine.getBoolean("source_hold",false) && !force)return@withContext Result.success()
             if(force || System.currentTimeMillis()-engine.getLong("checked",0)>24L*60*60*1000) {
                 runCatching {YoutubeDL.updateYoutubeDL(applicationContext)}.onSuccess {
                     engine.edit().putLong("checked",System.currentTimeMillis()).apply()
-                    if(force) {engine.edit().putBoolean("source_hold",false).apply();requests.retryFailed()}
+                    if(force) {engine.edit().putBoolean("source_hold",false).apply();requests.retryFailed(::legacyManual)}
                 }.onFailure {android.util.Log.w("OdifyPhoneSave","Engine update failed",it)}
             }
             val current=requests.read()
             for(i in 0 until current.length()) {
                 if(isStopped) return@withContext Result.success()
                 val row=current.getJSONObject(i)
-                if(row.optString("status") !in pending) continue
+                if(!legacyManual(row) || row.optString("status") !in pending) continue
                 val id=row.getString("video_id")
                 require(Regex("[A-Za-z0-9_-]{11}").matches(id))
                 val month=java.time.Instant.parse(row.getString("requested_at")).atZone(java.time.ZoneId.systemDefault())
@@ -125,5 +137,46 @@ class OdifyPhoneDownloadWorker(context:Context,params:WorkerParameters):Coroutin
             Result.success()
         } catch(cancel:kotlinx.coroutines.CancellationException) {throw cancel}
         catch(failure:Exception) {android.util.Log.w("OdifyPhoneSave","Download engine unavailable",failure);Result.failure()}
+    }
+
+    private suspend fun saveDriveAudio(requests:OdifyStreamingRequests,row:org.json.JSONObject) {
+        val videoId=row.getString("video_id")
+        val driveId=row.getString("drive_audio_id")
+        try {
+            require(videoId.matches(Regex("[A-Za-z0-9_-]{11}")))
+            require(driveId==OdifyMasterDatabase(applicationContext).verifiedDriveAudio(videoId))
+            val name=DriveCatalog(applicationContext).filename(driveId) ?: error("Drive 원본이 보관함에 없습니다.")
+            val extension=name.substringAfterLast('.',"").lowercase(java.util.Locale.ROOT)
+            require(extension in setOf("mp3","m4a","flac","wav","ogg","opus","aac"))
+            val root=applicationContext.getExternalFilesDir(android.os.Environment.DIRECTORY_MUSIC) ?: applicationContext.filesDir
+            val folder=File(root,"OdifyOffline").apply {mkdirs()}
+            val sourceKey=OdifyMusicMatching.cacheKey(driveId).take(12)
+            val file=File(folder,"YT_${videoId}_$sourceKey.$extension")
+            if(!file.isFile && folder.usableSpace<256L*1024*1024) {
+                requests.update(videoId){it.put("status","HELD_SPACE").put("error","휴대폰 여유 공간 256MB 필요")}
+                return
+            }
+            requests.update(videoId){it.put("status","DOWNLOADING_PHONE").put("error","")}
+            val partial=File(folder,"${file.name}.partial")
+            val duration=try {
+                val audio=if(file.isFile)file else partial.also {OdifyDeviceExport(applicationContext).copyDriveTo(driveId,it)}
+                val media=MediaMetadataRetriever()
+                val length=try {
+                    media.setDataSource(audio.absolutePath)
+                    media.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
+                } finally {media.release()}
+                require(length>0) {"Drive 원본의 재생 시간을 확인하지 못했습니다."}
+                if(audio==partial)check(partial.renameTo(file)) {"오프라인 파일을 확정하지 못했습니다."}
+                length
+            } finally {partial.delete()}
+            requests.update(videoId){it.put("status","SAVED_PHONE").put("local_path",file.absolutePath)
+                .put("duration_ms",duration).put("progress",100).put("error","").put("drive_upload",false)}
+            OdifyPhoneDownloads.version.value++
+            android.util.Log.i("OdifyCollection","Verified Drive audio saved on device")
+        } catch(cancel:kotlinx.coroutines.CancellationException) {throw cancel}
+        catch(failure:Exception) {
+            requests.update(videoId){it.put("status","HELD_PHONE").put("error",failure.message.orEmpty())}
+            android.util.Log.w("OdifyCollection","Verified Drive audio could not be saved",failure)
+        }
     }
 }

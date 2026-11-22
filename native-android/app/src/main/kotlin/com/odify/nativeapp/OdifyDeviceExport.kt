@@ -3,10 +3,13 @@ package com.odify.nativeapp
 import android.content.Context
 import android.net.Uri
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileInputStream
 import java.io.InputStream
+import java.io.OutputStream
 import java.net.HttpURLConnection
 import java.net.URL
 
@@ -48,21 +51,8 @@ class OdifyDeviceExport(private val context: Context) {
         try {
         if (song.id.startsWith("gdrive:")) {
             val fileId = song.id.removePrefix("gdrive:")
-            require(fileId.matches(Regex("[A-Za-z0-9_-]{10,200}"))) {
-                "Google Drive 음원 식별자가 잘못되었습니다."
-            }
-            connection = URL(
-                "https://www.googleapis.com/drive/v3/files/$fileId?alt=media"
-            ).openConnection() as HttpURLConnection
-            connection.connectTimeout = 15_000
-            connection.readTimeout = 45_000
-            connection.instanceFollowRedirects = false
-            connection.setRequestProperty("Authorization",
-                "Bearer ${DriveAuth.tokenBlocking(context)}")
-            check(connection.responseCode == 200) {
-                "Drive 음악 다운로드 실패 (HTTP ${connection.responseCode})"
-            }
-            stream = connection.inputStream
+            connection = driveConnection(fileId)
+            stream = driveStream(connection)
         } else if (source?.scheme == "content") {
             stream = context.contentResolver.openInputStream(source)
                 ?: error("음악 파일을 열지 못했습니다.")
@@ -71,24 +61,11 @@ class OdifyDeviceExport(private val context: Context) {
             require(file.isFile && file.canRead()) { "로컬 음원 파일을 찾을 수 없습니다." }
             stream = FileInputStream(file)
         }
-            var written = 0L
             stream.use { input ->
                 val output = context.contentResolver.openOutputStream(destination, "w")
                     ?: error("선택한 저장 위치를 열 수 없습니다.")
-                output.use { out ->
-                    val chunk = ByteArray(128 * 1024)
-                    while (true) {
-                        val amount = input.read(chunk)
-                        if (amount == -1) break
-                        written += amount
-                        check(written <= maxBytes) { "256MB를 초과하는 파일은 저장할 수 없습니다." }
-                        out.write(chunk, 0, amount)
-                    }
-                    out.flush()
-                }
+                output.use { copy(input,it) }
             }
-            require(written > 0) { "원본 음원에 데이터가 없습니다." }
-            written
         } catch (failure: Exception) {
             // The document was just created by ACTION_CREATE_DOCUMENT.
             // Don't leave a half-written file that appears to be a playable track.
@@ -97,5 +74,44 @@ class OdifyDeviceExport(private val context: Context) {
         } finally {
             connection?.disconnect()
         }
+    }
+
+    internal suspend fun copyDriveTo(fileId:String, destination:File) = withContext(Dispatchers.IO) {
+        val connection=driveConnection(fileId)
+        try {
+            driveStream(connection).use {input->destination.outputStream().use {copy(input,it)}}
+        } finally {connection.disconnect()}
+    }
+
+    private fun driveConnection(fileId:String):HttpURLConnection {
+        require(fileId.matches(Regex("[A-Za-z0-9_-]{10,200}"))) {"Google Drive 음원 식별자가 잘못되었습니다."}
+        val token=DriveAuth.tokenBlocking(context)
+        return (URL("https://www.googleapis.com/drive/v3/files/$fileId?alt=media").openConnection() as HttpURLConnection).apply {
+            connectTimeout=15_000
+            readTimeout=45_000
+            instanceFollowRedirects=false
+            setRequestProperty("Authorization","Bearer $token")
+        }
+    }
+
+    private fun driveStream(connection:HttpURLConnection):InputStream {
+        check(connection.responseCode==200) {"Drive 음악 다운로드 실패 (HTTP ${connection.responseCode})"}
+        return connection.inputStream
+    }
+
+    private suspend fun copy(input:InputStream,output:OutputStream):Long {
+        var written=0L
+        val chunk=ByteArray(128*1024)
+        while(true) {
+            currentCoroutineContext().ensureActive()
+            val amount=input.read(chunk)
+            if(amount<0)break
+            written+=amount
+            check(written<=maxBytes) {"256MB를 초과하는 파일은 저장할 수 없습니다."}
+            output.write(chunk,0,amount)
+        }
+        output.flush()
+        require(written>0) {"원본 음원에 데이터가 없습니다."}
+        return written
     }
 }

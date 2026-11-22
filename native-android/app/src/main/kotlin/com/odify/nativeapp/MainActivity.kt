@@ -700,8 +700,6 @@ private fun NativeOdify() {
                 val store=OdifyStreamingLibrary(context);store.remember(selected)
                 if(chartId.isNotBlank() && !recommendation) {
                     store.associateChart(selected.videoId,chartId)
-                    OdifyStreamingRequests(context).enqueue(selected,0,"chart_tap")
-                    OdifyPhoneDownloads.schedule(context)
                 }
                 if(!recommendation)try {
                     musicCatalog.recording(artist,title,chartId)?.let {musicCatalog.enrich(store,selected,it)}

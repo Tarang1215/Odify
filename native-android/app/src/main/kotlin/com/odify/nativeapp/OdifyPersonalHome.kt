@@ -20,6 +20,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.*
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 
 private val homeInk = OdifyPalette.text
@@ -91,6 +92,7 @@ fun OdifyPersonalHome(
         }
     }
     val artists=remember(recent,catalogSongs) {OdifyDiscovery.artistGroups((recent+catalogSongs).distinctBy {it.id}).take(8)}
+    PrefetchArtistPortraits(artists.map {it.first}+trendingPreview,isActive,loadArtistPortrait)
     // This finite feed has seven bounded sections. Keep their small rows alive
     // across vertical reversals instead of subcomposing the artist/carousel
     // trees again whenever they cross the viewport edge.
@@ -189,7 +191,8 @@ fun OdifyPersonalHome(
                 items(artists,key={it.second.first().id}) {(artist,tracks) ->
                     Column(Modifier.width(90.dp).clickable {selectedMix=OdifyMix("artist:$artist",artist,"내 음악과 이 아티스트의 더 많은 곡 · 저장하지 않은 곡은 YouTube로",tracks)},
                         horizontalAlignment=Alignment.CenterHorizontally) {
-                        HomeArtistPortrait(artist,loadArtistPortrait,Modifier.size(82.dp))
+                        HomeArtistPortrait(artist,loadArtistPortrait,Modifier.size(82.dp),
+                            tracks.firstOrNull {!it.artworkPath.isNullOrBlank()})
                         Text(artist,fontSize=11.sp,color=homeInk,maxLines=1,overflow=TextOverflow.Ellipsis,modifier=Modifier.padding(top=8.dp))
                     }
                 }
@@ -273,8 +276,10 @@ fun OdifyPersonalHome(
             mix.key.startsWith("mood:") -> OdifyDiscovery.newTracks(artistTracks+moodOnline[mix.key.removePrefix("mood:")].orEmpty(),catalogSongs,ownedIndex)
             else -> emptyList()
         }}
+        val artistMix=mix.key.startsWith("artist:")
+        val header:@Composable ()->Unit = {
         Row(Modifier.fillMaxWidth().padding(bottom=14.dp),verticalAlignment=Alignment.CenterVertically) {
-            if(mix.key.startsWith("artist:"))HomeArtistPortrait(mix.name,loadArtistPortrait,Modifier.size(62.dp))
+            if(artistMix)HomeArtistPortrait(mix.name,loadArtistPortrait,Modifier.size(62.dp),mix.coverSong())
             else AlbumArt(mix.coverSong(),Modifier.size(62.dp),RoundedCornerShape(16.dp))
             Column(Modifier.weight(1f).padding(start=13.dp,end=4.dp)) {
                 Text(mix.name,fontSize=19.sp,lineHeight=24.sp,fontWeight=FontWeight.SemiBold,maxLines=2,overflow=TextOverflow.Ellipsis)
@@ -283,6 +288,8 @@ fun OdifyPersonalHome(
             }
             IconButton(onClick={selectedMix=null},modifier=Modifier.size(42.dp)) {Icon(Icons.Outlined.Close,"컬렉션 닫기",Modifier.size(21.dp))}
         }
+        }
+        if(!artistMix)header()
         if(!hybrid)Text(mix.reason,fontSize=12.sp,lineHeight=18.sp,color=homeGrey,maxLines=2,overflow=TextOverflow.Ellipsis,
             modifier=Modifier.fillMaxWidth().padding(start=4.dp,bottom=16.dp))
         Row(Modifier.fillMaxWidth().padding(bottom=16.dp),horizontalArrangement=Arrangement.spacedBy(10.dp)) {
@@ -301,10 +308,12 @@ fun OdifyPersonalHome(
         }
         // Reserve the artist list's space while fetching so results never shove
         // an already-open sheet abruptly up the screen.
-        val bodySize=if((mix.key.startsWith("artist:") || mix.key.startsWith("mood:")) && !LocalOdifySheetExpanded.current)Modifier.height(380.dp)
+        val bodySize=if(artistMix)Modifier
+            else if(mix.key.startsWith("mood:") && !LocalOdifySheetExpanded.current)Modifier.height(380.dp)
             else Modifier.heightIn(max=if(LocalOdifySheetExpanded.current) androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp else 380.dp)
-        LazyColumn(Modifier.fillMaxWidth().weight(1f,fill=LocalOdifySheetExpanded.current)
+        LazyColumn(Modifier.fillMaxWidth().weight(1f,fill=artistMix || LocalOdifySheetExpanded.current)
             .then(bodySize),contentPadding=PaddingValues(bottom=10.dp)) {
+            if(artistMix)item(key="artist-header") {Column {header()}}
             if(artistLoading) item {Row(Modifier.fillMaxWidth().padding(12.dp),verticalAlignment=Alignment.CenterVertically) {
                 CircularProgressIndicator(Modifier.size(17.dp),strokeWidth=2.dp,color=homeGrey);Spacer(Modifier.width(10.dp));Text(if(mix.key.startsWith("artist:"))"아티스트의 곡을 찾고 있어요" else "이 기분에 어울리는 장르를 찾고 있어요",fontSize=12.sp,color=homeGrey)
             }}
@@ -323,7 +332,7 @@ fun OdifyPersonalHome(
             if(hybrid)items(recommendations,key={it.track.id}) {recommendation->
                 HomeRecommendationTrack(recommendation,onTrackOptions?.let {options->{selectedMix=null
                     options(recommendation.owned ?: recommendation.track.optionSong(),false)}}) {playRecommendation(recommendation);selectedMix=null}
-            } else itemsIndexed(mix.songs,key={_,song->song.id}) {index,song ->
+            } else itemsIndexed(mix.songs,key={_,song->"owned:${song.id}"}) {index,song ->
                 HomeOwnedTrack(song,onTrackOptions?.let {options->{selectedMix=null;options(song,false)}}) {onPlay(mix.songs,index);selectedMix=null}
             }
             if(online.isNotEmpty()) item {Text(if(online.all {it.id.startsWith("youtube:")})"YouTube에서 찾은 음악" else "더 많은 곡 · YouTube로 듣기",fontSize=12.sp,color=homeGrey,modifier=Modifier.padding(top=18.dp,bottom=8.dp))}
@@ -370,7 +379,23 @@ fun OdifyPersonalHome(
     }
 }
 
-@Composable internal fun HomeArtistPortrait(name:String,loader:suspend (String)->String?,modifier:Modifier) {
+@Composable internal fun PrefetchArtistPortraits(names:List<String>,active:Boolean,loader:suspend (String)->String?) {
+    val latestLoader by rememberUpdatedState(loader)
+    LaunchedEffect(names,active) {
+        if(!active)return@LaunchedEffect
+        names.distinctBy(OdifyMusicMatching::artistKey).chunked(4).forEach {batch ->
+            coroutineScope {
+                batch.forEach {artist -> launch {
+                    try {latestLoader(artist)}
+                    catch(cancel:CancellationException) {throw cancel}
+                    catch(_:Exception) {}
+                }}
+            }
+        }
+    }
+}
+
+@Composable internal fun HomeArtistPortrait(name:String,loader:suspend (String)->String?,modifier:Modifier,fallback:OdifySong?=null) {
     val latestLoader by rememberUpdatedState(loader)
     val portrait=remember(name) {mutableStateOf<String?>(null)}
     LaunchedEffect(name) {
@@ -378,8 +403,10 @@ fun OdifyPersonalHome(
     }
     val shape=androidx.compose.foundation.shape.CircleShape
     Box(modifier.clip(shape).background(OdifyPalette.surface),contentAlignment=Alignment.Center) {
-        portrait.value?.let {AlbumArt(OdifySong("portrait:$name",name,"","","",artworkPath=it),Modifier.fillMaxSize(),shape)}
-            ?: Icon(Icons.Outlined.Person,null,tint=homeGrey,modifier=Modifier.fillMaxSize(.48f))
+        val song=portrait.value?.let {OdifySong("portrait:$name",name,"","","",artworkPath=it)}
+            ?: fallback?.takeIf {!it.artworkPath.isNullOrBlank()}
+        if(song!=null)AlbumArt(song,Modifier.fillMaxSize(),shape)
+        else Icon(Icons.Outlined.Person,null,tint=homeGrey,modifier=Modifier.fillMaxSize(.48f))
     }
 }
 
