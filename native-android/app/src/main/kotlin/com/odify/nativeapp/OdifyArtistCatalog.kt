@@ -144,11 +144,29 @@ internal class OdifyArtistCatalog(private val context:Context) {
             else -> listOf("us","jp","kr")
         }
         var lastFailure:Exception?=null
+        val term=URLEncoder.encode(name,"UTF-8")
+        fun address(country:String):String {
+            val language=if(country=="jp")"&lang=ja_jp" else ""
+            return "https://itunes.apple.com/search?term=$term&country=$country&media=music&entity=song&attribute=artistTerm&limit=200$language"
+        }
         for(country in countries) {
             try {
-                val raw=request("https://itunes.apple.com/search?term=${URLEncoder.encode(name,"UTF-8")}&country=$country&media=music&entity=song&attribute=artistTerm&limit=200")
-                val result=decode(raw,name,knownTitles)
+                var raw=request(address(country))
+                var result=decode(raw,name,knownTitles)
                 if(result.isNotEmpty()) {
+                    val locale=if(country=="us" && result.any {!OdifyTitlePolicy.isNativeWriting(it.title)})
+                        result.mapNotNull {it.music?.let(OdifyTitlePolicy::storefront)}.distinct().singleOrNull() else null
+                    if(locale!=null)try {
+                        val regional=request(address(locale))
+                        val native=decode(regional,name,knownTitles)
+                        val artistIds=result.mapNotNull {it.music?.artistId?.takeIf(String::isNotBlank)}.toSet()
+                        if(native.any {OdifyTitlePolicy.isNativeWriting(it.title)} &&
+                            native.mapNotNull {it.music?.artistId}.toSet().let {it.isNotEmpty() && it.all(artistIds::contains)}) {
+                            raw=regional
+                            result=native
+                        }
+                    } catch(cancel:CancellationException){throw cancel}
+                    catch(_:Exception) {}
                     val atomic=AtomicFile(file);val stream=atomic.startWrite()
                     try {stream.write(raw.toByteArray());atomic.finishWrite(stream)}
                     catch(error:Exception) {atomic.failWrite(stream);throw error}

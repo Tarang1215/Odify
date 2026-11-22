@@ -62,7 +62,7 @@ class OdifyExploreRepository(private val context:Context) {
             val genres=item.optJSONArray("genres")
             val labels=(0 until (genres?.length() ?: 0)).mapNotNull {j -> genres?.optJSONObject(j)}
                 .filter {it.optString("genreId")!="34"}.map {it.optString("name")}.filter(String::isNotBlank)
-            ExploreTrack(id,title,artist,item.optString("artworkUrl100"),labels,i+1)
+            ExploreTrack(id,OdifyTitlePolicy.title(title,artist),artist,item.optString("artworkUrl100"),labels,i+1)
         }.distinctBy {it.id}
         require(tracks.size==100) {"차트 100곡을 확인하지 못했습니다."}
         return ExploreChart(country,feed.optString("updated"),fetchedAt,tracks,cached)

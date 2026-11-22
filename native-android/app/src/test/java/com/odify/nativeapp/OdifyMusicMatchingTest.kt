@@ -13,6 +13,37 @@ class OdifyMusicMatchingTest {
         assertEquals(listOf(unknown,recent),OdifyMusicMatching.recent(listOf(unknown,recent),emptyList(),emptyMap()))
     }
     private val messy=OdifyMusicIdentity("1","Messy","ROSÉ","F1 The Album","https://cover","1406242696","","",180000)
+    @Test fun localizedYoasobiDriveOriginalCanBeSavedWithoutAMasterVideoLink() {
+        val video=YoutubeVideo("bVNoTmK46tc","Lagu Jepang | YOASOBI - Ano Yume wo Nazotte (lirik dan terjemahan indonesia)","Simaing Marzuky","")
+        val recording=messy.copy(id="1542182544",title="Ano yume wo nazotte",artist="YOASOBI",album="THE BOOK",
+            artistId="1490256993",durationMs=240747,genre="J-Pop")
+        val drive=OdifySong("gdrive:fixture","あの夢をなぞって","","","")
+        fun resolve(items:List<OdifySong>,upload:YoutubeVideo=video,duration:Long=242000)=
+            OdifyPhoneDownloadPolicy.recordingSource(upload,duration,recording,items)
+        assertEquals(recording,OdifyMusicMatching.choose(video,listOf(recording)))
+        assertEquals(drive,resolve(listOf(drive)))
+        assertNull(resolve(listOf(drive,drive.copy(id="gdrive:duplicate"))))
+        assertNull(resolve(listOf(drive.copy(artist="Someone else"))))
+        assertNull(resolve(listOf(drive),video.copy(title=video.title+" (Cover)")))
+        assertNull(resolve(listOf(drive),duration=180000))
+        val original=OdifyMusicMatching.credits(video,recording.title,recording.artist)
+        assertEquals(OdifyMusicMatching.Credits("あの夢をなぞって","YOASOBI"),original)
+        assertTrue(OdifySearchMatching.matches(drive.copy(artist="YOASOBI"),"Ano yume wo nazotte",OdifySearchScope.Music))
+    }
+
+    @Test fun originalTitlesRequireTheSameCatalogRecordingAndNativeWriting() {
+        val romanized=messy.copy(title="Sarange yeonseubi isseotdamyeon",genre="K-Pop")
+        val korean=romanized.copy(title="사랑에 연습이 있었다면")
+        assertEquals("kr",OdifyTitlePolicy.storefront(romanized))
+        assertEquals(korean.title,OdifyTitlePolicy.storefrontTitle(romanized,korean,"kr"))
+        assertNull(OdifyTitlePolicy.storefrontTitle(romanized,korean.copy(id="2"),"kr"))
+        assertNull(OdifyTitlePolicy.storefrontTitle(romanized,korean.copy(artistId="different"),"kr"))
+        assertNull(OdifyTitlePolicy.storefrontTitle(romanized,romanized,"kr"))
+        val japanese=romanized.copy(genre="J-Pop")
+        assertEquals("jp",OdifyTitlePolicy.storefront(japanese))
+        assertEquals("ハルカ",OdifyTitlePolicy.storefrontTitle(japanese,japanese.copy(title="ハルカ"),"jp"))
+        assertEquals("한글 제목",OdifyTitlePolicy.title("Romanized (한글 제목)","Artist"))
+    }
     @Test fun normalizesFeaturedCreditsAndPrefersTheOriginalAlbumOverCompilations() {
         val upload=YoutubeVideo("DtCphp8M5Dg","DJ Khaled - I'm the One ft. Justin Bieber, Chance the Rapper, Lil Wayne (Lyrics)","7clouds Rap","")
         val original=messy.copy(id="1244229849",title="I'm the One (feat. Justin Bieber, Quavo, Chance the Rapper & Lil Wayne)",

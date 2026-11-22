@@ -76,6 +76,7 @@ internal fun OdifyYoutubeSearch(query:String,connected:Boolean,onConnect:()->Uni
     includeYoutube:Boolean=true, search: (suspend (String) -> List<YoutubeVideo>)? = null) {
     val context=LocalContext.current.applicationContext
     val streaming=remember(context) {OdifyStreamingLibrary(context)}
+    val metadataVersion by OdifyStreamingLibrary.version.collectAsState()
     var retry by remember {mutableIntStateOf(0)}
     val showYoutube = includeYoutube && query.trim().length >= 2
     val (videos, loading, error) = rememberVideoSearch(query, showYoutube && connected, 500, retry, search)
@@ -107,7 +108,10 @@ internal fun OdifyYoutubeSearch(query:String,connected:Boolean,onConnect:()->Uni
                 }
             }
             items(videos,key={OdifySearchRowKeys.youtube(it.videoId)}) {video ->
-                val credits=remember(video) {OdifyMusicMatching.credits(video)}
+                val credits=remember(video,metadataVersion) {
+                    val recording=streaming.identity(video.videoId)
+                    OdifyMusicMatching.credits(video,recording?.displayTitle.orEmpty(),recording?.artist.orEmpty())
+                }
                 val options={
                     streaming.remember(video)
                     streaming.find("youtube:"+video.videoId)?.let(onAddSong)

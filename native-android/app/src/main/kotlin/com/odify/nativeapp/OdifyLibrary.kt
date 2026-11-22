@@ -33,7 +33,8 @@ data class OdifySong(
     val chartId: String = "",
     val chartAliases: List<String> = emptyList(),
     val playbackVideoId: String = "",
-    val catalogArtistId: String = ""
+    val catalogArtistId: String = "",
+    val catalogTitle: String = ""
 ) {
     val isYoutubeStream:Boolean get()=(id.startsWith("youtube:") || playbackVideoId.isNotBlank()) &&
         (filePath.endsWith("youtube_queue_marker.wav") || filePath.isBlank() &&

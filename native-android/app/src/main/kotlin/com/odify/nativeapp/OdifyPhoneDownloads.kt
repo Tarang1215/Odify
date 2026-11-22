@@ -29,6 +29,31 @@ internal object OdifyPhoneDownloads {
 internal object OdifyPhoneDownloadPolicy {
     fun ageRestricted(message:String)=listOf("age-restricted","age restricted","confirm your age","sign in to confirm your age").any {message.contains(it,true)}
     fun gated(message:String)=listOf("not a bot","captcha","sign in","429","403").any {message.contains(it,true)}
+
+    fun matchesDuration(actual:Long,expected:Long)=actual>0 && expected>0 && kotlin.math.abs(actual-expected)<=5_000L
+
+    fun recordingSource(video:YoutubeVideo,videoDuration:Long,recording:OdifyMusicIdentity,songs:List<OdifySong>):OdifySong? {
+        if(OdifyMusicMatching.choose(video,listOf(recording))==null || !OdifyMusicMatching.standardRelease(recording) ||
+            !matchesDuration(videoDuration,recording.durationMs))return null
+        val artist=OdifyMusicMatching.artistKey(recording.artist)
+        val titles=setOf(recording.title,recording.displayTitle).map {OdifyMusicMatching.titleKey(it,recording.artist)}.toSet()
+        val matches=songs.filter {it.id.startsWith("gdrive:") &&
+            OdifyMusicMatching.titleKey(it.title,recording.artist) in titles}
+        fun unique(candidates:List<OdifySong>)=candidates.distinctBy {it.contentMd5.ifBlank {it.id}}.singleOrNull()
+        val tagged=matches.filter {OdifyMusicMatching.artistKey(it.artist)==artist}
+        return if(tagged.isNotEmpty())unique(tagged) else unique(matches)?.takeIf {it.artist.isBlank()}
+    }
+
+    suspend fun driveSource(context:Context,video:YoutubeVideo,duration:Long):DriveSource? {
+        val catalog=DriveCatalog(context)
+        val verified=OdifyMasterDatabase(context).verifiedDriveAudio(video.videoId)
+        if(verified!=null)return verified.takeIf {catalog.filename(it)!=null}?.let {DriveSource(it)}
+        val recording=OdifyStreamingLibrary(context).identity(video.videoId) ?: return null
+        return recordingSource(video,duration,recording,catalog.tracks())
+            ?.let {DriveSource(it.id.removePrefix("gdrive:"),recording.durationMs)}
+    }
+
+    data class DriveSource(val id:String,val recordingDuration:Long=0L)
 }
 
 /** Serialized durable downloads, independent of Activity/PC. No Drive uploads occur here. */
@@ -144,7 +169,9 @@ class OdifyPhoneDownloadWorker(context:Context,params:WorkerParameters):Coroutin
         val driveId=row.getString("drive_audio_id")
         try {
             require(videoId.matches(Regex("[A-Za-z0-9_-]{11}")))
-            require(driveId==OdifyMasterDatabase(applicationContext).verifiedDriveAudio(videoId))
+            val video=YoutubeVideo(videoId,row.optString("title"),row.optString("artist"),"")
+            val source=OdifyPhoneDownloadPolicy.driveSource(applicationContext,video,row.optLong("duration_ms"))
+            require(source!=null && source.id==driveId) {"검증된 Drive 원본을 확인하지 못했습니다."}
             val name=DriveCatalog(applicationContext).filename(driveId) ?: error("Drive 원본이 보관함에 없습니다.")
             val extension=name.substringAfterLast('.',"").lowercase(java.util.Locale.ROOT)
             require(extension in setOf("mp3","m4a","flac","wav","ogg","opus","aac"))
@@ -166,6 +193,9 @@ class OdifyPhoneDownloadWorker(context:Context,params:WorkerParameters):Coroutin
                     media.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
                 } finally {media.release()}
                 require(length>0) {"Drive 원본의 재생 시간을 확인하지 못했습니다."}
+                require(source.recordingDuration==0L || OdifyPhoneDownloadPolicy.matchesDuration(length,source.recordingDuration)) {
+                    "Drive 원본 재생 시간이 확인된 음원과 다릅니다."
+                }
                 if(audio==partial)check(partial.renameTo(file)) {"오프라인 파일을 확정하지 못했습니다."}
                 length
             } finally {partial.delete()}

@@ -381,9 +381,9 @@ class OdifyYoutubePlaybackService:Service() {
                 try {
                     val app=applicationContext
                     OdifyStreamingLibrary(app).remember(video,state.duration)
-                    val driveId=OdifyMasterDatabase(app).verifiedDriveAudio(video.videoId)
-                    if(driveId!=null && DriveCatalog(app).filename(driveId)!=null) {
-                        OdifyStreamingRequests(app).enqueue(video,state.duration,driveAudioId=driveId)
+                    val source=OdifyPhoneDownloadPolicy.driveSource(app,video,state.duration)
+                    if(source!=null) {
+                        OdifyStreamingRequests(app).enqueue(video,state.duration,driveAudioId=source.id)
                         OdifyPhoneDownloads.schedule(app,driveOnly=true)
                         android.util.Log.i("OdifyCollection","20-second threshold reached; verified Drive source queued")
                     } else android.util.Log.i("OdifyCollection","20-second threshold reached; no verified Drive source")

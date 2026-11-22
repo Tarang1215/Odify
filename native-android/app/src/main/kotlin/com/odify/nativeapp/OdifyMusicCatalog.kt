@@ -19,8 +19,10 @@ import java.util.Locale
 /** Recording identity is independent of its chosen YouTube transport. */
 data class OdifyMusicIdentity(val id:String,val title:String,val artist:String,val album:String,
     val artwork:String,val artistId:String,val artistUrl:String,val trackUrl:String,
-    val durationMs:Long=0,val genre:String="",val albumUrl:String="",val compilation:Boolean=false) {
-    fun track(rank:Int=0)=ExploreTrack(id,title,artist,artwork,listOf(genre).filter(String::isNotBlank),rank,music=this)
+    val durationMs:Long=0,val genre:String="",val albumUrl:String="",val compilation:Boolean=false,
+    val nativeTitleChecked:Boolean=false,val nativeTitle:String="") {
+    val displayTitle:String get()=nativeTitle.ifBlank {OdifyTitlePolicy.title(title,artist)}
+    fun track(rank:Int=0)=ExploreTrack(id,displayTitle,artist,artwork,listOf(genre).filter(String::isNotBlank),rank,music=this)
 }
 
 internal object OdifyMusicMatching {
@@ -31,7 +33,7 @@ internal object OdifyMusicMatching {
     fun cacheKey(value:String)=java.security.MessageDigest.getInstance("SHA-256").digest(value.toByteArray()).joinToString("") {"%02x".format(it)}
     fun norm(value:String)=Normalizer.normalize(value,Normalizer.Form.NFKD).replace(marks,"")
         .lowercase(Locale.ROOT).replace(nonWord,"")
-    private val badge=Regex("(?i)^(?:(?:official|music video|video|audio|lyrics?|visuali[sz]er|mv|m/v|hd|4k|color coded|가사|발음|한글\\s*자막|해석|歌詞|[\\s/_-]))+$")
+    private val badge=Regex("(?i)^(?:(?:official|music video|video|audio|lyrics?|lirik(?: dan terjemahan(?: indonesia)?)?|visuali[sz]er|mv|m/v|hd|4k|color coded|가사|발음|한글\\s*자막|해석|歌詞|[\\s/_-]))+$")
     private val brackets=Regex("[\\[（(【]([^\\]）)】]*)[\\]）)】]")
     private val split=Regex("\\s+[-–—]\\s+")
     private val suffix=Regex("(?i)\\s*(?:-\\s*Topic|\\s+Official|VEVO)$")
@@ -45,6 +47,8 @@ internal object OdifyMusicMatching {
     private val green=norm("GReeeeN")
     private val kiseki=setOf(norm("キセキ"),norm("키세키"),"kiseki")
     private val illit=norm("ILLIT")
+    private val yoasobi=norm("YOASOBI")
+    private val nazotte=norm("あの夢をなぞって")
     private val arrest=norm("You're Under Arrest")
     private val arrestKo=norm("체포하겠어")
     private val artists=mapOf(
@@ -85,6 +89,7 @@ internal object OdifyMusicMatching {
         return when (artistKey(artist)) {
             lim -> if(key=="iftherewaspracticeinlove")love else key
             illit -> if(key in setOf(arrest,arrestKo,arrestKo+arrest,arrest+arrestKo))arrest else key
+            yoasobi -> if(key=="anoyumewonazotte")nazotte else key
             green -> if(norm(text.substringBefore('(')) in kiseki &&
                 (text.indexOf('(')<0 || text.substringAfter('(').substringBeforeLast(')').split(',').all {
                     norm(it) in kiseki
@@ -98,7 +103,7 @@ internal object OdifyMusicMatching {
         val separator=split.find(text)
         if(separator!=null) {
             val prefix=text.substring(0,separator.range.first).trim()
-            val artist=artistName(prefix.substringAfterLast(": "))
+            val artist=artistName(prefix.substringAfterLast(": ").substringAfterLast('|').substringAfterLast('｜'))
             if(artist.length in 2..60) return text.substring(separator.range.last+1).trim() to artist
         }
         quotedTitle.matchEntire(text)?.let {quoted->
@@ -120,7 +125,7 @@ internal object OdifyMusicMatching {
                 "사랑에 연습이 있었다면"
             artistKey(name)==illit && titleKey(verifiedTitle.ifBlank {title},name)==arrest ->
                 "체포하겠어"
-            else -> songTitle(verifiedTitle.ifBlank {title})
+            else -> OdifyTitlePolicy.title(songTitle(verifiedTitle.ifBlank {title}),name)
         }
         val production=(producer.find(verifiedTitle) ?: producer.find(video.title))?.groupValues?.get(1)?.trim()
         return Credits(preferred,if(name.isNotBlank() && !production.isNullOrBlank())"$name (Prod. $production)" else name)
@@ -241,12 +246,37 @@ internal class OdifyMusicCatalog(context:Context) {
     }
     suspend fun cover(identity:OdifyMusicIdentity):String?=OdifyCatalogArt.download(app,identity.artwork,
         "album-${identity.id}-"+OdifyMusicMatching.cacheKey(identity.artwork).take(12),600)
+    private fun lookup(id:String,country:String):OdifyMusicIdentity? {
+        if(!id.matches(Regex("[0-9]+")))return null
+        val file=File(directory,"native-title-$country-$id.json")
+        val raw=if(file.isFile && System.currentTimeMillis()-file.lastModified()<7*24*60*60_000L)file.readText() else {
+            val language=if(country=="jp")"&lang=ja_jp" else ""
+            OdifyCatalogHttp.get("https://itunes.apple.com/lookup?id=$id&country=$country&entity=song$language")
+                .also {file.writeText(it)}
+        }
+        return OdifyCatalogHttp.songs(raw).firstOrNull {it.id==id}
+    }
+    private suspend fun originalTitle(recording:OdifyMusicIdentity):OdifyMusicIdentity = withContext(Dispatchers.IO) {
+        if(recording.nativeTitleChecked)return@withContext recording
+        val title=OdifyTitlePolicy.title(recording.title,recording.artist)
+        if(OdifyTitlePolicy.isNativeWriting(title))return@withContext recording.copy(nativeTitle=title,nativeTitleChecked=true)
+        val identity=if(recording.genre.isBlank()) {
+            lookup(recording.id,"us")?.takeIf {it.artistId==recording.artistId}
+                ?.let {recording.copy(genre=it.genre,compilation=it.compilation)} ?: recording
+        } else recording
+        val country=OdifyTitlePolicy.storefront(identity)
+        val localized=country?.let {lookup(identity.id,it)}?.let {OdifyTitlePolicy.storefrontTitle(identity,it,country)}
+        identity.copy(nativeTitle=localized.orEmpty(),nativeTitleChecked=true)
+    }
     suspend fun enrich(store:OdifyStreamingLibrary,video:YoutubeVideo,identity:OdifyMusicIdentity?=null):Boolean {
         if(OdifyMusicMatching.usesVideoArtwork(video))return false
         val music=identity ?: store.identity(video.videoId) ?: video(video) ?: return false
-        // Publish the verified text immediately, without substituting a video thumbnail.
         store.presentation(video.videoId,music,null)
-        cover(music)?.let {store.presentation(video.videoId,music,it)}
+        val localized=try {originalTitle(music)}
+        catch(cancel:CancellationException) {throw cancel}
+        catch(_:Exception) {music}
+        if(localized!=music)store.presentation(video.videoId,localized,null)
+        cover(localized)?.let {store.presentation(video.videoId,localized,it)}
         return true
     }
 }

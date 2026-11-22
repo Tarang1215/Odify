@@ -8,8 +8,9 @@ object OdifySearchMatching {
         val term = query.trim()
         if (term.isEmpty()) return true
         return when (scope) {
-            OdifySearchScope.Music -> listOf(song.title, song.artist, song.album, song.genre)
-                .any { it.contains(term, ignoreCase = true) } || OdifyDiscovery.sameArtist(song.artist,term)
+            OdifySearchScope.Music -> listOf(song.title, song.catalogTitle, song.artist, song.album, song.genre)
+                .any { it.contains(term, ignoreCase = true) } || OdifyDiscovery.sameArtist(song.artist,term) ||
+                OdifyMusicMatching.titleKey(term,song.artist).let {it.isNotBlank() && it==OdifyMusicMatching.titleKey(song.title,song.artist)}
             OdifySearchScope.Lyrics -> song.lyrics.contains(term, ignoreCase = true)
         }
     }

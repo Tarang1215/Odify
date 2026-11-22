@@ -668,24 +668,59 @@ private fun NativeOdify() {
         }
         Toast.makeText(context,"다음 재생에 추가했어요.",Toast.LENGTH_SHORT).show()
     }
+    fun playFrom(originalItems: List<OdifySong>, index: Int) {
+        externalLookupJob?.cancel()
+        val resolved=originalItems.map(audioOverrides::resolve)
+        val saved=if(resolved.any {it.isYoutubeStream && it.id.startsWith("youtube:")})
+            OdifyStreamingLibrary(context).downloads().associateBy {it.id} else emptyMap()
+        val items=resolved.map {if(it.isYoutubeStream) saved[it.id] ?: it else it}
+        val player=controller
+        if(player==null) {
+            Toast.makeText(context,"플레이어를 연결 중입니다.",Toast.LENGTH_SHORT).show()
+            return
+        }
+        if(index !in items.indices)return
+        requestPlaybackNotifications()
+        if(items[index].isYoutubeStream) {
+            player.pause();player.clearMediaItems();expanded=true
+            OdifyYoutubeRuntime.play(context,OdifyStreamingLibrary(context).video(items[index]),items.drop(index+1),presentation=items[index],previous=items.take(index))
+            return
+        }
+        if(OdifyYoutubeRuntime.session.value.video!=null)OdifyYoutubeRuntime.stop(context)
+        player.setMediaItems(items.queuedMediaItems(context),index,0L)
+        player.prepare()
+        player.play()
+    }
+
     fun playYoutubeVideo(queue: List<YoutubeVideo>, index: Int) {
         if(index !in queue.indices) return
-        requestPlaybackNotifications()
         val streaming=OdifyStreamingLibrary(context.applicationContext)
         streaming.rememberAll(queue)
+        val selected=streaming.find("youtube:${queue[index].videoId}")
+        val previous=queue.take(index).mapNotNull {streaming.find("youtube:"+it.videoId)}
+        val following=queue.drop(index+1).mapNotNull {streaming.find("youtube:"+it.videoId)}
+        if(selected!=null && !selected.isYoutubeStream) {
+            expanded=true
+            playFrom(previous+selected+following,previous.size)
+            return
+        }
+        requestPlaybackNotifications()
         controller?.pause()
         expanded=true
         val drive=songs.filter {it.id.startsWith("gdrive:")}.distinctBy {it.id}
         val likes=context.getSharedPreferences("odify_native_ui",0).getStringSet("likes",emptySet()).orEmpty()
         val suggested=OdifyRecommendations.mixes(drive,likes,OdifyListeningStore(context.applicationContext).signals())
             .firstOrNull()?.songs?.take(20).orEmpty().ifEmpty {drive.take(20)}
-        val following=queue.drop(index+1).mapNotNull {streaming.find("youtube:"+it.videoId)}.ifEmpty {suggested}
         controller?.clearMediaItems()
-        OdifyYoutubeRuntime.play(context,queue[index],following,
-            presentation=streaming.find("youtube:${queue[index].videoId}"),
-            previous=queue.take(index).mapNotNull {streaming.find("youtube:${it.videoId}")})
+        OdifyYoutubeRuntime.play(context,queue[index],following.ifEmpty {suggested},presentation=selected,previous=previous)
     }
     fun playExternalTrack(artist: String, title: String,chartId:String="") {
+        val saved=OdifyChartMatching.resolve(ExploreTrack(chartId,title,artist,"",emptyList(),0),downloadedSongs)
+        if(saved!=null) {
+            expanded=true
+            playFrom(listOf(saved),0)
+            return
+        }
         Toast.makeText(context,"재생할 음원을 찾고 있어요…",Toast.LENGTH_SHORT).show()
         externalLookupJob?.cancel()
         externalLookupJob = scope.launch {
@@ -701,35 +736,14 @@ private fun NativeOdify() {
                 if(chartId.isNotBlank() && !recommendation) {
                     store.associateChart(selected.videoId,chartId)
                 }
-                if(!recommendation)try {
-                    musicCatalog.recording(artist,title,chartId)?.let {musicCatalog.enrich(store,selected,it)}
+                if(!recommendation && store.identity(selected.videoId)==null)try {
+                    musicCatalog.recording(artist,title,chartId)?.let {store.presentation(selected.videoId,it,null)}
                 } catch(cancel:kotlinx.coroutines.CancellationException){throw cancel} catch(_:Exception){}
                 playYoutubeVideo(listOf(selected),0);return@launch
             }
             Toast.makeText(context,if(youtubeConnected) "재생할 영상을 찾지 못했어요. 검색에서 다른 영상을 선택해 주세요." else "설정에서 YouTube 계정을 연결해 주세요.",Toast.LENGTH_LONG).show()
 
         }
-    }
-
-    fun playFrom(originalItems: List<OdifySong>, index: Int) {
-        externalLookupJob?.cancel()
-        val items=originalItems.map(audioOverrides::resolve)
-        val player = controller
-        if (player == null) {
-            Toast.makeText(context, "플레이어를 연결 중입니다.", Toast.LENGTH_SHORT).show()
-            return
-        }
-        if (items.isEmpty() || index !in items.indices) return
-        requestPlaybackNotifications()
-        if(items[index].isYoutubeStream) {
-            player.pause();player.clearMediaItems();expanded=true
-            OdifyYoutubeRuntime.play(context,OdifyStreamingLibrary(context).video(items[index]),items.drop(index+1),presentation=items[index],previous=items.take(index))
-            return
-        }
-        if(OdifyYoutubeRuntime.session.value.video!=null) OdifyYoutubeRuntime.stop(context)
-        player.setMediaItems(items.queuedMediaItems(context), index, 0L)
-        player.prepare()
-        player.play()
     }
 
     fun toggle() {

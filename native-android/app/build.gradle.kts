@@ -18,8 +18,8 @@ android {
         applicationId = "com.odify.music.nativepreview.v11"
         minSdk = 26
         targetSdk = 35
-        versionCode = 85
-        versionName = "1.0.0-preview12.73"
+        versionCode = 86
+        versionName = "1.0.0-preview12.74"
         ndk {abiFilters += listOf("arm64-v8a","x86_64")}
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
