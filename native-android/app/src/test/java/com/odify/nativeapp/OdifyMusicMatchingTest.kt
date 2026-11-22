@@ -13,6 +13,25 @@ class OdifyMusicMatchingTest {
         assertEquals(listOf(unknown,recent),OdifyMusicMatching.recent(listOf(unknown,recent),emptyList(),emptyMap()))
     }
     private val messy=OdifyMusicIdentity("1","Messy","ROSÉ","F1 The Album","https://cover","1406242696","","",180000)
+    @Test fun heavenResolvesToJenniesOfficialEpForAudioAndLyricUploads() {
+        val official=YoutubeVideo("dkMPft1y21Y","JENNIE - HEAVEN (Official Audio)","JennieRubyJaneVEVO","")
+        val lyrics=YoutubeVideo("ENH3P5HF_og","제니의 지독한 정병연애썰 : JENNIE - HEAVEN [가사/해석/lyrics]","때잉","")
+        val album=messy.copy(id="6804046964",artist="JENNIE",title="HEAVEN",album="Fallen Angel - EP",artistId="913944",durationMs=186721)
+        val different=album.copy(artist="Jennie Vee",artistId="1099439451")
+        val single=album.copy(id="single",album="HEAVEN - Single")
+        val live=album.copy(id="live",album="Fallen Angel (Live)")
+        for(video in listOf(official,lyrics)) {
+            assertEquals(album,OdifyMusicMatching.choose(video,listOf(different,live,single,album)))
+            assertNull(OdifyMusicMatching.choose(video,listOf(different,live)))
+            assertNull(OdifyMusicMatching.choose(video,listOf(album,album.copy(artistId="other"))))
+        }
+        val cover=lyrics.copy(title="JENNIE - HEAVEN (Cover)")
+        assertTrue(OdifyMusicMatching.usesVideoArtwork(cover))
+        assertNull(OdifyMusicMatching.choose(cover,listOf(album)))
+        assertFalse(OdifyMusicMatching.isVideoVersion("Artist - Live Forever (Official Audio)"))
+        assertFalse(OdifyMusicMatching.isVideoVersion("Artist - Cover Me"))
+        assertNull(OdifyMusicMatching.recording("JENNIE","HEAVEN",listOf(album,album.copy(durationMs=220000))))
+    }
     @Test fun localizedYoasobiDriveOriginalCanBeSavedWithoutAMasterVideoLink() {
         val video=YoutubeVideo("bVNoTmK46tc","Lagu Jepang | YOASOBI - Ano Yume wo Nazotte (lirik dan terjemahan indonesia)","Simaing Marzuky","")
         val recording=messy.copy(id="1542182544",title="Ano yume wo nazotte",artist="YOASOBI",album="THE BOOK",

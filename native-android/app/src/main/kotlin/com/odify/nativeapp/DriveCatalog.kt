@@ -108,12 +108,12 @@ class DriveCatalog(private val context: Context) {
             }
         }
 
-    /** Verified master video thumbnail is a display fallback, not original art. */
     fun setFallbackArtwork(fileId: String, picturePath: String) {
         if (!File(picturePath).isFile) return
+        val oldThumbnail=File(context.filesDir,"yt_art/$fileId.jpg").absolutePath
         db.writableDatabase.execSQL(
-            "UPDATE tracks SET cover=? WHERE id=? AND cover=''",
-            arrayOf(picturePath, fileId)
+            "UPDATE tracks SET cover=? WHERE id=? AND (cover='' OR cover=?)",
+            arrayOf(picturePath, fileId, oldThumbnail)
         )
     }
 

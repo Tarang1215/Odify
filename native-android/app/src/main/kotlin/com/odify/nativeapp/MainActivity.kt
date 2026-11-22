@@ -156,23 +156,12 @@ private fun NativeOdify() {
     val youtubeVideo=youtubeSession.video
     val youtubeState=youtubeSession.playback
     fun webCommand(js:String) {OdifyYoutubeRuntime.command(js,context)}
-    val youtubeCover by produceState<String?>(null,youtubeVideo?.videoId) {
-        value=null
-        youtubeVideo?.let {video ->
-            value=youtubeArtwork(context.applicationContext,video.videoId)
-            val store=OdifyStreamingLibrary(context.applicationContext)
-            if(store.identity(video.videoId)==null)OdifyYoutubeRuntime.session.update {current ->
-                if(current.video?.videoId==video.videoId && current.presentation?.id=="youtube:${video.videoId}")
-                    current.copy(presentation=current.presentation.copy(artworkPath=value)) else current
-            }
-        }
-    }
     val youtubeSong=youtubeVideo?.let {youtubeSession.presentation?.let {presentation ->
         val original=songs.firstOrNull {it.id==presentation.id} ?: presentation
         odifyReplacementPresentation(original,presentation,presentation.playbackVideoId).copy(
             durationMs=youtubeState.duration.takeIf {duration -> duration>0} ?: presentation.durationMs)}
         ?: OdifySong("youtube:${it.videoId}",it.title,it.channel,"YouTube","",
-            artworkPath=youtubeCover,durationMs=youtubeState.duration)}
+            durationMs=youtubeState.duration)}
     val youtubeQueueIds=remember(youtubeSong?.id,youtubeSession.following) {
         listOfNotNull(youtubeSong?.id)+youtubeSession.following.map {it.id}
     }

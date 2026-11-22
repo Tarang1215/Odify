@@ -7,6 +7,22 @@ import java.io.File
 
 class OdifyLibraryContinuityTest {
     private val context get()=InstrumentationRegistry.getInstrumentation().targetContext
+    @Test fun cachedVideoThumbnailIsOnlyUsedForAnExplicitVersion() {
+        val name="test_artwork_policy_"+java.util.UUID.randomUUID()
+        val store=OdifyStreamingLibrary(context,name)
+        val video=YoutubeVideo("artPolicy11","JENNIE - HEAVEN [Lyrics]","Lyrics channel","")
+        val thumbnail=File(context.cacheDir,"youtube_search_${video.videoId}.jpg")
+        try {
+            thumbnail.writeText("thumbnail fixture")
+            store.remember(video)
+            assertNull(store.find("youtube:${video.videoId}")?.artworkPath)
+            store.remember(video.copy(title="JENNIE - HEAVEN (Acoustic Cover)"))
+            assertEquals(thumbnail.absolutePath,store.find("youtube:${video.videoId}")?.artworkPath)
+        } finally {
+            thumbnail.delete()
+            context.deleteSharedPreferences(name)
+        }
+    }
     @Test fun repeatedBulkMetadataDoesNotInvalidateTheLibraryAgain() {
         val name="test_bulk_"+java.util.UUID.randomUUID()
         try {

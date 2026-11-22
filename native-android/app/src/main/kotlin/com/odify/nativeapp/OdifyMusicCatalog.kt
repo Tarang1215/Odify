@@ -8,6 +8,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.json.JSONObject
 import java.io.File
 import java.net.HttpURLConnection
@@ -130,12 +132,16 @@ internal object OdifyMusicMatching {
         val production=(producer.find(verifiedTitle) ?: producer.find(video.title))?.groupValues?.get(1)?.trim()
         return Credits(preferred,if(name.isNotBlank() && !production.isNullOrBlank())"$name (Prod. $production)" else name)
     }
-    private val alternative=Regex("(?i)\\b(cover|karaoke|remix|sped|slowed|live|concert|instrumental)\\b|커버|라이브|콘서트|歌ってみた")
+    private val alternative=Regex("(?i)\\b(cover|karaoke|remix|sped|slowed|live|concert|instrumental|acoustic)\\b|커버|라이브|콘서트|歌ってみた")
+    private val alternateSuffix=Regex("(?i)\\s+(?:cover|karaoke|remix|sped up|slowed|live|instrumental|acoustic)(?:\\s+(?:ver\\.?|version))?$")
+    private val alternatePhrase=Regex("(?i)\\blive (?:at|from|in)\\b|\\bcover by\\b|커버|라이브|콘서트|歌ってみた")
     private val alternateRelease=Regex("(?i)\\((?:remix(?:es)?|instrumental|deluxe|live|sped up|slowed)[^)]*\\)")
     fun standardRelease(song:OdifyMusicIdentity)=!song.compilation && !alternateRelease.containsMatchIn(song.album)
     fun acceptsRelease(song:OdifyMusicIdentity)=artistKey(song.artist)!=illit ||
         titleKey(song.title,song.artist)!=arrest || standardRelease(song)
-    fun usesVideoArtwork(video:YoutubeVideo)=alternative.containsMatchIn(video.title)
+    fun usesVideoArtwork(video:YoutubeVideo)=isVideoVersion(video.title)
+    fun isVideoVersion(title:String)=alternatePhrase.containsMatchIn(title) || alternateSuffix.containsMatchIn(title.trim()) ||
+        brackets.findAll(title).any {alternative.containsMatchIn(it.groupValues[1])}
     fun recent(videos:List<YoutubeVideo>,history:List<String>,signals:Map<String,ListeningSignal>):List<YoutubeVideo> =
         videos.sortedWith(compareBy<YoutubeVideo> {history.indexOf("youtube:${it.videoId}").takeIf {index->index>=0} ?: 1000}
             .thenByDescending {signals["youtube:${it.videoId}"]?.lastPlayed ?: 0L})
@@ -158,7 +164,22 @@ internal object OdifyMusicMatching {
             name.length>=2 && songArtist.isNotEmpty() && acceptsRelease(song) &&
                 if(expectedArtist.isNotEmpty()) expectedArtist==songArtist && uploadTitle==name
                 else uploadTitle==songArtist+name || channel==songArtist && uploadTitle==name
-        }.sortedByDescending(::standardRelease).distinctBy {it.artistId.ifBlank {artistKey(it.artist)} to titleKey(it.title,it.artist)}.singleOrNull()
+        }.let(::originalRelease)
+    }
+    fun recording(artist:String,title:String,candidates:List<OdifyMusicIdentity>):OdifyMusicIdentity? {
+        val artistKey=artistKey(artist)
+        val titleKey=titleKey(title,artist)
+        if(artistKey.isBlank() || titleKey.isBlank())return null
+        return originalRelease(candidates.filter {
+            artistKey(it.artist)==artistKey && titleKey(it.title,it.artist)==titleKey && acceptsRelease(it)
+        })
+    }
+    private fun originalRelease(candidates:List<OdifyMusicIdentity>):OdifyMusicIdentity? {
+        val artist=candidates.groupBy {it.artistId.ifBlank {artistKey(it.artist)}}.values.singleOrNull() ?: return null
+        val studio=artist.filter(::standardRelease).ifEmpty {return null}
+        val durations=studio.map {it.durationMs}.filter {it>0}
+        if(durations.isNotEmpty() && durations.max()-durations.min()>5_000L)return null
+        return studio.firstOrNull {!it.album.endsWith(" - Single",true)} ?: studio.firstOrNull()
     }
     fun artistAlias(name:String,videos:List<YoutubeVideo>):String? {
         val pattern=Regex(Regex.escape(name)+"\\s*\\(([A-Za-z][A-Za-z0-9 ._-]{1,35})\\)",RegexOption.IGNORE_CASE)
@@ -202,9 +223,47 @@ internal object OdifyCatalogHttp {
 }
 
 internal class OdifyMusicCatalog(context:Context) {
-    private companion object {val recommendationLookups=Semaphore(3)}
+    private companion object {
+        val coverLookups=Semaphore(3)
+        val cacheLocks=Array(32) {Mutex()}
+        val imageLocks=Array(16) {Mutex()}
+    }
     private val app=context.applicationContext
     private val directory=File(app.cacheDir,"recording_metadata").apply {mkdirs()}
+    private suspend fun catalog(key:String,address:String):String {
+        val file=File(directory,"$key.json")
+        return cacheLocks[(key.hashCode() and Int.MAX_VALUE)%cacheLocks.size].withLock {
+            val cached=runCatching {file.readText()}.getOrNull()
+            if(cached!=null && System.currentTimeMillis()-file.lastModified()<24*60*60_000L)return@withLock cached
+            val raw=try {OdifyCatalogHttp.get(address)} catch(failure:Exception) {
+                if(failure is CancellationException)throw failure
+                return@withLock cached ?: throw failure
+            }
+            val atomic=android.util.AtomicFile(file)
+            val output=atomic.startWrite()
+            try {output.write(raw.encodeToByteArray());atomic.finishWrite(output)}
+            catch(failure:Exception) {atomic.failWrite(output);throw failure}
+            raw
+        }
+    }
+    private suspend fun artistRecordings(artist:String,country:String):List<OdifyMusicIdentity> {
+        val key=OdifyMusicMatching.artistKey(artist)
+        if(key.isBlank())return emptyList()
+        val term=URLEncoder.encode(OdifyMusicMatching.artistName(artist).take(100),"UTF-8")
+        val raw=catalog("cover-artist-$country-${OdifyMusicMatching.cacheKey(key)}",
+            "https://itunes.apple.com/search?term=$term&country=$country&media=music&entity=musicArtist&attribute=artistTerm&limit=12")
+        val rows=JSONObject(raw).getJSONArray("results")
+        val matching=(0 until rows.length()).mapNotNull {rows.optJSONObject(it)}.filter {
+            OdifyMusicMatching.artistKey(it.optString("artistName"))==key
+        }
+        val exact=matching.filter {it.optString("artistName").equals(artist,true)}.ifEmpty {matching}
+        val ids=exact.map {it.optString("artistId")}.filter {it.matches(Regex("[0-9]+"))}.distinct().sorted()
+        if(ids.isEmpty() || ids.size>6)return emptyList()
+        val identityIds=ids.joinToString(",")
+        val recordings=catalog("cover-releases-$country-${OdifyMusicMatching.cacheKey(identityIds)}",
+            "https://itunes.apple.com/lookup?id=$identityIds&country=$country&entity=song&limit=30&sort=recent")
+        return OdifyCatalogHttp.songs(recordings).filter {it.artistId in ids}
+    }
     suspend fun recording(artist:String,title:String,id:String=""):OdifyMusicIdentity? = withContext(Dispatchers.IO) {
         val query="$artist $title".trim().take(150)
         val key=if(id.matches(Regex("[0-9]+")))"id-$id" else "q-"+OdifyMusicMatching.cacheKey(query)
@@ -216,16 +275,17 @@ internal class OdifyMusicCatalog(context:Context) {
         }
         val candidates=OdifyCatalogHttp.songs(raw)
         if(id.matches(Regex("[0-9]+")))candidates.firstOrNull {it.id==id}
-        else candidates.filter {
-            OdifyMusicMatching.acceptsRelease(it) &&
-                OdifyMusicMatching.artistKey(it.artist)==OdifyMusicMatching.artistKey(artist) &&
-                OdifyMusicMatching.titleKey(it.title,it.artist)==OdifyMusicMatching.titleKey(title,artist)
-        }.sortedByDescending(OdifyMusicMatching::standardRelease)
-            .distinctBy {it.artistId.ifBlank {OdifyMusicMatching.artistKey(it.artist)}}.singleOrNull()
+        else OdifyMusicMatching.recording(artist,title,candidates)
+            ?: OdifyMusicMatching.recording(artist,title,artistRecordings(artist,"us"))
     }
-    suspend fun recommendationArtwork(artist:String,title:String):String = recommendationLookups.withPermit {
+    suspend fun recommendationArtwork(artist:String,title:String):String = coverLookups.withPermit {
         recording(artist,title)?.artwork.orEmpty()
     }
+    suspend fun coverForResult(video:YoutubeVideo,known:OdifyMusicIdentity?=null):Pair<OdifyMusicIdentity,String?>? =
+        coverLookups.withPermit {
+            val recording=known ?: video(video) ?: return@withPermit null
+            recording to cover(recording)
+        }
     suspend fun video(video:YoutubeVideo):OdifyMusicIdentity? = withContext(Dispatchers.IO) {
         if(OdifyMusicMatching.usesVideoArtwork(video))return@withContext null
         val query=OdifyMusicMatching.query(video)
@@ -235,17 +295,25 @@ internal class OdifyMusicCatalog(context:Context) {
             query.any {it in '\uac00'..'\ud7a3'} -> "kr"
             else -> "us"
         }
-        for (storefront in listOf(country,"us").distinct()) {
+        val storefronts=listOf(country,"us").distinct()
+        for (storefront in storefronts) {
             val key=OdifyMusicMatching.cacheKey(query)
-            val file=File(directory,"video-$storefront-$key.json")
-            val raw=if(file.isFile && System.currentTimeMillis()-file.lastModified()<24*60*60_000L)file.readText() else
-                OdifyCatalogHttp.get("https://itunes.apple.com/search?term="+URLEncoder.encode(query,"UTF-8")+"&country=$storefront&media=music&entity=song&limit=25").also {file.writeText(it)}
+            val raw=catalog("video-$storefront-$key",
+                "https://itunes.apple.com/search?term="+URLEncoder.encode(query,"UTF-8")+"&country=$storefront&media=music&entity=song&limit=25")
             OdifyMusicMatching.choose(video,OdifyCatalogHttp.songs(raw))?.let {return@withContext it}
+        }
+        val artist=OdifyMusicMatching.credits(video).artist
+        for(storefront in storefronts) {
+            OdifyMusicMatching.choose(video,artistRecordings(artist,storefront))?.let {return@withContext it}
         }
         null
     }
-    suspend fun cover(identity:OdifyMusicIdentity):String?=OdifyCatalogArt.download(app,identity.artwork,
-        "album-${identity.id}-"+OdifyMusicMatching.cacheKey(identity.artwork).take(12),600)
+    suspend fun cover(identity:OdifyMusicIdentity):String? {
+        val key="album-${identity.id}-"+OdifyMusicMatching.cacheKey(identity.artwork).take(12)
+        return imageLocks[(key.hashCode() and Int.MAX_VALUE)%imageLocks.size].withLock {
+            OdifyCatalogArt.download(app,identity.artwork,key,600)
+        }
+    }
     private fun lookup(id:String,country:String):OdifyMusicIdentity? {
         if(!id.matches(Regex("[0-9]+")))return null
         val file=File(directory,"native-title-$country-$id.json")
@@ -272,11 +340,12 @@ internal class OdifyMusicCatalog(context:Context) {
         if(OdifyMusicMatching.usesVideoArtwork(video))return false
         val music=identity ?: store.identity(video.videoId) ?: video(video) ?: return false
         store.presentation(video.videoId,music,null)
+        val officialCover=cover(music)
+        if(officialCover!=null)store.presentation(video.videoId,music,officialCover)
         val localized=try {originalTitle(music)}
         catch(cancel:CancellationException) {throw cancel}
         catch(_:Exception) {music}
-        if(localized!=music)store.presentation(video.videoId,localized,null)
-        cover(localized)?.let {store.presentation(video.videoId,localized,it)}
+        if(localized!=music)store.presentation(video.videoId,localized,officialCover)
         return true
     }
 }

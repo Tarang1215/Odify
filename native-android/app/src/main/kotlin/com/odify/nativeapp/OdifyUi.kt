@@ -178,12 +178,9 @@ fun AlbumArt(
     contentScale: ContentScale = ContentScale.Crop,
     backgroundBlur:androidx.compose.ui.unit.Dp=0.dp
 ) {
-    val context=androidx.compose.ui.platform.LocalContext.current
-    val remoteCover=if(song?.id?.startsWith("youtube:")==true && song.artworkPath.isNullOrBlank()) {
-        val fetched by produceState<String?>(null,song.id) {value=youtubeArtwork(context,song.id.removePrefix("youtube:"))}
-        fetched
-    } else null
-    val coverPath = song?.artworkPath ?: remoteCover
+    val coverPath = song?.artworkPath?.takeUnless {
+        OdifyArtworkFallback.isVideoThumbnail(it) && !OdifyMusicMatching.isVideoVersion(song.title)
+    }
     // produceState(key1=...) restarts its loader but keeps the OLD image value
     // for a frame when the song changes. remember(key) recreates state, so
     // neighbor transitions can never flash the previously selected cover.

@@ -63,6 +63,9 @@ internal class OdifyStreamingLibrary(private val context:Context, name:String="o
     fun identity(videoId:String):OdifyMusicIdentity?=prefs.getString(videoId,null)?.let {raw ->runCatching {
         recording(videoId,JSONObject(raw))?.let(::identity)
     }.getOrNull()}
+    fun officialCover(videoId:String):String?=prefs.getString(videoId,null)?.let {raw ->runCatching {
+        recording(videoId,JSONObject(raw))?.optString("cover")?.takeIf {it.isNotBlank() && File(it).isFile}
+    }.getOrNull()}
     private fun identity(row:JSONObject)=OdifyMusicIdentity(row.optString("id"),row.optString("title"),row.optString("artist"),
         row.optString("album"),row.optString("artwork"),row.optString("artistId"),row.optString("artistUrl"),
         row.optString("trackUrl"),row.optLong("duration"),genre=row.optString("genre"),albumUrl=row.optString("albumUrl"),
@@ -80,11 +83,13 @@ internal class OdifyStreamingLibrary(private val context:Context, name:String="o
         val charts=data.optJSONArray("charts")
         val music=recording(videoId,data)
         val identity=music?.let(::identity)
-        val credits=OdifyMusicMatching.credits(YoutubeVideo(videoId,data.getString("title"),data.optString("artist"),""),
+        val video=YoutubeVideo(videoId,data.getString("title"),data.optString("artist"),"")
+        val credits=OdifyMusicMatching.credits(video,
             identity?.displayTitle.orEmpty(),identity?.artist.orEmpty())
         OdifySong("youtube:"+videoId,credits.title,credits.artist,music?.optString("album") ?: "YouTube",(local ?: placeholder()).absolutePath,
             if(music!=null)music.optString("cover").takeIf {it.isNotBlank() && File(it).isFile}
-            else File(context.cacheDir,"youtube_search_$videoId.jpg").takeIf {it.isFile}?.absolutePath,
+            else if(OdifyMusicMatching.usesVideoArtwork(video))
+                File(context.cacheDir,"youtube_search_$videoId.jpg").takeIf {it.isFile}?.absolutePath else null,
             durationMs=maxOf(data.optLong("duration"),record?.optLong("duration_ms") ?: 0).takeIf {it>0} ?: music?.optLong("duration") ?: 0,
             chartAliases=(0 until (charts?.length() ?: 0)).map {charts!!.getString(it)},
             catalogArtistId=identity?.artistId.orEmpty(),catalogTitle=identity?.title.orEmpty())

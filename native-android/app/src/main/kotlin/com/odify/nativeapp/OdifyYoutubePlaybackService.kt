@@ -218,7 +218,7 @@ class OdifyYoutubePlaybackService:Service() {
                 try {if(!store.verified(video.videoId))OdifyMusicCatalog(applicationContext).enrich(store,video)}
                 catch(cancel:CancellationException){throw cancel}
                 catch(error:Exception){android.util.Log.w("OdifyMetadata","Official metadata unavailable",error)}
-                if(store.identity(video.videoId)==null)youtubeArtwork(applicationContext,video.videoId)
+                if(OdifyMusicMatching.usesVideoArtwork(video))youtubeArtwork(applicationContext,video.videoId)
                 OdifyYoutubeRuntime.session.update {current ->
                     if(current.entryKey==entry && (current.presentation==null || current.presentation.id=="youtube:${video.videoId}"))
                         current.copy(presentation=store.find("youtube:${video.videoId}")?.forYoutubePlayback(video.videoId)) else current

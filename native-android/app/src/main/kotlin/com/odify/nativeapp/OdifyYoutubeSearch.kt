@@ -76,6 +76,7 @@ internal fun OdifyYoutubeSearch(query:String,connected:Boolean,onConnect:()->Uni
     includeYoutube:Boolean=true, search: (suspend (String) -> List<YoutubeVideo>)? = null) {
     val context=LocalContext.current.applicationContext
     val streaming=remember(context) {OdifyStreamingLibrary(context)}
+    val musicCatalog=remember(context) {OdifyMusicCatalog(context)}
     val metadataVersion by OdifyStreamingLibrary.version.collectAsState()
     var retry by remember {mutableIntStateOf(0)}
     val showYoutube = includeYoutube && query.trim().length >= 2
@@ -108,8 +109,18 @@ internal fun OdifyYoutubeSearch(query:String,connected:Boolean,onConnect:()->Uni
                 }
             }
             items(videos,key={OdifySearchRowKeys.youtube(it.videoId)}) {video ->
-                val credits=remember(video,metadataVersion) {
-                    val recording=streaming.identity(video.videoId)
+                val alternate=OdifyMusicMatching.usesVideoArtwork(video)
+                val stored=remember(video.videoId,metadataVersion) {streaming.identity(video.videoId)}
+                val cached=remember(video.videoId,metadataVersion) {streaming.officialCover(video.videoId)}
+                val resolved=remember(video) {mutableStateOf<Pair<OdifyMusicIdentity,String?>?>(null)}
+                LaunchedEffect(video,alternate,cached) {
+                    if(!alternate && cached==null)try {resolved.value=musicCatalog.coverForResult(video,stored)}
+                    catch(cancel:CancellationException){throw cancel}
+                    catch(_:Exception) {}
+                }
+                val recording=if(alternate)null else stored ?: resolved.value?.first
+                val cover=if(alternate)null else cached ?: resolved.value?.second
+                val credits=remember(video,recording) {
                     OdifyMusicMatching.credits(video,recording?.displayTitle.orEmpty(),recording?.artist.orEmpty())
                 }
                 val options={
@@ -121,7 +132,9 @@ internal fun OdifyYoutubeSearch(query:String,connected:Boolean,onConnect:()->Uni
                     onClick={streaming.remember(video);onPlayVideo(listOf(video),0)},
                     onLongClick=options,onLongClickLabel="곡 옵션"
                 ).padding(vertical=8.dp),verticalAlignment=Alignment.CenterVertically) {
-                    YoutubeSearchCover(video.videoId,Modifier.size(52.dp))
+                    if(alternate)YoutubeSearchCover(video.videoId,Modifier.size(52.dp))
+                    else AlbumArt(OdifySong("youtube:${video.videoId}",credits.title,credits.artist,
+                        recording?.album.orEmpty(),"",artworkPath=cover),Modifier.size(52.dp),RoundedCornerShape(12.dp))
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
                         Text(credits.title,maxLines=2,overflow=TextOverflow.Ellipsis,color=OdifyPalette.text)

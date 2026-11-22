@@ -1,24 +1,19 @@
 package com.odify.nativeapp
 
 import android.content.Context
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.net.HttpURLConnection
-import java.net.URL
 
-/**
- * Fallback to the verified MASTER YouTube video thumbnail only when a sound
- * file has no embedded artwork. Does NOT download audio/video from YouTube.
- * Art-track thumbnails may differ from the official album cover.
- */
 class OdifyArtworkFallback(private val context: Context) {
     private val prefs = context.getSharedPreferences("odify_thumbnail_retry", 0)
-    private val folder = File(context.filesDir, "yt_art").apply { mkdirs() }
+    private val music=OdifyMusicCatalog(context)
     companion object {
     private val videoId = Regex("^[A-Za-z0-9_-]{11}$")
+    internal fun isVideoThumbnail(path:String):Boolean = File(path).let {
+        it.parentFile?.name=="yt_art" || it.parentFile?.name=="cache" && it.name.startsWith("youtube_search_")
+    }
 
     internal fun extractVideoId(url: String): String? {
         val uri = runCatching { android.net.Uri.parse(url) }.getOrNull() ?: return null
@@ -39,57 +34,34 @@ class OdifyArtworkFallback(private val context: Context) {
         catalog: DriveCatalog, songs: List<OdifySong>, master: List<MasterTrack>,
         limit: Int = 12
     ): Int = withContext(Dispatchers.IO) {
-        val candidates = songs.filter { it.id.startsWith("gdrive:") && it.artworkPath.isNullOrBlank() }
+        val candidates=songs.asSequence().filter {song->
+            song.id.startsWith("gdrive:") &&
+                (song.artworkPath.isNullOrBlank() || isVideoThumbnail(song.artworkPath))
+        }
+        val verified=master.filter {it.verified && it.driveId.isNotBlank()}.groupBy {it.driveId}
         var count = 0
+        var attempts=0
         for (song in candidates) {
-            if (count >= limit) break
+            if(attempts>=limit)break
             val id = song.id.removePrefix("gdrive:")
-            val lastFailed = prefs.getLong("fail:$id", 0L)
+            val lastFailed = prefs.getLong("album-fail:$id", 0L)
             if (System.currentTimeMillis()-lastFailed < 24L*60L*60L*1000L) continue
-            val match = master.firstOrNull {
-                it.verified && it.driveId == id
-            } ?: master.firstOrNull {
-                it.verified && it.driveId.isBlank() &&
-                    MasterDuplicateDetector.norm(it.artist) ==
-                        MasterDuplicateDetector.norm(song.artist) &&
-                    MasterDuplicateDetector.norm(it.title) ==
-                        MasterDuplicateDetector.norm(song.title)
-            } ?: continue
-            val video = extractVideoId(match.youtubeUrl) ?: continue
-            // Only use an exact video ID already verified by the user's
-            // master. Never fuzzy-match some unrelated YouTube result.
-            val pic = runCatching { download(video) }.getOrNull()
-            if (pic == null) {
-                prefs.edit().putLong("fail:$id", System.currentTimeMillis()).apply()
+            val match=verified[id]?.singleOrNull()
+            val artist=song.artist.ifBlank {match?.artist.orEmpty()}
+            val title=song.title.ifBlank {match?.title.orEmpty()}
+            if(artist.isBlank() || title.isBlank() || OdifyMusicMatching.isVideoVersion(title))continue
+            attempts++
+            val cover=try {music.recording(artist,title)?.let {music.cover(it)}}
+            catch(cancel:CancellationException){throw cancel}
+            catch(_:Exception){null}
+            if(cover==null) {
+                prefs.edit().putLong("album-fail:$id",System.currentTimeMillis()).apply()
                 continue
             }
-            val saved = File(folder, "$id.jpg")
-            if (runCatching { saved.outputStream().use {
-                    require(pic.compress(Bitmap.CompressFormat.JPEG, 85, it))
-                }; pic.recycle() }.isFailure) {
-                pic.recycle()
-                continue
-            }
-            catalog.setFallbackArtwork(id, saved.absolutePath)
+            catalog.setFallbackArtwork(id,cover)
             count++
         }
         count
     }
 
-    private fun download(video: String): Bitmap? {
-        val url = URL("https://i.ytimg.com/vi/$video/hqdefault.jpg")
-        val conn = url.openConnection() as HttpURLConnection
-        try {
-            conn.connectTimeout = 8_000; conn.readTimeout = 8_000
-            conn.instanceFollowRedirects = false
-            if (conn.responseCode != 200 ||
-                !conn.contentType.orEmpty().startsWith("image/")) return null
-            val bytes = conn.inputStream.use { it.readNBytes(650_001) }
-            if (bytes.size > 650_000) return null
-            val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return null
-            return if (bmp.width <= 768 && bmp.height <= 768) bmp
-                else Bitmap.createScaledBitmap(bmp, 768, 768 * bmp.height / bmp.width, true)
-                    .also { bmp.recycle() }
-        } finally { conn.disconnect() }
-    }
 }
